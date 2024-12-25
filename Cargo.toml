@@ -1,0 +1,16 @@
+[package]
+name = "cuneus"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+wgpu = "23.0.1"
+winit = "0.30.7"
+bytemuck = { version = "1.21", features = ["derive"] }
+egui-wgpu = "0.30.0"
+egui = "0.30.0"
+egui-winit = "0.30.0"
+image = "0.25.5"
+env_logger = "0.11.6"
+pollster = "0.4.0"
+rfd = "0.15.1"

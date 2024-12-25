@@ -1,0 +1,262 @@
+use std::time::Instant;
+use egui_wgpu::ScreenDescriptor;
+use egui::ViewportId;
+use crate::{Core, Renderer, TextureManager, UniformProvider, UniformBinding};
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct TimeUniform {
+    pub time: f32,
+}
+impl UniformProvider for TimeUniform {
+    fn as_bytes(&self) -> &[u8] {
+        bytemuck::bytes_of(self)
+    }
+}
+pub struct BaseShader {
+    pub renderer: Renderer,
+    pub texture_manager: Option<TextureManager>,
+    pub egui_renderer: egui_wgpu::Renderer,
+    pub egui_state: egui_winit::State,
+    pub context: egui::Context,
+    pub texture_bind_group_layout: wgpu::BindGroupLayout,
+    pub start_time: Instant,
+    pub time_uniform: UniformBinding<TimeUniform>,
+}
+impl BaseShader {
+    pub fn new(
+        core: &Core,
+        vs_source: &str,
+        fs_source: &str,
+        bind_group_layouts: &[&wgpu::BindGroupLayout],
+        fragment_entry: Option<&str>,
+    ) -> Self {
+        let time_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+            label: Some("time_bind_group_layout"),
+        });
+        let time_uniform = UniformBinding::new(
+            &core.device,
+            "Time Uniform",
+            TimeUniform { time: 0.0 },
+            &time_bind_group_layout,
+            0,
+        );
+        let vs_shader = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Vertex Shader"),
+            source: wgpu::ShaderSource::Wgsl(vs_source.into()),
+        });
+        let fs_shader = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Fragment Shader"),
+            source: wgpu::ShaderSource::Wgsl(fs_source.into()),
+        });
+        let texture_bind_group_layout = core.device.create_bind_group_layout(
+            &wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+                label: Some("texture_bind_group_layout"),
+            },
+        );
+        let pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Render Pipeline Layout"),
+            bind_group_layouts,
+            push_constant_ranges: &[],
+        });
+        let renderer = Renderer::new(
+            &core.device,
+            &vs_shader,
+            &fs_shader,
+            core.config.format,
+            &pipeline_layout,
+            fragment_entry, 
+        );
+        let context = egui::Context::default();
+        let egui_state = egui_winit::State::new(
+            context.clone(),
+            ViewportId::default(),
+            core.window(),
+            None,
+            None,
+            None,
+        );
+        let egui_renderer = egui_wgpu::Renderer::new(
+            &core.device,
+            core.config.format,
+            None,
+            1,
+            false,
+        );
+
+        //  default texture manager
+        let texture_manager = Self::create_default_texture_manager(core, &texture_bind_group_layout);
+
+        Self {
+            renderer,
+            texture_manager: Some(texture_manager),
+            egui_renderer,
+            egui_state,
+            context,
+            texture_bind_group_layout,
+            start_time: Instant::now(),
+            time_uniform,
+        }
+    }
+
+    pub fn update_time(&mut self, queue: &wgpu::Queue) {
+        self.time_uniform.data.time = self.start_time.elapsed().as_secs_f32();
+        self.time_uniform.update(queue);
+    }
+
+    fn create_default_texture_manager(
+        core: &Core,
+        texture_bind_group_layout: &wgpu::BindGroupLayout,
+    ) -> TextureManager {
+        let default_texture = core.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Default Texture"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        let default_view = default_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let sampler = core.device.create_sampler(&wgpu::SamplerDescriptor::default());
+
+        let bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: texture_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&default_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+            label: Some("Default Texture Bind Group"),
+        });
+
+        TextureManager {
+            texture: default_texture,
+            view: default_view,
+            sampler,
+            bind_group,
+        }
+    }
+
+    pub fn render_ui<F>(&mut self, core: &Core, mut ui_builder: F) -> egui::FullOutput 
+    where
+        F: FnMut(&egui::Context),
+    {
+        let raw_input = self.egui_state.take_egui_input(core.window());
+        self.context.run(raw_input, |ctx| ui_builder(ctx))
+    }
+
+    pub fn handle_render_output(
+        &mut self,
+        core: &Core,
+        view: &wgpu::TextureView,
+        full_output: egui::FullOutput,
+        encoder: &mut wgpu::CommandEncoder,
+    ) {
+        let screen_descriptor = ScreenDescriptor {
+            size_in_pixels: [core.config.width, core.config.height],
+            pixels_per_point: core.window().scale_factor() as f32,
+        };
+
+        let clipped_primitives = self.context.tessellate(
+            full_output.shapes,
+            screen_descriptor.pixels_per_point,
+        );
+        // Update egui textures
+        for (id, image_delta) in &full_output.textures_delta.set {
+            self.egui_renderer.update_texture(
+                &core.device,
+                &core.queue,
+                *id,
+                image_delta,
+            );
+        }
+
+        self.egui_renderer.update_buffers(
+            &core.device,
+            &core.queue,
+            encoder,
+            &clipped_primitives,
+            &screen_descriptor,
+        );
+
+        {
+            let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Egui Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+
+            let mut render_pass = render_pass.forget_lifetime();
+            self.egui_renderer.render(
+                &mut render_pass,
+                &clipped_primitives,
+                &screen_descriptor,
+            );
+        }
+        // Cleanup egui textures
+        for id in &full_output.textures_delta.free {
+            self.egui_renderer.free_texture(id);
+        }
+    }
+
+    pub fn load_image(&mut self, core: &Core, path: std::path::PathBuf) {
+        if let Ok(img) = image::open(path) {
+            let rgba_image = img.into_rgba8();
+            let new_texture_manager = TextureManager::new(
+                &core.device,
+                &core.queue,
+                &rgba_image,
+                &self.texture_bind_group_layout,
+            );
+            self.texture_manager = Some(new_texture_manager);
+        }
+    }
+}
