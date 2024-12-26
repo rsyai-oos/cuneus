@@ -5,7 +5,6 @@ use cuneus::Renderer;
 use cuneus::ExportSettings;
 use cuneus::create_feedback_texture_pair;
 use image::ImageError;
-use std::path::PathBuf;
 use cuneus::ExportManager;
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]

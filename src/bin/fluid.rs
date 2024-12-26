@@ -3,7 +3,6 @@ use winit::event::WindowEvent;
 use cuneus::ShaderApp;
 use cuneus::Renderer;
 use image::ImageError;
-use std::path::PathBuf;
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct TimeUniform {
