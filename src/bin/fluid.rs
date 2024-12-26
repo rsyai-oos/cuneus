@@ -351,7 +351,7 @@ impl ShaderManager for FluidShader {
                     changed |= ui.add(egui::Slider::new(&mut params.rotation_speed, 0.1..=5.0).text("Rotation Speed")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.motor_strength, 0.001..=0.1).text("Motor Strength")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.distortion, 1.0..=20.0).text("Distortion")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.feedback, 0.0..=1.3).text("Feedback")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.feedback, 0.0..=1.01).text("Feedback")).changed();
                     ui.separator();
                     should_start_export = ExportManager::render_export_ui_widget(ui, &mut export_request);
                 });
