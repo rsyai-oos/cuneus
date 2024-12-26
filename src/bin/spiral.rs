@@ -1,4 +1,4 @@
-use cuneus::{ShaderApp, ShaderManager, UniformProvider, UniformBinding, BaseShader};
+use cuneus::{Core,ShaderApp, ShaderManager, UniformProvider, UniformBinding, BaseShader};
 use winit::event::*;
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -119,9 +119,8 @@ impl ShaderManager for SpiralShader {
         // Local copies of the parameters to fight the borrow checker
         let mut params = self.params_uniform.data;
         let mut changed = false;
-        let full_output = {
-            let base = &mut self.base;
-            base.render_ui(core, |ctx| {
+        let full_output = if self.base.key_handler.show_ui {
+            self.base.render_ui(core, |ctx| {
                 egui::Window::new("Shader Settings").show(ctx, |ui| {
                     if ui.button("Load Image").clicked() {
                         if let Some(path) = rfd::FileDialog::new()
@@ -145,6 +144,8 @@ impl ShaderManager for SpiralShader {
                     }
                 });
             })
+        } else {
+            self.base.render_ui(core, |_ctx| {})
         };
         if changed {
             self.params_uniform.data = params;
@@ -187,7 +188,14 @@ impl ShaderManager for SpiralShader {
         output.present();
         Ok(())
     }
-    fn handle_input(&mut self, core: &cuneus::Core, event: &WindowEvent) -> bool {
-        self.base.egui_state.on_window_event(core.window(), event).consumed
+    fn handle_input(&mut self, core: &Core, event: &WindowEvent) -> bool {
+        if self.base.egui_state.on_window_event(core.window(), event).consumed {
+            return true;
+        }
+        if let WindowEvent::KeyboardInput { event, .. } = event {
+            return self.base.key_handler.handle_keyboard_input(core.window(), event);
+        }
+    
+        false
     }
 }
