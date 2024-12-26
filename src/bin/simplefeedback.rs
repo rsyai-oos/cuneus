@@ -272,36 +272,30 @@ impl ShaderManager for FeedbackShader {
         let mut encoder = core.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Render Encoder"),
         });
-
         let mut params = self.params_uniform.data;
         let mut changed = false;
         let mut should_start_export = false;
-        //UI state before entering closure
         let mut export_request = self.base.export_manager.get_ui_request();
-
-        let full_output = self.base.render_ui(core, |ctx| {
-            egui::Window::new("Feedback Settings").show(ctx, |ui| {
-                changed |= ui.add(egui::Slider::new(&mut params.feedback, 0.0..=0.99).text("Feedback")).changed();
-                changed |= ui.add(egui::Slider::new(&mut params.speed, 0.1..=5.0).text("Speed")).changed();
-                changed |= ui.add(egui::Slider::new(&mut params.scale, 0.1..=2.0).text("Scale")).changed();
-                should_start_export = ExportManager::render_export_ui_widget(ui, &mut export_request);
-            });
-        });
-
+        let full_output = if self.base.key_handler.show_ui {
+            self.base.render_ui(core, |ctx| {
+                egui::Window::new("Feedback Settings").show(ctx, |ui| {
+                    // Shader-specific controls
+                    changed |= ui.add(egui::Slider::new(&mut params.feedback, 0.0..=0.99).text("Feedback")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.speed, 0.1..=5.0).text("Speed")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.scale, 0.1..=2.0).text("Scale")).changed();
+                    should_start_export = ExportManager::render_export_ui_widget(ui, &mut export_request);
+                });
+            })
+        } else {
+            self.base.render_ui(core, |_ctx| {})
+        };
         self.base.export_manager.apply_ui_request(export_request);
-
         if changed {
             self.params_uniform.data = params;
             self.params_uniform.update(&core.queue);
         }
-
         if should_start_export {
             self.base.export_manager.start_export();
-        }
-
-        if changed {
-            self.params_uniform.data = params;
-            self.params_uniform.update(&core.queue);
         }
         if let (Some(ref texture_a), Some(ref texture_b)) = (&self.texture_a, &self.texture_b) {
             let (source_texture, target_texture) = if self.frame_count % 2 == 0 {
