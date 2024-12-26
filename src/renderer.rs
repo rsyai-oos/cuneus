@@ -16,6 +16,10 @@ impl Vertex {
         }
     }
 }
+#[derive(Debug)]
+pub struct RenderPassWrapper<'a> {
+    render_pass: wgpu::RenderPass<'a>,
+}
 pub struct Renderer {
     pub render_pipeline: wgpu::RenderPipeline,
     pub vertex_buffer: wgpu::Buffer,
@@ -90,5 +94,41 @@ impl Renderer {
             render_pipeline,
             vertex_buffer,
         }
+    }
+    pub fn begin_render_pass<'a>(
+        encoder: &'a mut wgpu::CommandEncoder,
+        view: &'a wgpu::TextureView,
+        load_op: wgpu::LoadOp<wgpu::Color>,
+        label: Option<&'a str>,
+    ) -> RenderPassWrapper<'a> {
+        let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label,
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: load_op,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+
+        RenderPassWrapper { render_pass }
+    }
+}
+impl<'a> std::ops::Deref for RenderPassWrapper<'a> {
+    type Target = wgpu::RenderPass<'a>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.render_pass
+    }
+}
+
+impl<'a> std::ops::DerefMut for RenderPassWrapper<'a> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.render_pass
     }
 }
