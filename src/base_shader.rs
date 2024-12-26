@@ -1,7 +1,7 @@
 use std::time::Instant;
 use egui_wgpu::ScreenDescriptor;
 use egui::ViewportId;
-use crate::{Core, Renderer, TextureManager, UniformProvider, UniformBinding,KeyInputHandler};
+use crate::{Core, Renderer, TextureManager, UniformProvider, UniformBinding,KeyInputHandler,ExportManager};
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct TimeUniform {
@@ -22,6 +22,7 @@ pub struct BaseShader {
     pub start_time: Instant,
     pub time_uniform: UniformBinding<TimeUniform>,
     pub key_handler: KeyInputHandler,
+    pub export_manager: ExportManager,
 }
 impl BaseShader {
     pub fn new(
@@ -125,6 +126,7 @@ impl BaseShader {
             start_time: Instant::now(),
             time_uniform,
             key_handler: KeyInputHandler::new(),
+            export_manager: ExportManager::new(),
         }
     }
 
@@ -260,5 +262,43 @@ impl BaseShader {
             );
             self.texture_manager = Some(new_texture_manager);
         }
+    }
+    pub fn create_capture_texture(
+        &self,
+        device: &wgpu::Device,
+        width: u32,
+        height: u32,
+    ) -> (wgpu::Texture, wgpu::Buffer) {
+        let capture_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Capture Texture"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Bgra8UnormSrgb,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+
+        // Calculate padded bytes per row 
+        let align = 256;
+        let unpadded_bytes_per_row = width * 4;
+        let padding = (align - unpadded_bytes_per_row % align) % align;
+        let padded_bytes_per_row = unpadded_bytes_per_row + padding;
+
+        // buffer with padded size
+        let buffer_size = padded_bytes_per_row * height;
+        let output_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Capture Buffer"),
+            size: buffer_size as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+
+        (capture_texture, output_buffer)
     }
 }
