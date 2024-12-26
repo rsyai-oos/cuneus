@@ -7,6 +7,7 @@ pub use uniforms::*;
 pub use app::*;
 pub use base_shader::*;
 pub use feedback::*;
+pub use keyinputs::KeyInputHandler;
 pub struct Core {
     pub surface: wgpu::Surface<'static>,
     pub device: Arc<wgpu::Device>,
@@ -59,7 +60,7 @@ impl Core {
             format: surface_format,
             width: size.width,
             height: size.height,
-            present_mode: surface_caps.present_modes[0],
+            present_mode: wgpu::PresentMode::Fifo,
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
@@ -98,3 +99,4 @@ mod uniforms;
 mod app;
 mod base_shader;
 mod feedback; 
+mod keyinputs;

@@ -1,7 +1,7 @@
 use std::time::Instant;
 use egui_wgpu::ScreenDescriptor;
 use egui::ViewportId;
-use crate::{Core, Renderer, TextureManager, UniformProvider, UniformBinding};
+use crate::{Core, Renderer, TextureManager, UniformProvider, UniformBinding,KeyInputHandler};
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct TimeUniform {
@@ -21,6 +21,7 @@ pub struct BaseShader {
     pub texture_bind_group_layout: wgpu::BindGroupLayout,
     pub start_time: Instant,
     pub time_uniform: UniformBinding<TimeUniform>,
+    pub key_handler: KeyInputHandler,
 }
 impl BaseShader {
     pub fn new(
@@ -123,6 +124,7 @@ impl BaseShader {
             texture_bind_group_layout,
             start_time: Instant::now(),
             time_uniform,
+            key_handler: KeyInputHandler::new(),
         }
     }
 

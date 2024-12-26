@@ -147,80 +147,72 @@ impl ShaderManager for FeedbackShader {
         });
         let mut params = self.params_uniform.data;
         let mut changed = false;
-
-        let full_output = self.base.render_ui(core, |ctx| {
-            egui::Window::new("Feedback Settings").show(ctx, |ui| {
-                changed |= ui.add(egui::Slider::new(&mut params.feedback, 0.0..=0.99).text("Feedback")).changed();
-                changed |= ui.add(egui::Slider::new(&mut params.speed, 0.1..=5.0).text("Speed")).changed();
-                changed |= ui.add(egui::Slider::new(&mut params.scale, 0.1..=2.0).text("Scale")).changed();
-            });
-        });
+        let full_output = if self.base.key_handler.show_ui {
+            self.base.render_ui(core, |ctx| {
+                egui::Window::new("Feedback Settings").show(ctx, |ui| {
+                    changed |= ui.add(egui::Slider::new(&mut params.feedback, 0.0..=0.99).text("Feedback")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.speed, 0.1..=5.0).text("Speed")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.scale, 0.1..=2.0).text("Scale")).changed();
+                });
+            })
+        } else {
+            self.base.render_ui(core, |_ctx| {})
+        };
         if changed {
             self.params_uniform.data = params;
             self.params_uniform.update(&core.queue);
         }
         if let (Some(ref texture_a), Some(ref texture_b)) = (&self.texture_a, &self.texture_b) {
-            // which texture to use as source and target
             let (source_texture, target_texture) = if self.frame_count % 2 == 0 {
                 (texture_b, texture_a)
             } else {
                 (texture_a, texture_b)
             };
             {
-                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Feedback Pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &target_texture.view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                });
+                let mut render_pass = Renderer::begin_render_pass(
+                    &mut encoder,
+                    &target_texture.view,
+                    wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    Some("Feedback Pass"),
+                );
                 render_pass.set_pipeline(&self.base.renderer.render_pipeline);
                 render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-                render_pass.set_bind_group(0, &source_texture.bind_group, &[]);  // Use source texture
+                render_pass.set_bind_group(0, &source_texture.bind_group, &[]);
                 render_pass.set_bind_group(1, &self.base.time_uniform.bind_group, &[]);
                 render_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
                 render_pass.draw(0..4, 0..1);
             }
             {
-                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Display Pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                });
+                let mut render_pass = Renderer::begin_render_pass(
+                    &mut encoder,
+                    &view,
+                    wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    Some("Display Pass"),
+                );
                 render_pass.set_pipeline(&self.renderer_pass2.render_pipeline);
                 render_pass.set_vertex_buffer(0, self.renderer_pass2.vertex_buffer.slice(..));
-                render_pass.set_bind_group(0, &target_texture.bind_group, &[]); 
+                render_pass.set_bind_group(0, &target_texture.bind_group, &[]);
                 render_pass.set_bind_group(1, &self.base.time_uniform.bind_group, &[]);
                 render_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
                 render_pass.draw(0..4, 0..1);
             }
             self.frame_count = self.frame_count.wrapping_add(1);
         }
-
         self.base.handle_render_output(core, &view, full_output, &mut encoder);
-        
+        encoder.insert_debug_marker("Transition to Present");
         core.queue.submit(Some(encoder.finish()));
         output.present();
+    
         Ok(())
     }
     fn handle_input(&mut self, core: &Core, event: &WindowEvent) -> bool {
-        self.base.egui_state.on_window_event(core.window(), event).consumed
+        if self.base.egui_state.on_window_event(core.window(), event).consumed {
+            return true;
+        }
+        if let WindowEvent::KeyboardInput { event, .. } = event {
+            return self.base.key_handler.handle_keyboard_input(core.window(), event);
+        }
+        false
     }
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {

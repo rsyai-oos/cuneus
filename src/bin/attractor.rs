@@ -206,9 +206,8 @@ impl ShaderManager for AttractorShader {
         let mut params = self.params_uniform.data;
         let mut changed = false;
 
-        let full_output = {
-            let base = &mut self.base;
-            base.render_ui(core, |ctx| {
+        let full_output = if self.base.key_handler.show_ui {
+            self.base.render_ui(core, |ctx| {
                 egui::Window::new("Attractor Settings").show(ctx, |ui| {
                     changed |= ui.add(egui::Slider::new(&mut params.min_radius, 1.0..=10.0).text("Min Radius")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.max_radius, 1.0..=10.0).text("Max Radius")).changed();
@@ -216,6 +215,8 @@ impl ShaderManager for AttractorShader {
                     changed |= ui.add(egui::Slider::new(&mut params.decay, 0.8..=0.99).text("Decay")).changed();
                 });
             })
+        } else {
+            self.base.render_ui(core, |_ctx| {})  // Empty UI when hidden
         };
 
         if changed {
@@ -335,7 +336,14 @@ Ok(())
 }
 
 fn handle_input(&mut self, core: &Core, event: &WindowEvent) -> bool {
-self.base.egui_state.on_window_event(core.window(), event).consumed
+    if self.base.egui_state.on_window_event(core.window(), event).consumed {
+        return true;
+    }
+    if let WindowEvent::KeyboardInput { event, .. } = event {
+        return self.base.key_handler.handle_keyboard_input(core.window(), event);
+    }
+
+    false
 }
 }
 

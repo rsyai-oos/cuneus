@@ -38,7 +38,9 @@ pub fn create_feedback_texture(
         sample_count: config.sample_count,
         dimension: config.dimension,
         format: config.format,
-        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_DST,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING 
+            | wgpu::TextureUsages::RENDER_ATTACHMENT 
+            | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
 
