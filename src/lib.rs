@@ -8,6 +8,10 @@ pub use app::*;
 pub use base_shader::*;
 pub use feedback::*;
 pub use keyinputs::KeyInputHandler;
+pub use export::{ExportSettings, ExportManager};
+pub use export::ExportUiState;
+pub use export::ExportError;
+
 pub struct Core {
     pub surface: wgpu::Surface<'static>,
     pub device: Arc<wgpu::Device>,
@@ -100,3 +104,4 @@ mod app;
 mod base_shader;
 mod feedback; 
 mod keyinputs;
+mod export;

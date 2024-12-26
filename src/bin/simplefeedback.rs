@@ -1,8 +1,11 @@
-use cuneus::{Core, ShaderManager, UniformProvider, UniformBinding, BaseShader,TextureManager};
+use cuneus::{Core, ShaderManager,UniformProvider, UniformBinding,ExportError, BaseShader,TextureManager};
 use winit::event::WindowEvent;
 use cuneus::ShaderApp;
 use cuneus::Renderer;
+use cuneus::ExportSettings;
 use cuneus::create_feedback_texture_pair;
+use image::ImageError;
+use std::path::PathBuf;
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct FeedbackParams {
@@ -23,6 +26,124 @@ struct FeedbackShader {
     texture_b: Option<TextureManager>,
     frame_count: u32,
 }
+impl FeedbackShader {
+    fn capture_frame(&mut self, core: &Core, time: f32) -> Result<Vec<u8>, wgpu::SurfaceError> {
+        let settings = self.base.export_manager.settings();
+        let (capture_texture, output_buffer) = self.base.create_capture_texture(
+            &core.device,
+            settings.width,
+            settings.height
+        );
+        
+        let capture_view = capture_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = core.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Capture Encoder"),
+        });
+
+        // Update time uniform for this frame
+        self.base.time_uniform.data.time = time;
+        self.base.time_uniform.update(&core.queue);
+
+        {
+            let mut render_pass = Renderer::begin_render_pass(
+                &mut encoder,
+                &capture_view,
+                wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                Some("Capture Pass"),
+            );
+
+            render_pass.set_pipeline(&self.renderer_pass2.render_pipeline);
+            render_pass.set_vertex_buffer(0, self.renderer_pass2.vertex_buffer.slice(..));
+            if let Some(texture) = &self.texture_a {
+                render_pass.set_bind_group(0, &texture.bind_group, &[]);
+            }
+            render_pass.set_bind_group(1, &self.base.time_uniform.bind_group, &[]);
+            render_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
+            render_pass.draw(0..4, 0..1);
+        }
+
+        encoder.copy_texture_to_buffer(
+            wgpu::ImageCopyTexture {
+                texture: &capture_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::ImageCopyBuffer {
+                buffer: &output_buffer,
+                layout: wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(settings.width * 4),
+                    rows_per_image: Some(settings.height),
+                },
+            },
+            wgpu::Extent3d {
+                width: settings.width,
+                height: settings.height,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        core.queue.submit(Some(encoder.finish()));
+
+        let buffer_slice = output_buffer.slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        
+        buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+            tx.send(result).unwrap();
+        });
+        core.device.poll(wgpu::Maintain::Wait);
+        
+        rx.recv().unwrap().unwrap();
+        let data = buffer_slice.get_mapped_range().to_vec();
+        
+        Ok(data)
+    }
+
+    fn save_frame(&self, mut data: Vec<u8>, frame: u32, settings: &ExportSettings) -> Result<(), ExportError> {
+        let frame_path = settings.export_path
+            .join(format!("frame_{:05}.png", frame));
+        
+        if let Some(parent) = frame_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        // Convert BGRA to RGBA
+        for chunk in data.chunks_mut(4) {
+            chunk.swap(0, 2); // Swap B and R channels
+        }
+
+        let image = image::ImageBuffer::<image::Rgba<u8>, Vec<u8>>::from_raw(
+            settings.width,
+            settings.height,
+            data
+        ).ok_or_else(|| ImageError::Parameter(
+            image::error::ParameterError::from_kind(
+                image::error::ParameterErrorKind::Generic(
+                    "Failed to create image buffer".to_string()
+                )
+            )
+        ))?;
+        
+        image.save(&frame_path)?;
+        Ok(())
+    }
+
+
+    fn handle_export(&mut self, core: &Core) {
+        if let Some((frame, time)) = self.base.export_manager.try_get_next_frame() {
+            if let Ok(data) = self.capture_frame(core, time) {
+                let settings = self.base.export_manager.settings();
+                if let Err(e) = self.save_frame(data, frame, settings) {
+                    eprintln!("Error saving frame: {:?}", e);
+                }
+            }
+        } else {
+            self.base.export_manager.complete_export();
+        }
+    }
+}
+
 
 impl ShaderManager for FeedbackShader {
     fn init(core: &Core) -> Self {
@@ -138,6 +259,9 @@ impl ShaderManager for FeedbackShader {
     }
     fn update(&mut self, core: &Core) {
         self.base.update_time(&core.queue);
+        if self.base.export_manager.is_exporting() {
+            self.handle_export(core);
+        }
     }
     fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {
         let output = core.surface.get_current_texture()?;
@@ -145,19 +269,95 @@ impl ShaderManager for FeedbackShader {
         let mut encoder = core.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Render Encoder"),
         });
+
         let mut params = self.params_uniform.data;
         let mut changed = false;
-        let full_output = if self.base.key_handler.show_ui {
-            self.base.render_ui(core, |ctx| {
-                egui::Window::new("Feedback Settings").show(ctx, |ui| {
-                    changed |= ui.add(egui::Slider::new(&mut params.feedback, 0.0..=0.99).text("Feedback")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.speed, 0.1..=5.0).text("Speed")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.scale, 0.1..=2.0).text("Scale")).changed();
-                });
-            })
-        } else {
-            self.base.render_ui(core, |_ctx| {})
+        let mut should_start_export = false;
+        // Create a temporary state structure to hold UI values
+        struct TempState {
+            width: u32,
+            height: u32,
+            start_time: f32,
+            end_time: f32,
+            fps: u32,
+            path: PathBuf,
+            is_exporting: bool,
+        }
+        // Initialize with current values from export manager
+        let mut temp_state = {
+            let settings = self.base.export_manager.settings();
+            TempState {
+                width: settings.width,
+                height: settings.height,
+                start_time: settings.start_time,
+                end_time: settings.end_time,
+                fps: settings.fps,
+                path: settings.export_path.clone(),
+                is_exporting: settings.is_exporting,
+            }
         };
+    
+        let full_output = self.base.render_ui(core, |ctx| {
+            egui::Window::new("Feedback Settings").show(ctx, |ui| {
+                changed |= ui.add(egui::Slider::new(&mut params.feedback, 0.0..=0.99).text("Feedback")).changed();
+                changed |= ui.add(egui::Slider::new(&mut params.speed, 0.1..=5.0).text("Speed")).changed();
+                changed |= ui.add(egui::Slider::new(&mut params.scale, 0.1..=2.0).text("Scale")).changed();
+    
+                ui.separator();
+                ui.heading("Export Settings");
+                
+                if !temp_state.is_exporting {
+                    ui.horizontal(|ui| {
+                        ui.label("Export Path:");
+                        if ui.button("Browse").clicked() {
+                            if let Some(path) = rfd::FileDialog::new()
+                                .set_directory(&temp_state.path)
+                                .pick_folder() {
+                                temp_state.path = path;
+                            }
+                        }
+                    });
+                    
+                    ui.add(egui::DragValue::new(&mut temp_state.width)
+                        .range(1..=7680)
+                        .prefix("Width: "));
+                        
+                    ui.add(egui::DragValue::new(&mut temp_state.height)
+                        .range(1..=4320)
+                        .prefix("Height: "));
+                        
+                    ui.add(egui::DragValue::new(&mut temp_state.start_time)
+                        .prefix("Start Time: ")
+                        .speed(0.1));
+                        
+                    ui.add(egui::DragValue::new(&mut temp_state.end_time)
+                        .prefix("End Time: ")
+                        .speed(0.1));
+                        
+                    ui.add(egui::DragValue::new(&mut temp_state.fps)
+                        .range(1..=240)
+                        .prefix("FPS: "));
+    
+                    if ui.button("Start Export").clicked() {
+                        should_start_export = true;
+                    }
+                } else {
+                    ui.label("Exporting...");
+                }
+            });
+        });
+    
+        if should_start_export {
+            let settings = self.base.export_manager.settings_mut();
+            settings.width = temp_state.width;
+            settings.height = temp_state.height;
+            settings.start_time = temp_state.start_time;
+            settings.end_time = temp_state.end_time;
+            settings.fps = temp_state.fps;
+            settings.export_path = temp_state.path;
+            self.base.export_manager.start_export();
+        }
+    
         if changed {
             self.params_uniform.data = params;
             self.params_uniform.update(&core.queue);
@@ -168,6 +368,8 @@ impl ShaderManager for FeedbackShader {
             } else {
                 (texture_a, texture_b)
             };
+            
+            // First render pass
             {
                 let mut render_pass = Renderer::begin_render_pass(
                     &mut encoder,
@@ -182,6 +384,8 @@ impl ShaderManager for FeedbackShader {
                 render_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
                 render_pass.draw(0..4, 0..1);
             }
+    
+            // Second render pass
             {
                 let mut render_pass = Renderer::begin_render_pass(
                     &mut encoder,
