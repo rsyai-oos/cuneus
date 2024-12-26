@@ -147,13 +147,17 @@ impl ShaderManager for FeedbackShader {
         });
         let mut params = self.params_uniform.data;
         let mut changed = false;
-        let full_output = self.base.render_ui(core, |ctx| {
-            egui::Window::new("Feedback Settings").show(ctx, |ui| {
-                changed |= ui.add(egui::Slider::new(&mut params.feedback, 0.0..=0.99).text("Feedback")).changed();
-                changed |= ui.add(egui::Slider::new(&mut params.speed, 0.1..=5.0).text("Speed")).changed();
-                changed |= ui.add(egui::Slider::new(&mut params.scale, 0.1..=2.0).text("Scale")).changed();
-            });
-        });
+        let full_output = if self.base.key_handler.show_ui {
+            self.base.render_ui(core, |ctx| {
+                egui::Window::new("Feedback Settings").show(ctx, |ui| {
+                    changed |= ui.add(egui::Slider::new(&mut params.feedback, 0.0..=0.99).text("Feedback")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.speed, 0.1..=5.0).text("Speed")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.scale, 0.1..=2.0).text("Scale")).changed();
+                });
+            })
+        } else {
+            self.base.render_ui(core, |_ctx| {})
+        };
         if changed {
             self.params_uniform.data = params;
             self.params_uniform.update(&core.queue);
