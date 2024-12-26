@@ -6,6 +6,7 @@ use cuneus::ExportSettings;
 use cuneus::create_feedback_texture_pair;
 use image::ImageError;
 use std::path::PathBuf;
+use cuneus::ExportManager;
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct FeedbackParams {
@@ -34,7 +35,10 @@ impl FeedbackShader {
             settings.width,
             settings.height
         );
-        
+        let align = 256;
+        let unpadded_bytes_per_row = settings.width * 4;
+        let padding = (align - unpadded_bytes_per_row % align) % align;
+        let padded_bytes_per_row = unpadded_bytes_per_row + padding;
         let capture_view = capture_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = core.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Capture Encoder"),
@@ -73,7 +77,7 @@ impl FeedbackShader {
                 buffer: &output_buffer,
                 layout: wgpu::ImageDataLayout {
                     offset: 0,
-                    bytes_per_row: Some(settings.width * 4),
+                    bytes_per_row: Some(padded_bytes_per_row),
                     rows_per_image: Some(settings.height),
                 },
             },
@@ -83,21 +87,20 @@ impl FeedbackShader {
                 depth_or_array_layers: 1,
             },
         );
-
         core.queue.submit(Some(encoder.finish()));
-
         let buffer_slice = output_buffer.slice(..);
         let (tx, rx) = std::sync::mpsc::channel();
-        
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
             tx.send(result).unwrap();
         });
         core.device.poll(wgpu::Maintain::Wait);
-        
         rx.recv().unwrap().unwrap();
-        let data = buffer_slice.get_mapped_range().to_vec();
-        
-        Ok(data)
+        let padded_data = buffer_slice.get_mapped_range().to_vec();
+        let mut unpadded_data = Vec::with_capacity((settings.width * settings.height * 4) as usize);
+        for chunk in padded_data.chunks(padded_bytes_per_row as usize) {
+            unpadded_data.extend_from_slice(&chunk[..unpadded_bytes_per_row as usize]);
+        }
+        Ok(unpadded_data)
     }
 
     fn save_frame(&self, mut data: Vec<u8>, frame: u32, settings: &ExportSettings) -> Result<(), ExportError> {
@@ -273,91 +276,29 @@ impl ShaderManager for FeedbackShader {
         let mut params = self.params_uniform.data;
         let mut changed = false;
         let mut should_start_export = false;
-        // Create a temporary state structure to hold UI values
-        struct TempState {
-            width: u32,
-            height: u32,
-            start_time: f32,
-            end_time: f32,
-            fps: u32,
-            path: PathBuf,
-            is_exporting: bool,
-        }
-        // Initialize with current values from export manager
-        let mut temp_state = {
-            let settings = self.base.export_manager.settings();
-            TempState {
-                width: settings.width,
-                height: settings.height,
-                start_time: settings.start_time,
-                end_time: settings.end_time,
-                fps: settings.fps,
-                path: settings.export_path.clone(),
-                is_exporting: settings.is_exporting,
-            }
-        };
-    
+        //UI state before entering closure
+        let mut export_request = self.base.export_manager.get_ui_request();
+
         let full_output = self.base.render_ui(core, |ctx| {
             egui::Window::new("Feedback Settings").show(ctx, |ui| {
                 changed |= ui.add(egui::Slider::new(&mut params.feedback, 0.0..=0.99).text("Feedback")).changed();
                 changed |= ui.add(egui::Slider::new(&mut params.speed, 0.1..=5.0).text("Speed")).changed();
                 changed |= ui.add(egui::Slider::new(&mut params.scale, 0.1..=2.0).text("Scale")).changed();
-    
-                ui.separator();
-                ui.heading("Export Settings");
-                
-                if !temp_state.is_exporting {
-                    ui.horizontal(|ui| {
-                        ui.label("Export Path:");
-                        if ui.button("Browse").clicked() {
-                            if let Some(path) = rfd::FileDialog::new()
-                                .set_directory(&temp_state.path)
-                                .pick_folder() {
-                                temp_state.path = path;
-                            }
-                        }
-                    });
-                    
-                    ui.add(egui::DragValue::new(&mut temp_state.width)
-                        .range(1..=7680)
-                        .prefix("Width: "));
-                        
-                    ui.add(egui::DragValue::new(&mut temp_state.height)
-                        .range(1..=4320)
-                        .prefix("Height: "));
-                        
-                    ui.add(egui::DragValue::new(&mut temp_state.start_time)
-                        .prefix("Start Time: ")
-                        .speed(0.1));
-                        
-                    ui.add(egui::DragValue::new(&mut temp_state.end_time)
-                        .prefix("End Time: ")
-                        .speed(0.1));
-                        
-                    ui.add(egui::DragValue::new(&mut temp_state.fps)
-                        .range(1..=240)
-                        .prefix("FPS: "));
-    
-                    if ui.button("Start Export").clicked() {
-                        should_start_export = true;
-                    }
-                } else {
-                    ui.label("Exporting...");
-                }
+                should_start_export = ExportManager::render_export_ui_widget(ui, &mut export_request);
             });
         });
-    
+
+        self.base.export_manager.apply_ui_request(export_request);
+
+        if changed {
+            self.params_uniform.data = params;
+            self.params_uniform.update(&core.queue);
+        }
+
         if should_start_export {
-            let settings = self.base.export_manager.settings_mut();
-            settings.width = temp_state.width;
-            settings.height = temp_state.height;
-            settings.start_time = temp_state.start_time;
-            settings.end_time = temp_state.end_time;
-            settings.fps = temp_state.fps;
-            settings.export_path = temp_state.path;
             self.base.export_manager.start_export();
         }
-    
+
         if changed {
             self.params_uniform.data = params;
             self.params_uniform.update(&core.queue);

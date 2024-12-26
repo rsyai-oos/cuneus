@@ -43,7 +43,16 @@ impl Default for ExportSettings {
         }
     }
 }
-
+#[derive(Clone)]
+pub struct ExportUiRequest {
+    pub width: u32,
+    pub height: u32,
+    pub start_time: f32,
+    pub end_time: f32,
+    pub fps: u32,
+    pub path: PathBuf,
+    pub is_exporting: bool,
+}
 #[derive(Default)]
 pub struct ExportUiState {
     pub show_window: bool,
@@ -59,27 +68,58 @@ pub struct ExportManager {
     settings: ExportSettings,
     export_channel: Option<mpsc::Receiver<(u32, f32)>>,
     ui_state: ExportUiState,
+    temp_state: TempExportState,
+}
+
+#[derive(Clone)]
+struct TempExportState {
+    width: u32,
+    height: u32,
+    start_time: f32,
+    end_time: f32,
+    fps: u32,
+    path: PathBuf,
 }
 
 impl ExportManager {
     pub fn new() -> Self {
         let settings = ExportSettings::default();
-        let ui_state = ExportUiState {
-            temp_width: settings.width,
-            temp_height: settings.height,
-            temp_start_time: settings.start_time,
-            temp_end_time: settings.end_time,
-            temp_fps: settings.fps,
-            show_window: false,
+        let ui_state = ExportUiState::default();
+        let temp_state = TempExportState {
+            width: settings.width,
+            height: settings.height,
+            start_time: settings.start_time,
+            end_time: settings.end_time,
+            fps: settings.fps,
+            path: settings.export_path.clone(),
         };
         
         Self {
             settings,
             export_channel: None,
             ui_state,
+            temp_state,
         }
     }
-
+    pub fn get_ui_request(&self) -> ExportUiRequest {
+        ExportUiRequest {
+            width: self.temp_state.width,
+            height: self.temp_state.height,
+            start_time: self.temp_state.start_time,
+            end_time: self.temp_state.end_time,
+            fps: self.temp_state.fps,
+            path: self.temp_state.path.clone(),
+            is_exporting: self.settings.is_exporting,
+        }
+    }
+    pub fn apply_ui_request(&mut self, request: ExportUiRequest) {
+        self.temp_state.width = request.width;
+        self.temp_state.height = request.height;
+        self.temp_state.start_time = request.start_time;
+        self.temp_state.end_time = request.end_time;
+        self.temp_state.fps = request.fps;
+        self.temp_state.path = request.path;
+    }
     /// Returns a reference to the current export settings
     pub fn settings(&self) -> &ExportSettings {
         &self.settings
@@ -97,12 +137,20 @@ impl ExportManager {
         self.export_channel.as_ref()?.try_recv().ok()
     }
 
-    /// Starts the export process
     pub fn start_export(&mut self) {
         if self.settings.is_exporting {
             return;
         }
 
+        // Apply the temporary state to settings before starting export
+        self.settings.width = self.temp_state.width;
+        self.settings.height = self.temp_state.height;
+        self.settings.start_time = self.temp_state.start_time;
+        self.settings.end_time = self.temp_state.end_time;
+        self.settings.fps = self.temp_state.fps;
+        self.settings.export_path = self.temp_state.path.clone();
+        
+        // Then start the export process
         self.settings.is_exporting = true;
         let settings = self.settings.clone();
         let (tx, rx) = mpsc::channel();
@@ -113,13 +161,14 @@ impl ExportManager {
             for frame in 0..total_frames {
                 let time = settings.start_time + (frame as f32 / settings.fps as f32);
                 if tx.send((frame, time)).is_err() {
-                    break; // Exit if the receiver is dropped
+                    break;
                 }
             }
         });
         
         self.export_channel = Some(rx);
     }
+
 
     /// Completes the export process
     pub fn complete_export(&mut self) {
@@ -131,68 +180,52 @@ impl ExportManager {
     pub fn get_ui_elements(&mut self) -> (&mut ExportUiState, &mut ExportSettings) {
         (&mut self.ui_state, &mut self.settings)
     }
-
-    /// Draws the export UI using egui
-    pub fn draw_ui(&mut self, ui: &mut egui::Ui) -> bool {
-        let mut start_export = false;
+    pub fn render_export_ui_widget(ui: &mut egui::Ui, request: &mut ExportUiRequest) -> bool {
+        let mut should_start_export = false;
         
-        if !self.settings.is_exporting {
+        ui.separator();
+        ui.heading("Export Settings");
+        
+        if !request.is_exporting {
             ui.horizontal(|ui| {
                 ui.label("Export Path:");
                 if ui.button("Browse").clicked() {
                     if let Some(path) = rfd::FileDialog::new()
-                        .set_directory(&self.settings.export_path)
+                        .set_directory(&request.path)
                         .pick_folder() {
-                        self.settings.export_path = path;
+                        request.path = path;
                     }
                 }
             });
             
-            ui.add(egui::DragValue::new(&mut self.ui_state.temp_width)
-                .prefix("Width: ")
-                .clamp_range(1..=7680));
+            ui.add(egui::DragValue::new(&mut request.width)
+                .range(1..=7680)
+                .prefix("Width: "));
                 
-            ui.add(egui::DragValue::new(&mut self.ui_state.temp_height)
-                .prefix("Height: ")
-                .clamp_range(1..=4320));
+            ui.add(egui::DragValue::new(&mut request.height)
+                .range(1..=4320)
+                .prefix("Height: "));
                 
-            ui.add(egui::DragValue::new(&mut self.ui_state.temp_start_time)
+            ui.add(egui::DragValue::new(&mut request.start_time)
                 .prefix("Start Time: ")
                 .speed(0.1));
                 
-            ui.add(egui::DragValue::new(&mut self.ui_state.temp_end_time)
+            ui.add(egui::DragValue::new(&mut request.end_time)
                 .prefix("End Time: ")
                 .speed(0.1));
                 
-            ui.add(egui::DragValue::new(&mut self.ui_state.temp_fps)
-                .prefix("FPS: ")
-                .clamp_range(1..=240));
+            ui.add(egui::DragValue::new(&mut request.fps)
+                .range(1..=240)
+                .prefix("FPS: "));
 
             if ui.button("Start Export").clicked() {
-                // Apply temporary values to actual settings
-                self.settings.width = self.ui_state.temp_width;
-                self.settings.height = self.ui_state.temp_height;
-                self.settings.start_time = self.ui_state.temp_start_time;
-                self.settings.end_time = self.ui_state.temp_end_time;
-                self.settings.fps = self.ui_state.temp_fps;
-                start_export = true;
+                should_start_export = true;
             }
         } else {
             ui.label("Exporting...");
-            // if ui.button("Cancel Export").clicked() {
-            //     self.complete_export();
-            // }
         }
         
-        start_export
+        should_start_export
     }
-    /// Updates the UI state from settings
-    pub fn sync_ui_state(&mut self) {
-        self.ui_state.temp_width = self.settings.width;
-        self.ui_state.temp_height = self.settings.height;
-        self.ui_state.temp_start_time = self.settings.start_time;
-        self.ui_state.temp_end_time = self.settings.end_time;
-        self.ui_state.temp_fps = self.settings.fps;
-    }
-}
 
+}

@@ -284,10 +284,17 @@ impl BaseShader {
             view_formats: &[],
         });
 
-        let buffer_size = (width * height * 4) as u64;
+        // Calculate padded bytes per row 
+        let align = 256;
+        let unpadded_bytes_per_row = width * 4;
+        let padding = (align - unpadded_bytes_per_row % align) % align;
+        let padded_bytes_per_row = unpadded_bytes_per_row + padding;
+
+        // buffer with padded size
+        let buffer_size = padded_bytes_per_row * height;
         let output_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Capture Buffer"),
-            size: buffer_size,
+            size: buffer_size as u64,
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
@@ -295,4 +302,3 @@ impl BaseShader {
         (capture_texture, output_buffer)
     }
 }
-
