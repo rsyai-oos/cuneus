@@ -1,6 +1,7 @@
-use cuneus::{Core,ShaderApp, ShaderManager, UniformProvider, UniformBinding, BaseShader,ExportSettings, ExportError, ExportManager};
+use cuneus::{Core,Renderer,ShaderApp, ShaderManager, UniformProvider, UniformBinding, BaseShader,ExportSettings, ExportError, ExportManager,ShaderHotReload};
 use winit::event::*;
 use image::ImageError;
+use std::path::PathBuf;
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct ShaderParams {
@@ -33,6 +34,9 @@ impl UniformProvider for ShaderParams {
 struct ChristmasShader {
     base: BaseShader,
     params_uniform: UniformBinding<ShaderParams>,
+    hot_reload: ShaderHotReload,
+    time_bind_group_layout: wgpu::BindGroupLayout,
+    params_bind_group_layout: wgpu::BindGroupLayout,
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
@@ -221,6 +225,20 @@ impl ShaderManager for ChristmasShader {
             &time_bind_group_layout,
             &params_bind_group_layout,
         ];
+        let vs_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Vertex Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/vertex.wgsl").into()),
+        });
+
+        let fs_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Fragment Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/xmas.wgsl").into()),
+        });
+
+        let shader_paths = vec![
+            PathBuf::from("shaders/vertex.wgsl"),
+            PathBuf::from("shaders/xmas.wgsl"),
+        ];
 
         let base = BaseShader::new(
             core,
@@ -230,14 +248,44 @@ impl ShaderManager for ChristmasShader {
             None,
         );
 
+        let hot_reload = ShaderHotReload::new(
+            core.device.clone(),
+            shader_paths,
+            vs_module,
+            fs_module,
+        ).expect("Failed to initialize hot reload");
+
         Self {
             base,
             params_uniform,
+            hot_reload,
+            time_bind_group_layout,
+            params_bind_group_layout,
         }
     }
 
     fn update(&mut self, core: &Core) {
         self.base.update_time(&core.queue);
+        if let Some((new_vs, new_fs)) = self.hot_reload.check_and_reload() {
+            println!("Reloading shaders at time: {:.2}s", self.base.start_time.elapsed().as_secs_f32());
+            let pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Render Pipeline Layout"),
+                bind_group_layouts: &[
+                    &self.time_bind_group_layout,
+                    &self.params_bind_group_layout,
+                ],
+                push_constant_ranges: &[],
+            });
+            self.base.renderer = Renderer::new(
+                &core.device,
+                new_vs,
+                new_fs,
+                core.config.format,
+                &pipeline_layout,
+                None, 
+            );
+        }
+    
         if self.base.export_manager.is_exporting() {
             self.handle_export(core);
         }

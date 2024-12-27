@@ -21,7 +21,7 @@ var<uniform> params: Params;
 
 const rut = 5u;
 const PI = 3.14159265359;
-const ANG = 4.0 * PI / f32(rut);
+const ANG = 12.0 * PI / f32(rut);
 
 fn r2d() -> mat2x2<f32> {
     return mat2x2<f32>(
