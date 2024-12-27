@@ -1,4 +1,4 @@
-use cuneus::{Core, ShaderManager,UniformProvider, UniformBinding,ExportError, BaseShader,TextureManager};
+use cuneus::{Core, ShaderManager,UniformProvider, UniformBinding,ExportError, BaseShader,TextureManager,ShaderHotReload};
 use winit::event::WindowEvent;
 use cuneus::ShaderApp;
 use cuneus::Renderer;
@@ -6,6 +6,7 @@ use cuneus::ExportSettings;
 use cuneus::create_feedback_texture_pair;
 use image::ImageError;
 use cuneus::ExportManager;
+use std::path::PathBuf;
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct FeedbackParams {
@@ -25,6 +26,10 @@ struct FeedbackShader {
     texture_a: Option<TextureManager>,
     texture_b: Option<TextureManager>,
     frame_count: u32,
+    hot_reload: ShaderHotReload,
+    texture_bind_group_layout: wgpu::BindGroupLayout,
+    time_bind_group_layout: wgpu::BindGroupLayout,
+    params_bind_group_layout: wgpu::BindGroupLayout,
 }
 impl FeedbackShader {
     fn capture_frame(&mut self, core: &Core, time: f32) -> Result<Vec<u8>, wgpu::SurfaceError> {
@@ -231,6 +236,24 @@ impl ShaderManager for FeedbackShader {
             ],
             push_constant_ranges: &[],
         });
+        let shader_paths = vec![
+            PathBuf::from("shaders/vertex.wgsl"),
+            PathBuf::from("shaders/feedback.wgsl"),
+        ];
+        let hot_reload = ShaderHotReload::new(
+            core.device.clone(),
+            shader_paths,
+            vs_module,
+            fs_module,
+        ).expect("Failed to initialize hot reload");
+        let renderer_pass2 = Renderer::new(
+            &core.device,
+            &hot_reload.vs_module,
+            &hot_reload.fs_module,
+            core.config.format,
+            &pipeline_layout,
+            Some("fs_pass2"),
+        );
         let base = BaseShader::new(
             core,
             include_str!("../../shaders/vertex.wgsl"),
@@ -242,14 +265,6 @@ impl ShaderManager for FeedbackShader {
             ],
             Some("fs_pass1"),
         );
-        let renderer_pass2 = Renderer::new(
-            &core.device,
-            &vs_module,
-            &fs_module,
-            core.config.format,
-            &pipeline_layout,
-            Some("fs_pass2"),
-        );
         Self {
             base,
             renderer_pass2,
@@ -257,10 +272,43 @@ impl ShaderManager for FeedbackShader {
             texture_a: Some(texture_a),
             texture_b: Some(texture_b),
             frame_count: 0,
+            hot_reload,
+            texture_bind_group_layout,
+            time_bind_group_layout,
+            params_bind_group_layout,
         }
     }
     fn update(&mut self, core: &Core) {
         self.base.update_time(&core.queue);
+        if let Some((new_vs, new_fs)) = self.hot_reload.check_and_reload() {
+            println!("Reloading shaders at time: {:.2}s", self.base.start_time.elapsed().as_secs_f32());
+            let pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Render Pipeline Layout"),
+                bind_group_layouts: &[
+                    &self.texture_bind_group_layout,
+                    &self.time_bind_group_layout,
+                    &self.params_bind_group_layout,
+                ],
+                push_constant_ranges: &[],
+            });
+            self.renderer_pass2 = Renderer::new(
+                &core.device,
+                new_vs,
+                new_fs,
+                core.config.format,
+                &pipeline_layout,
+                Some("fs_pass2"),
+            );
+    
+            self.base.renderer = Renderer::new(
+                &core.device,
+                new_vs,
+                new_fs,
+                core.config.format,
+                &pipeline_layout,
+                Some("fs_pass1"),
+            );
+        }
         if self.base.export_manager.is_exporting() {
             self.handle_export(core);
         }
