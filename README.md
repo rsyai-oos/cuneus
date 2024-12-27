@@ -12,6 +12,6 @@
 - Simple event handling for keyboard inputs
 
 
-### Usage
+#### How can I compute my own shader?
 
-See [usage.md](usage.md)
+- See [usage.md](usage.md)
