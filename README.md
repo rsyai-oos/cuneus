@@ -2,6 +2,6 @@
 
 Write shaders export frames
 
-## Usage
+### Usage
 
 See [usage.md](usage.md)
