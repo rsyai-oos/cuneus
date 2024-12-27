@@ -250,7 +250,7 @@ impl ShaderManager for FluidShader {
             &core.device,
             "Params Uniform",
             FluidParams {
-                rotation_speed: 1.0,
+                rotation_speed: 2.0,
                 motor_strength: 0.01,
                 distortion: 10.0,
                 feedback: 0.95,
@@ -348,8 +348,8 @@ impl ShaderManager for FluidShader {
                             reload_image = true;
                         }
                     }
-                    changed |= ui.add(egui::Slider::new(&mut params.rotation_speed, 0.1..=5.0).text("Rotation Speed")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.motor_strength, 0.001..=0.1).text("Motor Strength")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.rotation_speed, -5.0..=5.0).text("Rotation Speed")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.motor_strength, -0.2..=0.2).text("Motor Strength")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.distortion, 1.0..=20.0).text("Distortion")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.feedback, 0.0..=1.01).text("Feedback")).changed();
                     ui.separator();

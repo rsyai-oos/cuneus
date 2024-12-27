@@ -80,7 +80,7 @@ fn fs_pass1(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: ve
     if (time_data.frame <= 4u) {
         color = textureSample(input_texture, input_sampler, tex_coords);
     } else {
-        let distorted_uv = fract((pos + v * vec2<f32>(-1.0, 1.0) * 2.0) / dims);
+        let distorted_uv = fract((pos + v * vec2<f32>(-1.0, 1.0) * params.rotation_speed) / dims);
         let fluid_color = textureSample(prev_frame, tex_sampler, distorted_uv);
         let texture_color = textureSample(input_texture, input_sampler, distorted_uv);
         color = mix(texture_color, fluid_color, params.feedback);
