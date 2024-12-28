@@ -25,6 +25,9 @@ struct AttractorParams {
     max_radius: f32,
     size: f32,
     decay: f32,
+    smoke_color: [f32; 3],
+    _padding: f32, //gpu memory stuff
+
 }
 
 impl UniformProvider for AttractorParams {
@@ -286,6 +289,8 @@ impl ShaderManager for AttractorShader {
                 max_radius: 4.5,
                 size: 0.07,
                 decay: 0.95,
+                smoke_color: [0.1, 0.0, 0.3],
+                _padding: 0.0,
             },
             &params_bind_group_layout,
             0,
@@ -445,6 +450,9 @@ impl ShaderManager for AttractorShader {
                     changed |= ui.add(egui::Slider::new(&mut params.max_radius, 1.0..=10.0).text("Max Radius")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.size, 0.01..=0.2).text("Size")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.decay, 0.8..=0.99).text("Decay")).changed();
+                    
+                    changed |= ui.color_edit_button_rgb(&mut params.smoke_color).changed();
+
                     ui.separator();
                     should_start_export = ExportManager::render_export_ui_widget(ui, &mut export_request);
                 });

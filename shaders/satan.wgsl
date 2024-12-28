@@ -5,7 +5,16 @@ struct TimeUniform {
 @group(0) @binding(0) var smoke_and_pentagram: texture_2d<f32>;
 @group(0) @binding(1) var tex_sampler: sampler;
 @group(1) @binding(0) var<uniform> time_data: TimeUniform;
-
+struct Params {
+    min_radius: f32,
+    max_radius: f32,
+    size: f32,
+    decay: f32,
+    smoke_color: vec3<f32>,
+    _padding: f32,
+};
+@group(2) @binding(0)
+var<uniform> params: Params;
 const PI: f32 = 3.14159265358979323846;
 
 fn smin(a: f32, b: f32, k: f32) -> f32 {
@@ -175,7 +184,8 @@ fn fs_pass1(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
     for(var i: f32 = 0.0; i < 12.0; i += 1.0) {
         emberAccum += ember(rotated_uv, time, random(vec2<f32>(i, 1.0)));
     }
-    col += vec3<f32>(1.0, 0.5, 0.2) * emberAccum;
+    col += vec3<f32>(1
+    .0, 0.5, 0.2) * emberAccum;
     
     let darkness = length(uv);
     col *= 1.0 - darkness * 0.5;
@@ -242,7 +252,8 @@ fn fs_pass2(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: ve
     smoke = mix(prevData.r, smoke, blendFactor);
     
     var col = prevData.rgb; 
-    let smokeColor = vec3<f32>(0.1, 0.0, 0.3);
+    let smokeColor = params.smoke_color;
+
     col = mix(col, smokeColor, smoke * 0.1);
     
     return vec4<f32>(col, smoke);
