@@ -1,94 +1,160 @@
-# How To Use Cuneus
 
-## Basic Usage
+# How To Use Cuneus
 
 In fact you can simply copy a rust file in the “bin” folder and just go to the wgsl stage. But to set the parameters in egui you only need to change the parameters.
 
-Those are base examples:
+## Quick Start
 
-- spiral.rs: Simple single-pass shader with texture support.
-- feedback.rs: very basic two-pass shader.
-- fluid.rs:  multi-pass shader with texture support.
-- attractor.rs: simple three-pass rendering
-- xmas.rs: single pass, no texture, many parameters. 
+1. Copy one of the template files from `src/bin/` that best matches your needs:
+   - `mandelbrot.rs`: Minimal single-pass shader without GUI controls
+   - `spiral.rs`: Simple single-pass shader with texture support
+   - `feedback.rs`: Basic two-pass shader
+   - `fluid.rs`: Multi-pass shader with texture support
+   - `attractor.rs`: Three-pass rendering example
+   - `xmas.rs`: Single pass with extensive parameter controls
+  
+if you want 4 passes or more the logic is exactly the same. 
 
-Copy the chosen template to a new file in src/bin/
-Modify only these key sections:
+2. Rename and modify the copied file to create your shader
+3. Focus on writing your WGSL shader code :-)
 
-1- Shader parameters struct (optimal, if you want to use GUI sliders) & Parameter UI controls
-2- Compute your WGSL 
+## Template Structure
 
-thats it. :-)  
+### Basic Single Pass Shader (No GUI)
 
-Common Patterns
-All shaders follow the same basic structure:
+The simplest way to start is with a basic shader like `mandelbrot.rs`. This template includes:
 
-Parameter definition is only need for egui:
+1. Core imports and setup
+2. Minimal shader parameters
+3. Basic render pipeline
+4. WGSL shader code
+
+I created this by completely copying and pasting xmas.rs, and I could only focus on my shader.
+
 ```rust
+// 1. Required imports
+use cuneus::{Core, ShaderManager, BaseShader /* ... */};
 
+// 2. Optional parameters if needed
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct ShaderParams {
-    // Add your parameters here
-    param1: f32,
-    param2: f32,
+    // Your parameters here
+}
+
+// 3. Main shader structure
+struct MyShader {
+    base: BaseShader,
+    // Add any additional fields needed
+}
+
+// 4. Implement required traits
+impl ShaderManager for MyShader {
+    fn init(core: &Core) -> Self { /* ... */ }
+    fn update(&mut self, core: &Core) { /* ... */ }
+    fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> { /* ... */ }
+    fn handle_input(&mut self, core: &Core, event: &WindowEvent) -> bool { /* ... */ }
 }
 ```
-Shader implementation with common components:
 
-- init(): Sets up bind groups and pipelines
-- update(): Handles time updates and hot reloading
-- render(): Manages render passes and UI
-- handle_input(): Processes user input
+### Adding GUI Controls (optimal)
 
-WGSL Binding Patterns
-Basic Vertex Shader (vertex.wgsl)
-All shaders use this standard vertex shader:
+To add parameter controls through egui:
+
+1. Define your parameters struct
+2. Add UI controls in the render function
+
+```rust
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct ShaderParams {
+    rotation_speed: f32,
+    intensity: f32,
+    // Add more parameters as needed
+}
+
+// In render function:
+let full_output = if self.base.key_handler.show_ui {
+    self.base.render_ui(core, |ctx| {
+        egui::Window::new("Settings").show(ctx, |ui| {
+            changed |= ui.add(egui::Slider::new(&mut params.rotation_speed, 0.0..=5.0)
+                .text("Rotation Speed")).changed();
+            // Add more controls
+        });
+    })
+};
+```
+
+## WGSL Shader Patterns
+
+### Standard Vertex Shader
+All shaders use this common vertex shader (vertex.wgsl):
 ```wgsl
-
 struct VertexOutput {
     @location(0) tex_coords: vec2<f32>,
     @builtin(position) out_pos: vec4<f32>,
 };
+
 @vertex
 fn vs_main(@location(0) pos: vec2<f32>) -> VertexOutput {
     let tex_coords = vec2<f32>(pos.x * 0.5 + 0.5, 1.0 - (pos.y * 0.5 + 0.5));
     return VertexOutput(tex_coords, vec4<f32>(pos, 0.0, 1.0));
 }
 ```
-Single Pass Shader
+
+### Single Pass Fragment Shader
+Basic structure for a fragment shader:
 ```wgsl
+// Time uniform
 @group(0) @binding(0)
 var<uniform> u_time: TimeUniform;
 
+// Optional EGUI parameters
 @group(1) @binding(0)
 var<uniform> params: Params;
 
 @fragment
-fn fs_main(...) -> @location(0) vec4<f32> {
-    // Your shader code
+fn fs_main(@builtin(position) FragCoord: vec4<f32>, 
+           @location(0) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
+    // Your shader code here
+    return vec4<f32>(1.0, 0.0, 0.0, 1.0);
 }
 ```
 
-Basic Feedback Shader (feedback.wgsl)
+### Multi-Pass Shader
+For effects requiring multiple passes:
 ```wgsl
 @group(0) @binding(0) var prev_frame: texture_2d<f32>;
 @group(0) @binding(1) var tex_sampler: sampler;
 
-@group(1) @binding(0)
-var<uniform> u_time: TimeUniform;
-
-@group(2) @binding(0)
-var<uniform> params: Params;
-
 @fragment
 fn fs_pass1(...) -> @location(0) vec4<f32> {
-    let previous = textureSample(prev_frame, tex_sampler, tex_coords);
-    // Blend with new frame
+    // First pass processing
 }
 
 @fragment
 fn fs_pass2(...) -> @location(0) vec4<f32> {
-    // Post-processing or display
+    // Second pass processing
 }
 ```
+
+
+### Hot Reloading
+The framework supports hot reloading of shaders. Simply modify your WGSL files and they will automatically reload. For now, it crashes if you make an error. 
+
+### Export Support
+Built-in support for exporting frames as images. Access through the UI when enabled. "Start time" is not working correctly currently.
+
+### Texture Support
+Load and use textures in your shaders:
+```rust
+if let Some(ref texture_manager) = self.base.texture_manager {
+    render_pass.set_bind_group(0, &texture_manager.bind_group, &[]);
+}
+```
+
+### Adding Interactive Controls
+1. Start with a template that includes GUI (e.g., `xmas.rs`)
+2. Define your parameters in the ShaderParams struct
+3. Add UI controls in the render function
+4. Connect parameters to your shader
