@@ -1,29 +1,19 @@
-use cuneus::{Core,Renderer,ShaderApp, ShaderManager, UniformProvider, UniformBinding, BaseShader,ExportSettings, ExportError,ShaderHotReload};
+use cuneus::{Core,Renderer,ShaderApp, ShaderManager, UniformProvider, UniformBinding, BaseShader,ExportSettings, ExportError, ExportManager,ShaderHotReload};
 use winit::event::*;
 use image::ImageError;
 use std::path::PathBuf;
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct ShaderParams {
-    lambda: f32,
-    theta: f32,
-    alpha:f32,
-    sigma: f32,
-    gamma:f32,
-    blue:f32,
-    a:f32,
-    b:f32,
-    c:f32,
-    d:f32,
-    e:f32,
-    f:f32,
-    g:f32,
-    iter:f32,
-    bound:f32,
-    aa:f32,
-    tt:f32,
+    // Numeric parameters
+    max_iterations: i32,
+    max_sub_iterations: i32,
+    point_intensity: f32,
+    center_scale: f32,
+    time_scale: f32,
+    dist_offset: f32,
+    _pad1: [f32; 2], // Padding to maintain 16-byte alignment
 }
-
 
 impl UniformProvider for ShaderParams {
     fn as_bytes(&self) -> &[u8] {
@@ -40,7 +30,7 @@ struct ChristmasShader {
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
-    let (app, event_loop) = ShaderApp::new("test shader", 800, 600);
+    let (app, event_loop) = ShaderApp::new("galaxy", 800, 600);
     let shader = ChristmasShader::init(app.core());
     app.run(event_loop, shader)
 }
@@ -199,23 +189,13 @@ impl ShaderManager for ChristmasShader {
             &core.device,
             "Params Uniform",
             ShaderParams {
-                lambda: 0.0004,
-                theta:0.8030,
-                alpha:0.2585,
-                sigma:1.0,
-                gamma:0.5,
-                blue:0.0,
-                aa: 2.0,
-                iter:355.0,
-                bound:35.5,
-                tt:0.1,
-                a:3.0,
-                b:0.5,
-                c:0.0,
-                d:0.0,
-                e:0.5,
-                f:1.0,
-                g:2.0,
+                max_iterations: 150,
+                max_sub_iterations: 11,
+                point_intensity: 0.000828,
+                center_scale: 1.0,
+                time_scale: 0.1,
+                dist_offset: 0.07,
+                _pad1: [0.0; 2],
             },
             &params_bind_group_layout,
             0,
@@ -232,18 +212,18 @@ impl ShaderManager for ChristmasShader {
 
         let fs_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Fragment Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/mandelbrot.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/galaxy.wgsl").into()),
         });
 
         let shader_paths = vec![
             PathBuf::from("shaders/vertex.wgsl"),
-            PathBuf::from("shaders/mandelbrot.wgsl"),
+            PathBuf::from("shaders/galaxy.wgsl"),
         ];
 
         let base = BaseShader::new(
             core,
             include_str!("../../shaders/vertex.wgsl"),
-            include_str!("../../shaders/mandelbrot.wgsl"),
+            include_str!("../../shaders/galaxy.wgsl"),
             &bind_group_layouts,
             None,
         );
@@ -294,19 +274,43 @@ impl ShaderManager for ChristmasShader {
     fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {
         let output = core.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let params = self.params_uniform.data;
-        let changed = false;
-        let should_start_export = false;
-        let export_request = self.base.export_manager.get_ui_request();
+        
+        let mut params = self.params_uniform.data;
+        let mut changed = false;
+        let mut should_start_export = false;
+        let mut export_request = self.base.export_manager.get_ui_request();
 
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
-
+                egui::Window::new("Galaxy Settings").show(ctx, |ui| {
+                    ui.collapsing("Parameters", |ui| {
+                        changed |= ui.add(egui::Slider::new(&mut params.max_iterations, 50..=300)
+                            .text("Max Iterations")).changed();
+                        
+                        changed |= ui.add(egui::Slider::new(&mut params.max_sub_iterations, 5..=20)
+                            .text("Max Sub Iterations")).changed();
+                        
+                        changed |= ui.add(egui::Slider::new(&mut params.point_intensity, 0.0001..=0.01)
+                            .logarithmic(true)
+                            .text("Point Intensity")).changed();
+                        
+                        changed |= ui.add(egui::Slider::new(&mut params.center_scale, 0.1..=5.0)
+                            .text("Center Scale")).changed();
+                        
+                        changed |= ui.add(egui::Slider::new(&mut params.time_scale, 0.01..=1.0)
+                            .text("Time Scale")).changed();
+                        
+                        changed |= ui.add(egui::Slider::new(&mut params.dist_offset, 0.01..=0.5)
+                            .text("Distance Offset")).changed();
+                    });
+        
+                    ui.separator();
+                    should_start_export = ExportManager::render_export_ui_widget(ui, &mut export_request);
+                });
             })
         } else {
             self.base.render_ui(core, |_ctx| {})
         };
-
         self.base.export_manager.apply_ui_request(export_request);
 
         if changed {
