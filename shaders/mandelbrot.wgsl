@@ -1,9 +1,10 @@
+// MIT License, altunenes, 2023
 struct TimeUniform {
     time: f32,
 };
 const PI: f32 = 3.14159265;
 const AA: i32 = 4;
-const MAX_ITER: i32 = 355;
+const MAX_ITER: i32 = 155;
 
 @group(0) @binding(0)
 var<uniform> u_time: TimeUniform;

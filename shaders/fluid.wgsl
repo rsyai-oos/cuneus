@@ -1,3 +1,5 @@
+//adapted from https://www.shadertoy.com/view/MsGSRd by flockaroo, 2016-06-15 (CC BY-NC-SA 3.0)
+// But this time we respect the original texture colors with different rotations
 @group(0) @binding(0) var prev_frame: texture_2d<f32>;
 @group(0) @binding(1) var tex_sampler: sampler;
 @group(1) @binding(0) var input_texture: texture_2d<f32>;
