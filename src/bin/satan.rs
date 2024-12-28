@@ -27,7 +27,8 @@ struct AttractorParams {
     decay: f32,
     smoke_color: [f32; 3],
     _padding: f32, //gpu memory stuff
-
+    color2: [f32; 3],
+    _padding2: f32, //gpu memory stuff
 }
 
 impl UniformProvider for AttractorParams {
@@ -285,12 +286,14 @@ impl ShaderManager for AttractorShader {
             &core.device,
             "Params Uniform",
             AttractorParams {
-                min_radius: 4.5,
-                max_radius: 4.5,
-                size: 0.07,
-                decay: 0.95,
-                smoke_color: [0.1, 0.0, 0.3],
+                min_radius: 2.0,
+                max_radius: 0.4,
+                size: 0.5,
+                decay: 1.0,
+                smoke_color: [0.1, 0.0, 0.3], 
                 _padding: 0.0,
+                color2: [1.0, 0.5, 0.2],
+                _padding2: 0.0,
             },
             &params_bind_group_layout,
             0,
@@ -446,12 +449,13 @@ impl ShaderManager for AttractorShader {
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
                 egui::Window::new("hell").show(ctx, |ui| {
-                    changed |= ui.add(egui::Slider::new(&mut params.min_radius, 1.0..=10.0).text("Min Radius")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.max_radius, 1.0..=10.0).text("Max Radius")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.size, 0.01..=0.2).text("Size")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.decay, 0.8..=0.99).text("Decay")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.min_radius, 0.0..=10.0).text("freq")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.max_radius, -3.0..=3.0).text("blend")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.size, -3.01..=12.2).text("Darkness")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.decay, 0.0..=3.99).text("vig")).changed();
                     
                     changed |= ui.color_edit_button_rgb(&mut params.smoke_color).changed();
+                    changed |= ui.color_edit_button_rgb(&mut params.color2).changed();
 
                     ui.separator();
                     should_start_export = ExportManager::render_export_ui_widget(ui, &mut export_request);

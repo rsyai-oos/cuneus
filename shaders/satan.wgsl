@@ -12,6 +12,7 @@ struct Params {
     decay: f32,
     smoke_color: vec3<f32>,
     _padding: f32,
+    color2: vec3<f32>,
 };
 @group(2) @binding(0)
 var<uniform> params: Params;
@@ -80,7 +81,7 @@ fn fbm(p: vec2<f32>) -> f32 {
     
     for(var i: f32 = 0.0; i < 5.0; i += 1.0) {
         value += amplitude * snoise(p * frequency);
-        frequency *= 2.0;
+        frequency *= params.min_radius;
         amplitude *= 0.5;
     }
     return value;
@@ -184,11 +185,10 @@ fn fs_pass1(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
     for(var i: f32 = 0.0; i < 12.0; i += 1.0) {
         emberAccum += ember(rotated_uv, time, random(vec2<f32>(i, 1.0)));
     }
-    col += vec3<f32>(1
-    .0, 0.5, 0.2) * emberAccum;
+    col += params.color2 * emberAccum;
     
     let darkness = length(uv);
-    col *= 1.0 - darkness * 0.5;
+    col *= 1.0 - darkness * params.size;
     
     let smoke = fbm(uv * 2.0 - time * 0.05) * 0.15;
     col += mix(vec3<f32>(0.0), darkEnergyColor * 0.3, smoke + snoise(uv * 4.0 + time * 0.1) * 0.05);
@@ -248,7 +248,7 @@ fn fs_pass2(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: ve
     let densityVariation = mix(0.4, 1.2, pentagramGlow);
     smoke *= densityVariation;
     
-    let blendFactor = 0.4;
+    let blendFactor = params.max_radius;
     smoke = mix(prevData.r, smoke, blendFactor);
     
     var col = prevData.rgb; 
@@ -266,7 +266,7 @@ fn fs_pass3(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: ve
     let data = textureSample(smoke_and_pentagram, tex_sampler, uv);
     var col = data.rgb;
     
-    let vignette = 1.0 - length(uv - 0.5) * 1.5;
+    let vignette = params.decay- length(uv - 0.5) * 1.5;
     col *= vignette;
     
     return vec4<f32>(col, 1.0);
