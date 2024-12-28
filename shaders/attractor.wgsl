@@ -1,3 +1,4 @@
+// MIT License, altunenes, 2023
 @group(0) @binding(0) var prev_frame: texture_2d<f32>;
 @group(0) @binding(1) var tex_sampler: sampler;
 

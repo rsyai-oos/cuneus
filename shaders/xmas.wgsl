@@ -1,3 +1,4 @@
+// MIT License, altunenes, 2024
 const PI: f32 = 3.14159265359;
 const TAU: f32 = 6.28;
 const LI_STEPS: i32 = 64;
