@@ -220,6 +220,27 @@ impl ExportManager {
                             }
                         }
                     });
+                    ui.horizontal(|ui| {
+                        let path_text = if let Some(path_str) = request.path.to_str() {
+                            path_str
+                        } else {
+                            "Invalid path"
+                        };
+                        ui.add(egui::Label::new(
+                            egui::RichText::new(path_text)
+                                .monospace()
+                                .weak()
+                                .color(egui::Color32::from_rgb(150, 150, 150))
+                        ));
+                    });
+                    if !request.path.exists() {
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new("⚠ Path doesn't exist!")
+                                    .color(egui::Color32::from_rgb(255, 190, 0))
+                            );
+                        });
+                    }
                 });
                 ui.separator();
                 if ui.button("Start Export").clicked() {
@@ -229,7 +250,6 @@ impl ExportManager {
                 ui.label("Exporting...");
             }
         });
-        
         should_start_export
     }
 }
