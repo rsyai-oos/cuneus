@@ -80,14 +80,11 @@ impl ChristmasShader {
             });
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-            if let Some(texture_manager) = &self.base.texture_manager {
-                render_pass.set_bind_group(0, &texture_manager.bind_group, &[]);
-            }
-            render_pass.set_bind_group(1, &self.base.time_uniform.bind_group, &[]);
-            render_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
+            render_pass.set_bind_group(0, &self.base.time_uniform.bind_group, &[]);
+            render_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
         }
-        encoder.copy_texture_to_buffer(
+        encoder.copy_texture_to_buffer( 
             wgpu::ImageCopyTexture {
                 texture: &capture_texture,
                 mip_level: 0,
