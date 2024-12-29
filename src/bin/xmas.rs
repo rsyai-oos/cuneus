@@ -290,7 +290,10 @@ impl ShaderManager for ChristmasShader {
     fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {
         let output = core.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let mut controls_request = self.base.controls.get_ui_request(&self.base.start_time);
+        let mut controls_request = self.base.controls.get_ui_request(
+            &self.base.start_time,
+            &core.size
+        );
         let mut params = self.params_uniform.data;
         let mut changed = false;
         let mut should_start_export = false;
@@ -313,7 +316,7 @@ impl ShaderManager for ChristmasShader {
                     changed |= ui.add(egui::Slider::new(&mut params.e, 0.002..=20.0).text("light2")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.f, 0.0..=20.0).text("light3")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.iter, -24.0..=24.0).text("ao_dist")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.bound, 0.00001..=0.5).text("vig")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.bound, 0.00001..=24.0).text("vig")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.aa, 0.0..=1.0).text("gamma")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.tt, -0.5..=0.5).text("starglow")).changed();
                     

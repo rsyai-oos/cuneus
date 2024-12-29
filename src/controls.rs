@@ -5,6 +5,7 @@ pub struct ControlsRequest {
     pub is_paused: bool,
     pub should_reset: bool,
     pub current_time: Option<f32>, 
+    pub window_size: Option<(u32, u32)>, 
 }
 
 pub struct ShaderControls {
@@ -12,6 +13,7 @@ pub struct ShaderControls {
     pause_start: Option<Instant>,
     total_pause_duration: f32,
     current_frame: u32,
+    
 }
 
 impl Default for ShaderControls {
@@ -48,13 +50,12 @@ impl ShaderControls {
                 raw_time - self.total_pause_duration
             }
         }
-    
-        // Add start_time parameter to get_ui_request
-        pub fn get_ui_request(&self, start_time: &Instant) -> ControlsRequest {
+        pub fn get_ui_request(&self, start_time: &Instant, size: &winit::dpi::PhysicalSize<u32>) -> ControlsRequest {
             ControlsRequest {
                 is_paused: self.is_paused,
                 should_reset: false,
                 current_time: Some(self.get_time(start_time)),
+                window_size: Some((size.width, size.height)),
             }
         }
     pub fn apply_ui_request(&mut self, request: ControlsRequest) {
@@ -74,19 +75,23 @@ impl ShaderControls {
         self.is_paused = request.is_paused;
     }
 
-
     pub fn render_controls_widget(ui: &mut egui::Ui, request: &mut ControlsRequest) {
-        ui.horizontal(|ui| {
-            if ui.button(if request.is_paused { "▶ Resume" } else { "⏸ Pause" }).clicked() {
-                request.is_paused = !request.is_paused;
-            }
-            if ui.button("↺ Reset").clicked() {
-                request.should_reset = true;
-            }
-            
-            // Add time text label here
-            if let Some(time) = request.current_time {  // We'll need to add this to ControlsRequest
-                ui.label(format!("Time: {:.2}s", time));
+        ui.vertical(|ui| { 
+            ui.horizontal(|ui| {
+                if ui.button(if request.is_paused { "▶ Resume" } else { "⏸ Pause" }).clicked() {
+                    request.is_paused = !request.is_paused;
+                }
+                if ui.button("↺ Reset").clicked() {
+                    request.should_reset = true;
+                }
+                if let Some(time) = request.current_time { 
+                    ui.label(format!("Time: {:.2}s", time));
+                }
+            });
+            if let Some((width, height)) = request.window_size {
+                ui.horizontal(|ui| {
+                    ui.label(format!("Resolution: {}x{}", width, height));
+                });
             }
         });
     }
