@@ -1,4 +1,4 @@
-use cuneus::{Core, ShaderManager,UniformProvider, UniformBinding,ExportError, BaseShader,TextureManager,ShaderHotReload};
+use cuneus::{Core, ShaderManager,UniformProvider, UniformBinding,ExportError, BaseShader,TextureManager,ShaderHotReload,ShaderControls};
 use winit::event::WindowEvent;
 use cuneus::ShaderApp;
 use cuneus::Renderer;
@@ -279,7 +279,6 @@ impl ShaderManager for FeedbackShader {
         }
     }
     fn update(&mut self, core: &Core) {
-        self.base.update_time(&core.queue);
         if let Some((new_vs, new_fs)) = self.hot_reload.check_and_reload() {
             println!("Reloading shaders at time: {:.2}s", self.base.start_time.elapsed().as_secs_f32());
             let pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -323,6 +322,11 @@ impl ShaderManager for FeedbackShader {
         let mut changed = false;
         let mut should_start_export = false;
         let mut export_request = self.base.export_manager.get_ui_request();
+        let mut controls_request = self.base.controls.get_ui_request(
+            &self.base.start_time,
+            &core.size
+        );
+
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
                 egui::Window::new("Feedback Settings").show(ctx, |ui| {
@@ -330,6 +334,9 @@ impl ShaderManager for FeedbackShader {
                     changed |= ui.add(egui::Slider::new(&mut params.feedback, 0.0..=0.99).text("Feedback")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.speed, 0.1..=5.0).text("Speed")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.scale, 0.1..=2.0).text("Scale")).changed();
+                    ui.separator();
+                    ShaderControls::render_controls_widget(ui, &mut controls_request);
+                    ui.separator();
                     should_start_export = ExportManager::render_export_ui_widget(ui, &mut export_request);
                 });
             })
@@ -337,6 +344,10 @@ impl ShaderManager for FeedbackShader {
             self.base.render_ui(core, |_ctx| {})
         };
         self.base.export_manager.apply_ui_request(export_request);
+        self.base.apply_control_request(controls_request);
+        let current_time = self.base.controls.get_time(&self.base.start_time);
+        self.base.time_uniform.data.time = current_time;
+        self.base.time_uniform.update(&core.queue);
         if changed {
             self.params_uniform.data = params;
             self.params_uniform.update(&core.queue);

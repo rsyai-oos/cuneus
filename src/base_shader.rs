@@ -1,11 +1,12 @@
 use std::time::Instant;
 use egui_wgpu::ScreenDescriptor;
 use egui::ViewportId;
-use crate::{Core, Renderer, TextureManager, UniformProvider, UniformBinding,KeyInputHandler,ExportManager};
+use crate::{Core, Renderer, TextureManager, UniformProvider, UniformBinding,KeyInputHandler,ExportManager,ShaderControls,ControlsRequest};
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct TimeUniform {
     pub time: f32,
+    pub frame: u32,
 }
 impl UniformProvider for TimeUniform {
     fn as_bytes(&self) -> &[u8] {
@@ -23,6 +24,7 @@ pub struct BaseShader {
     pub time_uniform: UniformBinding<TimeUniform>,
     pub key_handler: KeyInputHandler,
     pub export_manager: ExportManager,
+    pub controls: ShaderControls,
 }
 impl BaseShader {
     pub fn new(
@@ -48,7 +50,10 @@ impl BaseShader {
         let time_uniform = UniformBinding::new(
             &core.device,
             "Time Uniform",
-            TimeUniform { time: 0.0 },
+            TimeUniform { 
+                time: 0.0,
+                frame: 0,
+            },
             &time_bind_group_layout,
             0,
         );
@@ -127,6 +132,7 @@ impl BaseShader {
             time_uniform,
             key_handler: KeyInputHandler::new(),
             export_manager: ExportManager::new(),
+            controls: ShaderControls::new(),
         }
     }
 
@@ -300,5 +306,11 @@ impl BaseShader {
         });
 
         (capture_texture, output_buffer)
+    }
+    pub fn apply_control_request(&mut self, request: ControlsRequest) {
+        if request.should_reset {
+            self.start_time = Instant::now();
+        }
+        self.controls.apply_ui_request(request);
     }
 }
