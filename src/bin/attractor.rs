@@ -1,22 +1,10 @@
-use cuneus::{Core, ShaderManager, UniformProvider, UniformBinding, BaseShader, TextureManager, create_feedback_texture_pair,ExportSettings, ExportError,ExportManager,ShaderHotReload};
+use cuneus::{Core, ShaderManager, UniformProvider, UniformBinding, BaseShader, TextureManager, create_feedback_texture_pair,ExportSettings, ExportError,ExportManager,ShaderHotReload,ShaderControls};
 use winit::event::WindowEvent;
 use cuneus::ShaderApp;
 use cuneus::Renderer;
 use image::ImageError;
 use std::path::PathBuf;
 
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct TimeUniform {
-    time: f32,
-    frame: u32,
-}
-
-impl UniformProvider for TimeUniform {
-    fn as_bytes(&self) -> &[u8] {
-        bytemuck::bytes_of(self)
-    }
-}
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -37,7 +25,6 @@ struct AttractorShader {
     base: BaseShader,
     renderer_pass2: Renderer,
     renderer_pass3: Renderer,
-    time_uniform: UniformBinding<TimeUniform>,
     params_uniform: UniformBinding<AttractorParams>,
     texture_pair1: (TextureManager, TextureManager),
     texture_pair2: (TextureManager, TextureManager),
@@ -67,8 +54,8 @@ impl AttractorShader {
             label: Some("Capture Encoder"),
         });
         // Update time uniform for this frame
-        self.time_uniform.data.time = time;
-        self.time_uniform.update(&core.queue);
+        self.base.time_uniform.data.time = time;
+        self.base.time_uniform.update(&core.queue);
 
         // First Pass
         let temp_tex1 = if self.frame_count % 2 == 0 {
@@ -88,7 +75,7 @@ impl AttractorShader {
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
             render_pass.set_bind_group(0, &if self.frame_count % 2 == 0 { &self.texture_pair1.0 } else { &self.texture_pair1.1 }.bind_group, &[]);
-            render_pass.set_bind_group(1, &self.time_uniform.bind_group, &[]);
+            render_pass.set_bind_group(1, &self.base.time_uniform.bind_group, &[]);
             render_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
         }
@@ -108,7 +95,7 @@ impl AttractorShader {
             render_pass.set_pipeline(&self.renderer_pass2.render_pipeline);
             render_pass.set_vertex_buffer(0, self.renderer_pass2.vertex_buffer.slice(..));
             render_pass.set_bind_group(0, &temp_tex1.bind_group, &[]);
-            render_pass.set_bind_group(1, &self.time_uniform.bind_group, &[]);
+            render_pass.set_bind_group(1, &self.base.time_uniform.bind_group, &[]);
             render_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
         }
@@ -124,7 +111,7 @@ impl AttractorShader {
             render_pass.set_pipeline(&self.renderer_pass3.render_pipeline);
             render_pass.set_vertex_buffer(0, self.renderer_pass3.vertex_buffer.slice(..));
             render_pass.set_bind_group(0, &temp_tex2.bind_group, &[]);
-            render_pass.set_bind_group(1, &self.time_uniform.bind_group, &[]);
+            render_pass.set_bind_group(1, &self.base.time_uniform.bind_group, &[]);
             render_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
         }
@@ -267,16 +254,6 @@ impl ShaderManager for AttractorShader {
             label: Some("params_bind_group_layout"),
         });
 
-        let time_uniform = UniformBinding::new(
-            &core.device,
-            "Time Uniform",
-            TimeUniform { 
-                time: 0.0,
-                frame: 0,
-            },
-            &time_bind_group_layout,
-            0,
-        );
 
         let params_uniform = UniformBinding::new(
             &core.device,
@@ -368,7 +345,6 @@ impl ShaderManager for AttractorShader {
             base,
             renderer_pass2,
             renderer_pass3,
-            time_uniform,
             params_uniform,
             texture_pair1,
             texture_pair2,
@@ -381,9 +357,6 @@ impl ShaderManager for AttractorShader {
     }
 
     fn update(&mut self, core: &Core) {
-        self.time_uniform.data.time = self.base.start_time.elapsed().as_secs_f32();
-        self.time_uniform.update(&core.queue);
-        self.time_uniform.data.frame = self.frame_count;
         if let Some((new_vs, new_fs)) = self.hot_reload.check_and_reload() {
             println!("Reloading shaders at time: {:.2}s", self.base.start_time.elapsed().as_secs_f32());
             let pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -437,6 +410,7 @@ impl ShaderManager for AttractorShader {
         let mut changed = false;
         let mut should_start_export = false;
         let mut export_request = self.base.export_manager.get_ui_request();
+        let mut controls_request = self.base.controls.get_ui_request();
 
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
@@ -446,15 +420,19 @@ impl ShaderManager for AttractorShader {
                     changed |= ui.add(egui::Slider::new(&mut params.size, 0.01..=1.2).text("color")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.decay, 0.0..=0.99).text("feedback")).changed();
                     ui.separator();
+                    ShaderControls::render_controls_widget(ui, &mut controls_request);
+                    ui.separator();
                     should_start_export = ExportManager::render_export_ui_widget(ui, &mut export_request);
                 });
             })
         } else {
             self.base.render_ui(core, |_ctx| {})
         };
-
         self.base.export_manager.apply_ui_request(export_request);
-
+        self.base.apply_control_request(controls_request);
+        let current_time = self.base.controls.get_time(&self.base.start_time);
+        self.base.time_uniform.data.time = current_time;
+        self.base.time_uniform.update(&core.queue);
         if changed {
             self.params_uniform.data = params;
             self.params_uniform.update(&core.queue);
@@ -488,7 +466,7 @@ impl ShaderManager for AttractorShader {
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
             render_pass.set_bind_group(0, &source_tex.bind_group, &[]);
-            render_pass.set_bind_group(1, &self.time_uniform.bind_group, &[]);
+            render_pass.set_bind_group(1, &self.base.time_uniform.bind_group, &[]);
             render_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
         }
@@ -524,7 +502,7 @@ impl ShaderManager for AttractorShader {
             render_pass.set_pipeline(&self.renderer_pass2.render_pipeline);
             render_pass.set_vertex_buffer(0, self.renderer_pass2.vertex_buffer.slice(..));
             render_pass.set_bind_group(0, &source_tex.bind_group, &[]); // Using the result from Pass 1
-            render_pass.set_bind_group(1, &self.time_uniform.bind_group, &[]);
+            render_pass.set_bind_group(1, &self.base.time_uniform.bind_group, &[]);
             render_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
         }
@@ -555,7 +533,7 @@ impl ShaderManager for AttractorShader {
             render_pass.set_pipeline(&self.renderer_pass3.render_pipeline);
             render_pass.set_vertex_buffer(0, self.renderer_pass3.vertex_buffer.slice(..));
             render_pass.set_bind_group(0, &source_tex.bind_group, &[]);
-            render_pass.set_bind_group(1, &self.time_uniform.bind_group, &[]);
+            render_pass.set_bind_group(1, &self.base.time_uniform.bind_group, &[]);
             render_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
         }

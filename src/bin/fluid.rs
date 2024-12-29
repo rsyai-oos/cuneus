@@ -1,20 +1,9 @@
-use cuneus::{Core, ShaderManager, UniformProvider, UniformBinding, BaseShader, TextureManager, create_feedback_texture_pair,ExportSettings, ExportError, ExportManager,ShaderHotReload};
+use cuneus::{Core, ShaderManager, UniformProvider, UniformBinding, BaseShader, TextureManager, create_feedback_texture_pair,ExportSettings, ExportError, ExportManager,ShaderHotReload,ShaderControls};
 use winit::event::WindowEvent;
 use cuneus::ShaderApp;
 use cuneus::Renderer;
 use image::ImageError;
 use std::path::PathBuf;
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct TimeUniform {
-    time: f32,
-    frame: u32,
-}
-impl UniformProvider for TimeUniform {
-    fn as_bytes(&self) -> &[u8] {
-        bytemuck::bytes_of(self)
-    }
-}
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct FluidParams {
@@ -31,7 +20,6 @@ impl UniformProvider for FluidParams {
 struct FluidShader {
     base: BaseShader,
     renderer_pass2: Renderer,
-    time_uniform: UniformBinding<TimeUniform>,
     params_uniform: UniformBinding<FluidParams>,
     texture_a: Option<TextureManager>,
     texture_b: Option<TextureManager>,
@@ -61,9 +49,9 @@ impl FluidShader {
         let mut encoder = core.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Capture Encoder"),
         });
-        self.time_uniform.data.time = time;
-        self.time_uniform.data.frame = self.frame_count;
-        self.time_uniform.update(&core.queue);
+        self.base.time_uniform.data.time = time;
+        self.base.time_uniform.data.frame= self.frame_count;
+        self.base.time_uniform.update(&core.queue);
 
         {
             let mut render_pass = Renderer::begin_render_pass(
@@ -82,7 +70,7 @@ impl FluidShader {
             } else if let Some(ref default_texture) = self.base.texture_manager {
                 render_pass.set_bind_group(1, &default_texture.bind_group, &[]);
             }
-            render_pass.set_bind_group(2, &self.time_uniform.bind_group, &[]);
+            render_pass.set_bind_group(2, &self.base.time_uniform.bind_group, &[]);
             render_pass.set_bind_group(3, &self.params_uniform.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
         }
@@ -242,16 +230,6 @@ impl ShaderManager for FluidShader {
             }],
             label: Some("params_bind_group_layout"),
         });
-        let time_uniform = UniformBinding::new(
-            &core.device,
-            "Time Uniform",
-            TimeUniform {
-                time: 0.0,
-                frame: 0,
-            },
-            &time_bind_group_layout,
-            0,
-        );
         let params_uniform = UniformBinding::new(
             &core.device,
             "Params Uniform",
@@ -322,7 +300,6 @@ impl ShaderManager for FluidShader {
         Self {
             base,
             renderer_pass2,
-            time_uniform,
             params_uniform,
             texture_a: Some(texture_a),
             texture_b: Some(texture_b),
@@ -336,9 +313,6 @@ impl ShaderManager for FluidShader {
         }
     }
     fn update(&mut self, core: &Core) {
-        self.time_uniform.data.time = self.base.start_time.elapsed().as_secs_f32();
-        self.time_uniform.data.frame = self.frame_count;
-        self.time_uniform.update(&core.queue);
         if let Some((new_vs, new_fs)) = self.hot_reload.check_and_reload() {
             println!("Reloading shaders at time: {:.2}s", self.base.start_time.elapsed().as_secs_f32());
             let pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -384,6 +358,7 @@ impl ShaderManager for FluidShader {
         let mut params = self.params_uniform.data;
         let mut changed = false;
         let mut export_request = self.base.export_manager.get_ui_request();
+        let mut controls_request = self.base.controls.get_ui_request();
         let mut should_start_export = false;
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
@@ -402,6 +377,8 @@ impl ShaderManager for FluidShader {
                     changed |= ui.add(egui::Slider::new(&mut params.distortion, 1.0..=20.0).text("Distortion")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.feedback, 0.0..=1.01).text("Feedback")).changed();
                     ui.separator();
+                    ShaderControls::render_controls_widget(ui, &mut controls_request);
+                    ui.separator();
                     should_start_export = ExportManager::render_export_ui_widget(ui, &mut export_request);
                 });
             })
@@ -409,7 +386,12 @@ impl ShaderManager for FluidShader {
             self.base.render_ui(core, |_ctx| {})
         };
         self.base.export_manager.apply_ui_request(export_request);
-
+        self.base.apply_control_request(controls_request);
+        let current_time = self.base.controls.get_time(&self.base.start_time);
+        let current_frame = self.base.controls.get_frame();
+        self.base.time_uniform.data.time = current_time;
+        self.base.time_uniform.data.frame = current_frame;
+        self.base.time_uniform.update(&core.queue);
         if should_start_export {
             self.base.export_manager.start_export();
         }
@@ -424,7 +406,7 @@ impl ShaderManager for FluidShader {
             }
         }
         if let (Some(ref texture_a), Some(ref texture_b)) = (&self.texture_a, &self.texture_b) {
-            let (source_texture, target_texture) = if self.frame_count % 2 == 0 {
+            let (source_texture, target_texture) = if current_frame % 2 == 0 {
                 (texture_b, texture_a)
             } else {
                 (texture_a, texture_b)
@@ -452,7 +434,7 @@ impl ShaderManager for FluidShader {
                 } else if let Some(ref default_texture) = self.base.texture_manager {
                     render_pass.set_bind_group(1, &default_texture.bind_group, &[]);
                 }
-                render_pass.set_bind_group(2, &self.time_uniform.bind_group, &[]);
+                render_pass.set_bind_group(2, &self.base.time_uniform.bind_group, &[]);
                 render_pass.set_bind_group(3, &self.params_uniform.bind_group, &[]);
                 render_pass.draw(0..4, 0..1);
             }
@@ -479,7 +461,7 @@ impl ShaderManager for FluidShader {
                 } else if let Some(ref default_texture) = self.base.texture_manager {
                     render_pass.set_bind_group(1, &default_texture.bind_group, &[]);
                 }
-                render_pass.set_bind_group(2, &self.time_uniform.bind_group, &[]);
+                render_pass.set_bind_group(2, &self.base.time_uniform.bind_group, &[]);
                 render_pass.set_bind_group(3, &self.params_uniform.bind_group, &[]);
                 render_pass.draw(0..4, 0..1);
             }

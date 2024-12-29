@@ -1,4 +1,4 @@
-use cuneus::{Core,Renderer,ShaderApp, ShaderManager, UniformProvider, UniformBinding, BaseShader,ExportSettings, ExportError, ExportManager,ShaderHotReload};
+use cuneus::{Core,Renderer,ShaderApp, ShaderManager, UniformProvider, UniformBinding, BaseShader,ExportSettings, ExportError, ExportManager,ShaderHotReload,ShaderControls};
 use winit::event::*;
 use image::ImageError;
 use std::path::PathBuf;
@@ -267,7 +267,6 @@ impl ShaderManager for ChristmasShader {
     }
 
     fn update(&mut self, core: &Core) {
-        self.base.update_time(&core.queue);
         if let Some((new_vs, new_fs)) = self.hot_reload.check_and_reload() {
             println!("Reloading shaders at time: {:.2}s", self.base.start_time.elapsed().as_secs_f32());
             let pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -301,6 +300,7 @@ impl ShaderManager for ChristmasShader {
         let mut changed = false;
         let mut should_start_export = false;
         let mut export_request = self.base.export_manager.get_ui_request();
+        let mut controls_request = self.base.controls.get_ui_request();
 
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
@@ -310,6 +310,9 @@ impl ShaderManager for ChristmasShader {
                     changed |= ui.add(egui::Slider::new(&mut params.alpha, 0.0..=1.0).text("num_vert_min")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.sigma, 0.0..=1.0).text("num_vert_max")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.gamma, 1.0..=15.0).text("radi")).changed();
+                    ui.separator();
+                    ShaderControls::render_controls_widget(ui, &mut controls_request);
+                    ui.separator();
                     should_start_export = ExportManager::render_export_ui_widget(ui, &mut export_request);
                 });
             })
@@ -318,7 +321,10 @@ impl ShaderManager for ChristmasShader {
         };
 
         self.base.export_manager.apply_ui_request(export_request);
-
+        self.base.apply_control_request(controls_request);
+        let current_time = self.base.controls.get_time(&self.base.start_time);
+        self.base.time_uniform.data.time = current_time;
+        self.base.time_uniform.update(&core.queue);
         if changed {
             self.params_uniform.data = params;
             self.params_uniform.update(&core.queue);

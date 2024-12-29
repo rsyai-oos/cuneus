@@ -8,14 +8,18 @@ pub struct ControlsRequest {
 
 pub struct ShaderControls {
     is_paused: bool,
-    last_time: Option<f32>,
+    pause_start: Option<Instant>,
+    total_pause_duration: f32,
+    current_frame: u32,
 }
 
 impl Default for ShaderControls {
     fn default() -> Self {
         Self {
             is_paused: false,
-            last_time: None,
+            pause_start: None,
+            total_pause_duration: 0.0,
+            current_frame: 0,
         }
     }
 }
@@ -24,31 +28,47 @@ impl ShaderControls {
     pub fn new() -> Self {
         Self::default()
     }
-
+    pub fn get_frame(&mut self) -> u32 {
+        if !self.is_paused {
+            self.current_frame = self.current_frame.wrapping_add(1);
+        }
+        self.current_frame
+    }
     pub fn get_ui_request(&self) -> ControlsRequest {
         ControlsRequest {
             is_paused: self.is_paused,
             should_reset: false,
         }
     }
-
     pub fn apply_ui_request(&mut self, request: ControlsRequest) {
-        self.is_paused = request.is_paused;
         if request.should_reset {
-            self.last_time = None; 
+            self.is_paused = false;
+            self.pause_start = None;
+            self.total_pause_duration = 0.0;
+            self.current_frame = 0;
+        } else if request.is_paused && !self.is_paused {
+            self.pause_start = Some(Instant::now());
+        } else if !request.is_paused && self.is_paused {
+            if let Some(pause_start) = self.pause_start {
+                self.total_pause_duration += pause_start.elapsed().as_secs_f32();
+            }
+            self.pause_start = None;
         }
+        self.is_paused = request.is_paused;
     }
 
     pub fn get_time(&mut self, start_time: &Instant) -> f32 {
+        let raw_time = start_time.elapsed().as_secs_f32();
         if self.is_paused {
-            self.last_time.unwrap_or(0.0) 
+            if let Some(pause_start) = self.pause_start {
+                raw_time - self.total_pause_duration - pause_start.elapsed().as_secs_f32()
+            } else {
+                raw_time - self.total_pause_duration
+            }
         } else {
-            let current_time = start_time.elapsed().as_secs_f32();
-            self.last_time = Some(current_time);
-            current_time
+            raw_time - self.total_pause_duration
         }
     }
-
     pub fn render_controls_widget(ui: &mut egui::Ui, request: &mut ControlsRequest) {
         ui.horizontal(|ui| {
             if ui.button(if request.is_paused { "▶ Resume" } else { "⏸ Pause" }).clicked() {
