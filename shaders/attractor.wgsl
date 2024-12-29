@@ -67,7 +67,7 @@ fn fs_pass1(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: ve
         let attPo = cl(initialPoint, a, b, c, d, t);
         let circlePoint = attPo * scale;
         let chang = oscillate(0.1, 0.5, 12.0, time_data.time);
-        let pointColor = 0.5 + chang * cos(vec3<f32>(1.0, S/3.0, S*2.0/3.0) + Cindex * 0.99);
+        let pointColor = 0.5 + chang * cos(vec3<f32>(1.0, S/3.0, S*2.0/3.0) + Cindex * params.size);
         let dist = length(uv - circlePoint);
         
         color += pointColor * sizw / (dist + 0.0001);
@@ -75,14 +75,14 @@ fn fs_pass1(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: ve
     let des = oscillate(1.5, 2.0, 12.0, time_data.time);
     color = sqrt(color) * des - 1.5;
     let feedback = textureSample(prev_frame, tex_sampler, tex_coords);
-    color = mix(color, feedback.rgb, 0.96);
+    color = mix(color, feedback.rgb, params.decay);
     color = gamma_correction(color, 0.9);
     return vec4<f32>(color, 1.0);
 }
 @fragment
 fn fs_pass2(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
     let currentFrame = textureSample(prev_frame, tex_sampler, tex_coords); // Source texture from Pass 1
-    return currentFrame * params.decay;
+    return currentFrame * 0.98;
 }
 @fragment
 fn fs_pass3(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {

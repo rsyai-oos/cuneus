@@ -284,8 +284,8 @@ impl ShaderManager for AttractorShader {
             AttractorParams {
                 min_radius: 4.5,
                 max_radius: 4.5,
-                size: 0.07,
-                decay: 0.95,
+                size: 0.99,
+                decay: 0.98,
             },
             &params_bind_group_layout,
             0,
@@ -443,8 +443,8 @@ impl ShaderManager for AttractorShader {
                 egui::Window::new("Attractor Settings").show(ctx, |ui| {
                     changed |= ui.add(egui::Slider::new(&mut params.min_radius, 1.0..=10.0).text("Min Radius")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.max_radius, 1.0..=10.0).text("Max Radius")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.size, 0.01..=0.2).text("Size")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.decay, 0.8..=0.99).text("Decay")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.size, 0.01..=1.2).text("color")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.decay, 0.0..=0.99).text("feedback")).changed();
                     ui.separator();
                     should_start_export = ExportManager::render_export_ui_widget(ui, &mut export_request);
                 });
