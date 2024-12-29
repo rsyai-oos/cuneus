@@ -184,48 +184,52 @@ impl ExportManager {
         let mut should_start_export = false;
         
         ui.separator();
-        ui.heading("Export Settings");
-        
-        if !request.is_exporting {
-            ui.horizontal(|ui| {
-                ui.label("Export Path:");
-                if ui.button("Browse").clicked() {
-                    if let Some(path) = rfd::FileDialog::new()
-                        .set_directory(&request.path)
-                        .pick_folder() {
-                        request.path = path;
-                    }
+        ui.collapsing("Export", |ui| {
+            if !request.is_exporting {
+                // Resolution section
+                ui.collapsing("Resolution", |ui| {
+                    ui.add(egui::DragValue::new(&mut request.width)
+                        .range(1..=7680)
+                        .prefix("Width: "));
+                        
+                    ui.add(egui::DragValue::new(&mut request.height)
+                        .range(1..=4320)
+                        .prefix("Height: "));
+                });
+                ui.collapsing("Time Settings", |ui| {
+                    ui.add(egui::DragValue::new(&mut request.start_time)
+                        .prefix("Start Time: ")
+                        .speed(0.1));
+                        
+                    ui.add(egui::DragValue::new(&mut request.end_time)
+                        .prefix("End Time: ")
+                        .speed(0.1));
+                        
+                    ui.add(egui::DragValue::new(&mut request.fps)
+                        .range(1..=240)
+                        .prefix("FPS: "));
+                });
+                ui.collapsing("Output", |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("Export Path:");
+                        if ui.button("Browse").clicked() {
+                            if let Some(path) = rfd::FileDialog::new()
+                                .set_directory(&request.path)
+                                .pick_folder() {
+                                request.path = path;
+                            }
+                        }
+                    });
+                });
+                ui.separator();
+                if ui.button("Start Export").clicked() {
+                    should_start_export = true;
                 }
-            });
-            
-            ui.add(egui::DragValue::new(&mut request.width)
-                .range(1..=7680)
-                .prefix("Width: "));
-                
-            ui.add(egui::DragValue::new(&mut request.height)
-                .range(1..=4320)
-                .prefix("Height: "));
-                
-            ui.add(egui::DragValue::new(&mut request.start_time)
-                .prefix("Start Time: ")
-                .speed(0.1));
-                
-            ui.add(egui::DragValue::new(&mut request.end_time)
-                .prefix("End Time: ")
-                .speed(0.1));
-                
-            ui.add(egui::DragValue::new(&mut request.fps)
-                .range(1..=240)
-                .prefix("FPS: "));
-
-            if ui.button("Start Export").clicked() {
-                should_start_export = true;
+            } else {
+                ui.label("Exporting...");
             }
-        } else {
-            ui.label("Exporting...");
-        }
+        });
         
         should_start_export
     }
-
 }
