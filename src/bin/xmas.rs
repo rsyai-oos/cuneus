@@ -290,7 +290,7 @@ impl ShaderManager for ChristmasShader {
     fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {
         let output = core.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let mut controls_request = self.base.controls.get_ui_request();
+        let mut controls_request = self.base.controls.get_ui_request(&self.base.start_time);
         let mut params = self.params_uniform.data;
         let mut changed = false;
         let mut should_start_export = false;

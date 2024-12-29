@@ -358,7 +358,7 @@ impl ShaderManager for FluidShader {
         let mut params = self.params_uniform.data;
         let mut changed = false;
         let mut export_request = self.base.export_manager.get_ui_request();
-        let mut controls_request = self.base.controls.get_ui_request();
+        let mut controls_request = self.base.controls.get_ui_request(&self.base.start_time);
         let mut should_start_export = false;
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {

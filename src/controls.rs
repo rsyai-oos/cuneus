@@ -4,6 +4,7 @@ use std::time::Instant;
 pub struct ControlsRequest {
     pub is_paused: bool,
     pub should_reset: bool,
+    pub current_time: Option<f32>, 
 }
 
 pub struct ShaderControls {
@@ -34,12 +35,28 @@ impl ShaderControls {
         }
         self.current_frame
     }
-    pub fn get_ui_request(&self) -> ControlsRequest {
-        ControlsRequest {
-            is_paused: self.is_paused,
-            should_reset: false,
+
+        pub fn get_time(&self, start_time: &Instant) -> f32 {
+            let raw_time = start_time.elapsed().as_secs_f32();
+            if self.is_paused {
+                if let Some(pause_start) = self.pause_start {
+                    raw_time - self.total_pause_duration - pause_start.elapsed().as_secs_f32()
+                } else {
+                    raw_time - self.total_pause_duration
+                }
+            } else {
+                raw_time - self.total_pause_duration
+            }
         }
-    }
+    
+        // Add start_time parameter to get_ui_request
+        pub fn get_ui_request(&self, start_time: &Instant) -> ControlsRequest {
+            ControlsRequest {
+                is_paused: self.is_paused,
+                should_reset: false,
+                current_time: Some(self.get_time(start_time)),
+            }
+        }
     pub fn apply_ui_request(&mut self, request: ControlsRequest) {
         if request.should_reset {
             self.is_paused = false;
@@ -57,18 +74,7 @@ impl ShaderControls {
         self.is_paused = request.is_paused;
     }
 
-    pub fn get_time(&mut self, start_time: &Instant) -> f32 {
-        let raw_time = start_time.elapsed().as_secs_f32();
-        if self.is_paused {
-            if let Some(pause_start) = self.pause_start {
-                raw_time - self.total_pause_duration - pause_start.elapsed().as_secs_f32()
-            } else {
-                raw_time - self.total_pause_duration
-            }
-        } else {
-            raw_time - self.total_pause_duration
-        }
-    }
+
     pub fn render_controls_widget(ui: &mut egui::Ui, request: &mut ControlsRequest) {
         ui.horizontal(|ui| {
             if ui.button(if request.is_paused { "▶ Resume" } else { "⏸ Pause" }).clicked() {
@@ -76,6 +82,11 @@ impl ShaderControls {
             }
             if ui.button("↺ Reset").clicked() {
                 request.should_reset = true;
+            }
+            
+            // Add time text label here
+            if let Some(time) = request.current_time {  // We'll need to add this to ControlsRequest
+                ui.label(format!("Time: {:.2}s", time));
             }
         });
     }

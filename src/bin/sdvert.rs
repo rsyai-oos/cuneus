@@ -300,16 +300,15 @@ impl ShaderManager for ChristmasShader {
         let mut changed = false;
         let mut should_start_export = false;
         let mut export_request = self.base.export_manager.get_ui_request();
-        let mut controls_request = self.base.controls.get_ui_request();
-
+        let mut controls_request = self.base.controls.get_ui_request(&self.base.start_time);
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
                 egui::Window::new("Settings").show(ctx, |ui| {
                     changed |= ui.add(egui::Slider::new(&mut params.lambda, 0.0..=20.0).text("vert")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.theta, 0.0..=60.0).text("angle")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.alpha, 0.0..=1.0).text("num_vert_min")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.sigma, 0.0..=1.0).text("num_vert_max")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.gamma, 1.0..=15.0).text("radi")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.alpha, 0.2..=1.0).text("num_vert_min")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.sigma, 0.2..=1.0).text("num_vert_max")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.gamma, 1.0..=3.0).text("radi")).changed();
                     ui.separator();
                     ShaderControls::render_controls_widget(ui, &mut controls_request);
                     ui.separator();
