@@ -6,26 +6,16 @@ use std::path::PathBuf;
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct ShaderParams {
     // Colors
-    color_core: [f32; 3],
+    color1: [f32; 3],
     _pad1: f32,
-    color_bulb1: [f32; 3],
+    gradient_color: [f32; 3],
     _pad2: f32,
-    color_bulb2: [f32; 3],
-    _pad3: f32,
-    color_detail: [f32; 3],
-    _pad4: f32,
-    glow_color: [f32; 3],
-    _pad5: f32,
-    color_bulb3: [f32; 3],
-    _pad6: f32,
-
-    // Numeric parameters
+    
+    c_value_max: f32,
     iterations: i32,
-    max_steps: i32,
-    max_dist: f32,
-    min_dist: f32,
+    aa_level: i32,
+    _pad3: f32,
 }
-
 impl UniformProvider for ShaderParams {
     fn as_bytes(&self) -> &[u8] {
         bytemuck::bytes_of(self)
@@ -41,7 +31,7 @@ struct ChristmasShader {
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
-    let (app, event_loop) = ShaderApp::new("mandelbulb", 800, 600);
+    let (app, event_loop) = ShaderApp::new("sinh", 800, 600);
     let shader = ChristmasShader::init(app.core());
     app.run(event_loop, shader)
 }
@@ -198,29 +188,20 @@ impl ShaderManager for ChristmasShader {
             "Params Uniform",
             ShaderParams {
                 // Colors
-                color_core: [0.82, 0.41, 0.12],
+                color1: [0.0, 0.5, 1.0],
                 _pad1: 0.0,
-                color_bulb1: [1.0, 0.65, 0.25],
+                gradient_color: [0.5, 0.25, 0.05],
                 _pad2: 0.0,
-                color_bulb2: [0.95, 0.4, 0.55],
-                _pad3: 0.0,
-                color_detail: [0.7, 0.7, 0.7],
-                _pad4: 0.0,
-                glow_color: [0.3, 0.5, 0.7],
-                _pad5: 0.0,
-                color_bulb3: [0.82, 0.41, 0.12],
-                _pad6: 0.0,
-        
+                
                 // Numeric parameters
-                iterations: 12,
-                max_steps: 355,
-                max_dist: 33.0,
-                min_dist: 0.001,
+                c_value_max: 2.99225,
+                iterations: 65,
+                aa_level: 1,
+                _pad3: 0.0,
             },
             &params_bind_group_layout,
             0,
         );
-
         let bind_group_layouts = vec![
             &time_bind_group_layout,
             &params_bind_group_layout,
@@ -232,18 +213,18 @@ impl ShaderManager for ChristmasShader {
 
         let fs_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Fragment Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/mandelbulb.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/sinh.wgsl").into()),
         });
 
         let shader_paths = vec![
             PathBuf::from("shaders/vertex.wgsl"),
-            PathBuf::from("shaders/mandelbulb.wgsl"),
+            PathBuf::from("shaders/sinh.wgsl"),
         ];
 
         let base = BaseShader::new(
             core,
             include_str!("../../shaders/vertex.wgsl"),
-            include_str!("../../shaders/mandelbulb.wgsl"),
+            include_str!("../../shaders/sinh.wgsl"),
             &bind_group_layouts,
             None,
         );
@@ -305,41 +286,23 @@ impl ShaderManager for ChristmasShader {
 
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
-                egui::Window::new("Mandelbulb Settings").show(ctx, |ui| {
+                egui::Window::new("Fractal Settings").show(ctx, |ui| {
                     ui.collapsing("Colors", |ui| {
-                        changed |= ui.color_edit_button_rgb(&mut params.color_core).changed();
-                        ui.label("Core Color");
+                        changed |= ui.color_edit_button_rgb(&mut params.color1).changed();
+                        ui.label("Color 1");
                         
-                        changed |= ui.color_edit_button_rgb(&mut params.color_bulb1).changed();
-                        ui.label("Bulb Color 1");
-                        
-                        changed |= ui.color_edit_button_rgb(&mut params.color_bulb2).changed();
-                        ui.label("Bulb Color 2");
-                        
-                        changed |= ui.color_edit_button_rgb(&mut params.color_detail).changed();
-                        ui.label("Detail Color");
-                        
-                        changed |= ui.color_edit_button_rgb(&mut params.glow_color).changed();
-                        ui.label("Glow Color");
-                        
-                        changed |= ui.color_edit_button_rgb(&mut params.color_bulb3).changed();
-                        ui.label("Bulb Color 3");
+                        changed |= ui.color_edit_button_rgb(&mut params.gradient_color).changed();
+                        ui.label("Gradient Color");
                     });
         
                     ui.collapsing("Parameters", |ui| {
-                        changed |= ui.add(egui::Slider::new(&mut params.iterations, 1..=50)
+                        changed |= ui.add(egui::Slider::new(&mut params.c_value_max, 2.197..=3.5)
+                            .text("C Value Max")).changed();
+                        
+                        changed |= ui.add(egui::Slider::new(&mut params.iterations, 1..=100)
                             .text("Iterations")).changed();
-                        
-                        changed |= ui.add(egui::Slider::new(&mut params.max_steps, 50..=1000)
-                            .text("Max Steps")).changed();
-                        
-                        changed |= ui.add(egui::Slider::new(&mut params.max_dist, 1.0..=100.0)
-                            .text("Max Distance")).changed();
-                        
-                        changed |= ui.add(egui::Slider::new(&mut params.min_dist, 0.0001..=0.1)
-                            .logarithmic(true)
-                            .text("Min Distance")).changed();
                     });
+                    
                     ui.separator();
                     ShaderControls::render_controls_widget(ui, &mut controls_request);
                     ui.separator();
