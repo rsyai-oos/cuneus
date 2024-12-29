@@ -140,7 +140,7 @@ fn fs_pass2(...) -> @location(0) vec4<f32> {
 
 
 ### Hot Reloading
-The framework supports hot reloading of shaders. Simply modify your WGSL files and they will automatically reload. For now, it crashes if you make an error. 
+cuneus supports hot reloading of shaders. Simply modify your WGSL files and they will automatically reload. For now, it crashes if you make an error. 
 
 ### Export Support
 Built-in support for exporting frames as images. Access through the UI when enabled. "Start time" is not working correctly currently.
@@ -151,6 +151,25 @@ Load and use textures in your shaders:
 if let Some(ref texture_manager) = self.base.texture_manager {
     render_pass.set_bind_group(0, &texture_manager.bind_group, &[]);
 }
+```
+
+## Resolution Handling
+
+cuneus handles both logical and physical resolution:
+
+1. Initial window size is set in logical pixels:
+
+```rust
+   let (app, event_loop) = ShaderApp::new("My Shader", 800, 600);
+ ```
+2.  On high-DPI displays (like Retina), the physical resolution is automatically scaled:
+    e.g., 800x600 logical becomes 1600x1200 physical on a 2x scaling display
+    Your shader's UV coordinates (0.0 to 1.0) automatically adapt to any resolution
+    Export resolution can be set independently through the UI
+
+Your WGSL shaders can access actual dimensions when needed:
+```wgsl
+let dimensions = vec2<f32>(textureDimensions(my_texture));
 ```
 
 ### Adding Interactive Controls
