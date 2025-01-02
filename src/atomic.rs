@@ -9,7 +9,7 @@ pub struct AtomicBuffer {
 
 impl AtomicBuffer {
     pub fn new(device: &wgpu::Device, size: u32, layout: &wgpu::BindGroupLayout) -> Self {
-        let buffer_size = (size * 4 * 4) as u64; // RGBA * 4 bytes per channel
+        let buffer_size = (size * 4 * 4) as u64;
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Atomic Buffer"),
             size: buffer_size,
