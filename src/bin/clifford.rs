@@ -50,19 +50,16 @@ impl FeedbackShader {
         let mut encoder = core.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Capture Encoder"),
         });
-
-        // Update time uniform for this frame
         self.base.time_uniform.data.time = time;
         self.base.time_uniform.update(&core.queue);
-
         {
+            self.atomic_buffer.clear(&core.queue);
             let mut render_pass = Renderer::begin_render_pass(
                 &mut encoder,
                 &capture_view,
                 wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                 Some("Capture Pass"),
             );
-
             render_pass.set_pipeline(&self.renderer_pass2.render_pipeline);
             render_pass.set_vertex_buffer(0, self.renderer_pass2.vertex_buffer.slice(..));
             if let Some(texture) = &self.texture_a {
@@ -70,6 +67,7 @@ impl FeedbackShader {
             }
             render_pass.set_bind_group(1, &self.base.time_uniform.bind_group, &[]);
             render_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
+            render_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
         }
 
