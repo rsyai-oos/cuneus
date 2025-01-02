@@ -125,14 +125,8 @@ fn point_gen(tex_coords: vec2<f32>, dims: vec2<f32>) -> vec4<f32> {
     var p = vec3<f32>(2.0 * (r4.x - 0.5), 2.0 * (r4.y - 0.5), 0.0);
     
     let t = time_data.time * params.speed;
-    let color = vec3<f32>(
-        0.5 + 0.5 * sin(t + r4.z * TWO_PI),
-        0.5 + 0.5 * cos(t + r4.w * TWO_PI),
-        0.5 + 0.5 * sin(t + r4.x * PI)
-    );
-    
+    let color = vec3<f32>(1.0, 0.0, 0.0);
     var result = vec4<f32>(0.0);
-    
     for(var i = 0; i < 25; i++) {
         let next = clifford_attractor(p.xy, t);
         p = vec3<f32>(next.x, next.y, 0.0);
