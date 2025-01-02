@@ -227,7 +227,7 @@ impl ShaderManager for FeedbackShader {
             &core.device,
             "Params Uniform",
             FeedbackParams {
-                decay: 0.99,
+                decay: 0.9,
                 speed: 1.0,
                 intensity: 1.0,
                 scale: 1.0,
