@@ -362,12 +362,13 @@ impl ShaderManager for FeedbackShader {
                     // Shader-specific controls
                     changed |= ui.add(egui::Slider::new(&mut params.decay, 0.1..=1.0).text("Decay")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.speed, 0.1..=4.0).text("Speed")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.intensity, 0.1..=0.99).text("Intensity")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.intensity, 0.1..=3.99).text("Intensity")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.scale, 0.1..=4.0).text("Scale")).changed();
                     ui.separator();
                     ShaderControls::render_controls_widget(ui, &mut controls_request);
                     ui.separator();
                     should_start_export = ExportManager::render_export_ui_widget(ui, &mut export_request);
+              
                 });
             })
         } else {

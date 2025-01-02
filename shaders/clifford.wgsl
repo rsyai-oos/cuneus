@@ -151,21 +151,23 @@ fn fs_pass1(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: ve
     let pixel_pos = vec2<i32>(FragCoord.xy);
     let pixel_index = pixel_pos.y * i32(dimensions.x) + pixel_pos.x;
     
+    atomicStore(&atomic_buffer[pixel_index * 4], 0);
+    atomicStore(&atomic_buffer[pixel_index * 4 + 1], 0);
+    atomicStore(&atomic_buffer[pixel_index * 4 + 2], 0);
     state = vec4<u32>(
         u32(pixel_pos.x),
         u32(pixel_pos.y),
         u32(time_data.time * 1000.0),
-        1u
+        u32(time_data.time * 100.0)
     );
     
     set_camera();
     
-    var current = vec4<f32>(0.0);
+    var accumulated_color = vec4<f32>(0.0);
     for(var i = 0; i < 5; i++) {
-        current += point_gen(tex_coords, dimensions);
+        accumulated_color += point_gen(tex_coords, dimensions);
     }
-    
-    current = vec4<f32>(
+    let current = vec4<f32>(
         f32(atomicLoad(&atomic_buffer[pixel_index * 4])),
         f32(atomicLoad(&atomic_buffer[pixel_index * 4 + 1])),
         f32(atomicLoad(&atomic_buffer[pixel_index * 4 + 2])),
@@ -173,12 +175,12 @@ fn fs_pass1(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: ve
     ) / ATOMIC_SCALE;
     
     let previous = textureSample(prev_frame, tex_sampler, tex_coords);
-    return current + previous * 0.95;
+    return mix(current, previous, params.decay);
 }
 
 @fragment
 fn fs_pass2(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
     let color = textureSample(prev_frame, tex_sampler, tex_coords);
-    let exposed = 0.15 * color.rgb / color.a;
+    let exposed = params.intensity * color.rgb / max(color.a, 0.001);
     return vec4<f32>(exposed, 1.0);
 }
