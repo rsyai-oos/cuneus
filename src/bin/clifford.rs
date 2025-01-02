@@ -1,4 +1,4 @@
-use cuneus::{Core, ShaderManager,UniformProvider, UniformBinding,ExportError, BaseShader,TextureManager,ShaderHotReload,ShaderControls};
+use cuneus::{Core, ShaderManager,UniformProvider, UniformBinding,ExportError, BaseShader,TextureManager,ShaderHotReload,ShaderControls,AtomicBuffer};
 use winit::event::WindowEvent;
 use cuneus::ShaderApp;
 use cuneus::Renderer;
@@ -31,6 +31,8 @@ struct FeedbackShader {
     texture_bind_group_layout: wgpu::BindGroupLayout,
     time_bind_group_layout: wgpu::BindGroupLayout,
     params_bind_group_layout: wgpu::BindGroupLayout,
+    atomic_buffer: AtomicBuffer,
+    atomic_bind_group_layout: wgpu::BindGroupLayout,
 }
 impl FeedbackShader {
     fn capture_frame(&mut self, core: &Core, time: f32) -> Result<Vec<u8>, wgpu::SurfaceError> {
@@ -203,6 +205,26 @@ impl ShaderManager for FeedbackShader {
             }],
             label: Some("params_bind_group_layout"),
         });
+        let atomic_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+            label: Some("atomic_bind_group_layout"),
+        });
+
+        let buffer_size = core.config.width * core.config.height;
+        let atomic_buffer = AtomicBuffer::new(
+            &core.device,
+            buffer_size,
+            &atomic_bind_group_layout,
+        );
         let params_uniform = UniformBinding::new(
             &core.device,
             "Params Uniform",
@@ -235,6 +257,7 @@ impl ShaderManager for FeedbackShader {
                 &texture_bind_group_layout,
                 &time_bind_group_layout,
                 &params_bind_group_layout,
+                &atomic_bind_group_layout,
             ],
             push_constant_ranges: &[],
         });
@@ -264,6 +287,7 @@ impl ShaderManager for FeedbackShader {
                 &texture_bind_group_layout,
                 &time_bind_group_layout,
                 &params_bind_group_layout,
+                &atomic_bind_group_layout,
             ],
             Some("fs_pass1"),
         );
@@ -278,6 +302,8 @@ impl ShaderManager for FeedbackShader {
             texture_bind_group_layout,
             time_bind_group_layout,
             params_bind_group_layout,
+            atomic_buffer,
+            atomic_bind_group_layout,
         }
     }
     fn update(&mut self, core: &Core) {
@@ -289,6 +315,7 @@ impl ShaderManager for FeedbackShader {
                     &self.texture_bind_group_layout,
                     &self.time_bind_group_layout,
                     &self.params_bind_group_layout,
+                    &self.atomic_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
             });
@@ -366,7 +393,8 @@ impl ShaderManager for FeedbackShader {
             };
             
             // First render pass
-            {
+{
+                self.atomic_buffer.clear(&core.queue);
                 let mut render_pass = Renderer::begin_render_pass(
                     &mut encoder,
                     &target_texture.view,
@@ -378,11 +406,12 @@ impl ShaderManager for FeedbackShader {
                 render_pass.set_bind_group(0, &source_texture.bind_group, &[]);
                 render_pass.set_bind_group(1, &self.base.time_uniform.bind_group, &[]);
                 render_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
+                render_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]); // Add this line
                 render_pass.draw(0..4, 0..1);
             }
     
             // Second render pass
-            {
+            {   self.atomic_buffer.clear(&core.queue);
                 let mut render_pass = Renderer::begin_render_pass(
                     &mut encoder,
                     &view,
@@ -394,6 +423,7 @@ impl ShaderManager for FeedbackShader {
                 render_pass.set_bind_group(0, &target_texture.bind_group, &[]);
                 render_pass.set_bind_group(1, &self.base.time_uniform.bind_group, &[]);
                 render_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
+                render_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]); // Add this line
                 render_pass.draw(0..4, 0..1);
             }
             self.frame_count = self.frame_count.wrapping_add(1);

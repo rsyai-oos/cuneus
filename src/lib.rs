@@ -13,6 +13,7 @@ pub use export::ExportUiState;
 pub use export::ExportError;
 pub use hot::ShaderHotReload;
 pub use controls::{ControlsRequest, ShaderControls};
+pub use atomic::AtomicBuffer;
 pub struct Core {
     pub surface: wgpu::Surface<'static>,
     pub device: Arc<wgpu::Device>,
@@ -107,4 +108,5 @@ mod feedback;
 mod keyinputs;
 mod export;
 mod hot;
-mod controls;  
+mod controls;
+mod atomic;
