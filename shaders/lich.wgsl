@@ -18,19 +18,29 @@ struct Params {
 @group(2) @binding(0)
 var<uniform> params: Params;
 
-// Utility functions
+const ATOMIC_SCALE: f32 = 2048.0;
+
 fn IHash(a: i32) -> i32 {
     var x = a;
     x = (x ^ 61) ^ (x >> 16);
     x = x + (x << 3);
     x = x ^ (x >> 4);
-    x = x * 0x27d4eb;
+    x = x * 0x27d4eb; 
     x = x ^ (x >> 15);
     return x;
 }
 
 fn Hash(a: i32) -> f32 {
     return f32(IHash(a)) / f32(0x7FFFFFFF);
+}
+
+fn rand4(seed: i32) -> vec4<f32> {
+    return vec4<f32>(
+        Hash(seed ^ 348593),
+        Hash(seed ^ 859375),
+        Hash(seed ^ 625384),
+        Hash(seed ^ 253625)
+    );
 }
 
 fn rand2(seed: i32) -> vec2<f32> {
@@ -47,89 +57,92 @@ fn randn(randuniform: vec2<f32>) -> vec2<f32> {
     return r.x * vec2<f32>(cos(r.y), sin(r.y));
 }
 
-fn line_dist(a: vec2<f32>, b: vec2<f32>, uv: vec2<f32>, thickness: f32) -> f32 {
-    let dist = length(uv-(a+normalize(b-a)*min(length(b-a),max(0.0,dot(normalize(b-a),(uv-a))))));
-    return dist / thickness;
+fn lineDist(a: vec2<f32>, b: vec2<f32>, uv: vec2<f32>) -> f32 {
+    return length(uv-(a+normalize(b-a)*min(length(b-a),max(0.0,dot(normalize(b-a),(uv-a))))));
 }
 
-// Pass 1: Lightning Generation
 @fragment
 fn fs_pass1(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
     let dimensions = vec2<f32>(textureDimensions(prev_frame));
+    let pixel_pos = vec2<i32>(FragCoord.xy);
+    let pixel_index = pixel_pos.y * i32(dimensions.x) + pixel_pos.x;
+    
+    atomicStore(&atomic_buffer[pixel_index * 3], 0);
+    atomicStore(&atomic_buffer[pixel_index * 3 + 1], 0);
+    atomicStore(&atomic_buffer[pixel_index * 3 + 2], 0);
+    
     let uv = (FragCoord.xy * 2.0 - dimensions.xy) / dimensions.y;
-    
     var ds = 1e4;
-    let anim_frame = i32(time_data.time * 10.0);
-    let lightning_color = vec3<f32>(0.7, 0.9, 1.0);
-    let branch_count = i32(4.0 + params.branch_count * 3.0);
     
-    for(var q = 0; q < branch_count; q = q + 1) {
-        var seed = anim_frame * (q + 1);
-        
-        var a = vec2<f32>(0.0, 1.0);
-        var b = vec2<f32>(0.0, 0.7) + 0.4 * randn(rand2(seed)) / 8.0;
+    for(var q = 0; q < 1; q = q + 1) {
+        let anim_frame = i32(time_data.time * 20.0);
+        let f = anim_frame + 123457 * (q + 1); 
+        var seed = 3;
+
+       var a = vec2<f32>(0.0, 1.0);
+       var b = vec2<f32>(0.2, 0.7) + 0.4 * randn(rand2(seed ^ 859375)) / 8.0;
         
         for(var k = 0; k < 30; k = k + 1) {
             let l = length(b - a);
-            let r = randn(rand2(seed));
             
-            let c = (a + b) * 0.5 + l * r / 8.0;
-            let d = b * 1.9 - a * 0.9 + l * randn(rand2(seed + 1)) / 4.0;
-            let e = b * 1.9 - a * 0.9 + l * randn(rand2(seed + 2)) / 4.0;
+            let c = (a + b) / 2.0 + l * randn(rand2(seed ^ 859375)) / 8.0;
+            let d = b * 1.9 - a * 0.9 + l * randn(rand2(seed ^ 935375)) / 4.0;
+            let e = b * 1.9 - a * 0.9 + l * randn(rand2(seed ^ 687643)) / 4.0;
             
-            let thickness = 2.0;
+            let j = 1.0 + 0.5 * rand4(seed ^ IHash(anim_frame * 574595 ^ q));
             
-            let d0 = line_dist(a, c, uv, thickness);
-            let d1 = line_dist(c, b, uv, thickness);
-            let d2 = line_dist(b, d, uv, thickness);
-            let d3 = line_dist(b, e, uv, thickness);
+            let d0 = lineDist(a, c, uv) * j.x;
+            let d1 = lineDist(c, b, uv) * j.y;
+            let d2 = lineDist(b, d, uv) * j.z;
+            let d3 = lineDist(b, e, uv) * j.w;
             
             if(d0 < min(d1, min(d2, d3))) {
                 b = c;
-                seed = seed + 1;
+                seed = IHash(seed ^ 796489);
             } else if(d1 < min(d2, d3)) {
                 a = c;
-                seed = seed + 2;
+                seed = IHash(seed ^ 879235);
             } else if(d2 < d3) {
                 a = b;
                 b = d;
-                seed = seed + 3;
+                seed = IHash(seed ^ 574595);
             } else {
                 a = b;
                 b = e;
-                seed = seed + 4;
+                seed = IHash(seed ^ 630658);
             }
         }
         
-        ds = min(ds, line_dist(a, b, uv, 2.0));
+        ds = min(ds, lineDist(a, b, uv));
     }
     
-    let lightning_intensity = max(0.0, 1.0 - ds * dimensions.y / 2.0) * params.lightning_intensity;
-    let lightning = lightning_color * lightning_intensity;
+    let intensity = max(0.0, 1.0 - ds * dimensions.y / 2.0) * params.lightning_intensity;
+    if(intensity > 0.001) {
+        let color = vec3<f32>(1.0, 1.0, 1.0) * intensity;
+        let scaled_color = vec3<i32>(floor(ATOMIC_SCALE * color));
+        atomicAdd(&atomic_buffer[pixel_index * 3], scaled_color.x);
+        atomicAdd(&atomic_buffer[pixel_index * 3 + 1], scaled_color.y);
+        atomicAdd(&atomic_buffer[pixel_index * 3 + 2], scaled_color.z);
+    }
+    
+    let current = vec3<f32>(
+        f32(atomicLoad(&atomic_buffer[pixel_index * 3])),
+        f32(atomicLoad(&atomic_buffer[pixel_index * 3 + 1])),
+        f32(atomicLoad(&atomic_buffer[pixel_index * 3 + 2]))
+    ) / ATOMIC_SCALE;
     
     let prev = textureSample(prev_frame, tex_sampler, tex_coords);
-    let decay = params.feedback_decay * 0.95;
-    
-    return max(vec4<f32>(lightning, lightning_intensity), prev * decay);
+    return vec4<f32>(current + prev.rgb * params.feedback_decay, 1.0);
 }
 
-// Pass 2: Just pass with additional decay
 @fragment
 fn fs_pass2(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
-    let previous = textureSample(prev_frame, tex_sampler, tex_coords);
-    return previous * 0.98;
+    return textureSample(prev_frame, tex_sampler, tex_coords);
 }
 
-// Pass 3: Final with enhanced glow
 @fragment
 fn fs_pass3(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
-    let lightning = textureSample(prev_frame, tex_sampler, tex_coords);
-    let background_color = vec3<f32>(0.0, 0.0, 0.0);
-    var final_color = lightning.rgb;
-    
-    // Enhanced glow effect
-    let glow = length(lightning.rgb) * 0.3;
-    final_color = final_color + vec3<f32>(0.3, 0.4, 0.5) * glow;
-    
-    return vec4<f32>(final_color, 1.0);
+    let color = textureSample(prev_frame, tex_sampler, tex_coords);
+  let exposed = log(color * 1000.0 + 1.0) / 7.0;
+    return exposed;
 }
