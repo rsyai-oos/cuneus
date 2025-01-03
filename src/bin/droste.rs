@@ -322,7 +322,7 @@ impl ShaderManager for SpiralShader {
             ui.label("Basic Parameters");
             changed |= ui.add(egui::Slider::new(&mut params.branches, -20.0..=20.0).text("Branches")).changed();
             changed |= ui.add(egui::Slider::new(&mut params.scale, 0.0..=2.0).text("Scale")).changed();
-            changed |= ui.add(egui::Slider::new(&mut params.zoom, 0.1..=5.0).text("Zoom")).changed();
+            changed |= ui.add(egui::Slider::new(&mut params.zoom, 0.1..=5.0).text("uv")).changed();
         });
         ui.group(|ui| {
             ui.label("Animation");
