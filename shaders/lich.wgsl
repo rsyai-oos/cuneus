@@ -1,4 +1,5 @@
-// inspired by https://www.shadertoy.com/view/3sl3WH
+//// inspired by https://www.shadertoy.com/view/3sl3WH
+///
 @group(0) @binding(0) var prev_frame: texture_2d<f32>;
 @group(0) @binding(1) var tex_sampler: sampler;
 @group(3) @binding(0) var<storage, read_write> atomic_buffer: array<atomic<i32>>;
@@ -19,6 +20,42 @@ struct Params {
 var<uniform> params: Params;
 
 const ATOMIC_SCALE: f32 = 2048.0;
+const SPECTRUM_SIZE: i32 = 45;
+
+fn wavelength_to_rgb(wave: f32) -> vec3<f32> {
+    let x = (wave - 380.0) / 10.0;
+    let factor = select(0.0, 
+                       select(1.0 - (x - 750.0) / 50.0,
+                             select(1.0, 1.0 - (380.0 - x) / 50.0, x >= 380.0),
+                             x <= 750.0),
+                       x <= 800.0);
+    
+    var r = select(0.0,
+                  select(1.0,
+                        select((x - 440.0) / (510.0 - 440.0),
+                              select(1.0,
+                                    (750.0 - x) / (750.0 - 610.0),
+                                    x >= 610.0),
+                              x >= 510.0),
+                        x >= 440.0),
+                  x >= 380.0);
+    
+    var g = select(0.0,
+                  select((x - 440.0) / (490.0 - 440.0),
+                        select(1.0,
+                              (580.0 - x) / (580.0 - 510.0),
+                              x >= 510.0),
+                        x >= 490.0),
+                  x >= 440.0);
+    
+    var b = select(0.0,
+                  select(1.0,
+                        (490.0 - x) / (490.0 - 440.0),
+                        x >= 440.0),
+                  x >= 380.0);
+    
+    return vec3<f32>(r, g, b) * factor;
+}
 
 fn IHash(a: i32) -> i32 {
     var x = a;
@@ -61,6 +98,17 @@ fn lineDist(a: vec2<f32>, b: vec2<f32>, uv: vec2<f32>) -> f32 {
     return length(uv-(a+normalize(b-a)*min(length(b-a),max(0.0,dot(normalize(b-a),(uv-a))))));
 }
 
+fn process_color(base_color: vec3<f32>, wave: f32) -> vec3<f32> {
+    let spectral = wavelength_to_rgb(wave * 380.0 + 400.0);
+    let mixed = mix(base_color, spectral, params.cloud_density);
+    
+    let temp_adjust = vec3<f32>(1.0 + params.branch_count * 1.2, 
+                               1.0, 
+                               1.0 - params.branch_count * 0.1);
+    
+    return mixed * temp_adjust;
+}
+
 @fragment
 fn fs_pass1(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
     let dimensions = vec2<f32>(textureDimensions(prev_frame));
@@ -78,9 +126,9 @@ fn fs_pass1(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: ve
         let anim_frame = i32(time_data.time * 20.0);
         let f = anim_frame + 123457 * (q + 1); 
         var seed = 3;
-
-       var a = vec2<f32>(0.0, 1.0);
-       var b = vec2<f32>(0.2, 0.7) + 0.4 * randn(rand2(seed ^ 859375)) / 8.0;
+        
+        var a = vec2<f32>(0.0, 1.0);
+        var b = vec2<f32>(0.2, 0.7) + 0.4 * randn(rand2(seed ^ 859375)) / 8.0;
         
         for(var k = 0; k < 30; k = k + 1) {
             let l = length(b - a);
@@ -118,7 +166,10 @@ fn fs_pass1(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: ve
     
     let intensity = max(0.0, 1.0 - ds * dimensions.y / 2.0) * params.lightning_intensity;
     if(intensity > 0.001) {
-        let color = vec3<f32>(1.0, 1.0, 1.0) * intensity;
+        let wave = Hash(i32(time_data.time * 1000.0));
+        let base_color = vec3<f32>(1.0, 1.0, 1.0);
+        let color = process_color(base_color, wave) * intensity;
+        
         let scaled_color = vec3<i32>(floor(ATOMIC_SCALE * color));
         atomicAdd(&atomic_buffer[pixel_index * 3], scaled_color.x);
         atomicAdd(&atomic_buffer[pixel_index * 3 + 1], scaled_color.y);
@@ -143,6 +194,6 @@ fn fs_pass2(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: ve
 @fragment
 fn fs_pass3(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
     let color = textureSample(prev_frame, tex_sampler, tex_coords);
-  let exposed = log(color * 1000.0 + 1.0) / 7.0;
-    return exposed;
+    let exposed = pow(color.rgb * (1.0 + 1.0), vec3<f32>(1.0/2.2));
+    return vec4<f32>(exposed, color.a);
 }
