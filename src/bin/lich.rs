@@ -1,4 +1,4 @@
-use cuneus::{Core, ShaderManager, UniformProvider, UniformBinding, BaseShader, TextureManager, create_feedback_texture_pair,ExportSettings, ExportError,ExportManager,ShaderHotReload,ShaderControls};
+use cuneus::{Core, ShaderManager, UniformProvider, UniformBinding, BaseShader, TextureManager, create_feedback_texture_pair,ExportSettings, ExportError,ExportManager,ShaderHotReload,ShaderControls,AtomicBuffer};
 use winit::event::WindowEvent;
 use cuneus::ShaderApp;
 use cuneus::Renderer;
@@ -34,6 +34,8 @@ struct AttractorShader {
     texture_bind_group_layout: wgpu::BindGroupLayout,
     time_bind_group_layout: wgpu::BindGroupLayout,
     params_bind_group_layout: wgpu::BindGroupLayout,
+    atomic_buffer: AtomicBuffer,
+    atomic_bind_group_layout: wgpu::BindGroupLayout,
 }
 
 impl AttractorShader {
@@ -66,11 +68,12 @@ impl AttractorShader {
         };
 
         {
+            self.atomic_buffer.clear(&core.queue);
             let mut render_pass = Renderer::begin_render_pass(
                 &mut encoder,
-                &temp_tex1.view,
+                &capture_view,
                 wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                Some("Capture Pass 1"),
+                Some("Capture Pass"),
             );
 
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
@@ -78,6 +81,8 @@ impl AttractorShader {
             render_pass.set_bind_group(0, &if self.frame_count % 2 == 0 { &self.texture_pair1.0 } else { &self.texture_pair1.1 }.bind_group, &[]);
             render_pass.set_bind_group(1, &self.base.time_uniform.bind_group, &[]);
             render_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
+            render_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]);
+
             render_pass.draw(0..4, 0..1);
         }
         let temp_tex2 = if self.frame_count % 2 == 0 {
@@ -86,7 +91,8 @@ impl AttractorShader {
             &self.texture_pair2.1
         };
 
-        {
+        {            self.atomic_buffer.clear(&core.queue);
+
             let mut render_pass = Renderer::begin_render_pass(
                 &mut encoder,
                 &temp_tex2.view,
@@ -98,6 +104,7 @@ impl AttractorShader {
             render_pass.set_bind_group(0, &temp_tex1.bind_group, &[]);
             render_pass.set_bind_group(1, &self.base.time_uniform.bind_group, &[]);
             render_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
+            render_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
         }
 
@@ -114,6 +121,7 @@ impl AttractorShader {
             render_pass.set_bind_group(0, &temp_tex2.bind_group, &[]);
             render_pass.set_bind_group(1, &self.base.time_uniform.bind_group, &[]);
             render_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
+            render_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
         }
 
@@ -254,7 +262,26 @@ impl ShaderManager for AttractorShader {
             }],
             label: Some("params_bind_group_layout"),
         });
+        let atomic_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+            label: Some("atomic_bind_group_layout"),
+        });
 
+        let buffer_size = core.config.width * core.config.height;
+        let atomic_buffer = AtomicBuffer::new(
+            &core.device,
+            buffer_size,
+            &atomic_bind_group_layout,
+        );
 
         let params_uniform = UniformBinding::new(
             &core.device,
@@ -300,6 +327,7 @@ impl ShaderManager for AttractorShader {
                 &texture_bind_group_layout,
                 &time_bind_group_layout,
                 &params_bind_group_layout,
+                &atomic_bind_group_layout,
             ],
             push_constant_ranges: &[],
         });
@@ -312,6 +340,7 @@ impl ShaderManager for AttractorShader {
                 &texture_bind_group_layout,
                 &time_bind_group_layout,
                 &params_bind_group_layout,
+                &atomic_bind_group_layout,
             ],
             Some("fs_pass1"),
         );
@@ -355,6 +384,8 @@ impl ShaderManager for AttractorShader {
             texture_bind_group_layout,
             time_bind_group_layout,
             params_bind_group_layout,
+            atomic_buffer,
+            atomic_bind_group_layout,
         }
     }
 
@@ -367,6 +398,7 @@ impl ShaderManager for AttractorShader {
                     &self.texture_bind_group_layout,
                     &self.time_bind_group_layout,
                     &self.params_bind_group_layout,
+                    &self.atomic_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
             });
@@ -449,7 +481,7 @@ impl ShaderManager for AttractorShader {
         if should_start_export {
             self.base.export_manager.start_export();
         }
-        {
+        {   self.atomic_buffer.clear(&core.queue);
             let (source_tex, target_tex) = if self.frame_count % 2 == 0 {
                 (&self.texture_pair1.1, &self.texture_pair1.0)
             } else {
@@ -476,10 +508,12 @@ impl ShaderManager for AttractorShader {
             render_pass.set_bind_group(0, &source_tex.bind_group, &[]);
             render_pass.set_bind_group(1, &self.base.time_uniform.bind_group, &[]);
             render_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
+            render_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
         }
     
         {
+            self.atomic_buffer.clear(&core.queue);
             let source_tex = if self.frame_count % 2 == 0 {
                 &self.texture_pair1.0  // Result from Pass 1
             } else {
@@ -512,11 +546,12 @@ impl ShaderManager for AttractorShader {
             render_pass.set_bind_group(0, &source_tex.bind_group, &[]); // Using the result from Pass 1
             render_pass.set_bind_group(1, &self.base.time_uniform.bind_group, &[]);
             render_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
+            render_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
         }
     
         // Pass 3
-        {
+        {   self.atomic_buffer.clear(&core.queue);
             let source_tex = if self.frame_count % 2 == 0 {
                 &self.texture_pair2.0
             } else {
@@ -543,6 +578,7 @@ impl ShaderManager for AttractorShader {
             render_pass.set_bind_group(0, &source_tex.bind_group, &[]);
             render_pass.set_bind_group(1, &self.base.time_uniform.bind_group, &[]);
             render_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
+            render_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
         }
     

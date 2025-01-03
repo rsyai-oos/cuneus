@@ -464,7 +464,7 @@ impl ShaderManager for FeedbackShader {
                 render_pass.set_bind_group(0, &target_texture.bind_group, &[]);
                 render_pass.set_bind_group(1, &self.base.time_uniform.bind_group, &[]);
                 render_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
-                render_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]); // Add this line
+                render_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]);
                 render_pass.draw(0..4, 0..1);
             }
             self.frame_count = self.frame_count.wrapping_add(1);

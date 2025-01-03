@@ -1,6 +1,7 @@
 // inspired by https://www.shadertoy.com/view/3sl3WH
 @group(0) @binding(0) var prev_frame: texture_2d<f32>;
 @group(0) @binding(1) var tex_sampler: sampler;
+@group(3) @binding(0) var<storage, read_write> atomic_buffer: array<atomic<i32>>;
 
 struct TimeUniform {
     time: f32,
