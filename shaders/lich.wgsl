@@ -15,6 +15,11 @@ struct Params {
     lightning_intensity: f32,
     branch_count: f32,
     feedback_decay: f32,
+    base_color: vec3<f32>,
+    _pad1: f32,
+    color_shift: f32,
+    spectrum_mix: f32,
+    _pad2: vec2<f32>,
 };
 @group(2) @binding(0)
 var<uniform> params: Params;
@@ -100,11 +105,13 @@ fn lineDist(a: vec2<f32>, b: vec2<f32>, uv: vec2<f32>) -> f32 {
 
 fn process_color(base_color: vec3<f32>, wave: f32) -> vec3<f32> {
     let spectral = wavelength_to_rgb(wave * 380.0 + 400.0);
-    let mixed = mix(base_color, spectral, params.cloud_density);
+    let mixed = mix(base_color, spectral, params.spectrum_mix);
     
-    let temp_adjust = vec3<f32>(1.0 + params.branch_count * 1.2, 
-                               1.0, 
-                               1.0 - params.branch_count * 0.1);
+    let temp_adjust = vec3<f32>(
+        1.0 + params.color_shift * 0.2, 
+        1.0,                            
+        1.0 - params.color_shift * 0.1  
+    );
     
     return mixed * temp_adjust;
 }
@@ -130,7 +137,9 @@ fn fs_pass1(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: ve
         var a = vec2<f32>(0.0, 1.0);
         var b = vec2<f32>(0.2, 0.7) + 0.4 * randn(rand2(seed ^ 859375)) / 8.0;
         
-        for(var k = 0; k < 30; k = k + 1) {
+        // Apply branch_count parameter to control branching intensity
+        let branch_factor = 30.0 * params.branch_count;
+        for(var k = 0; k < i32(branch_factor); k = k + 1) {
             let l = length(b - a);
             
             let c = (a + b) / 2.0 + l * randn(rand2(seed ^ 859375)) / 8.0;
@@ -167,8 +176,7 @@ fn fs_pass1(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: ve
     let intensity = max(0.0, 1.0 - ds * dimensions.y / 2.0) * params.lightning_intensity;
     if(intensity > 0.001) {
         let wave = Hash(i32(time_data.time * 1000.0));
-        let base_color = vec3<f32>(1.0, 1.0, 1.0);
-        let color = process_color(base_color, wave) * intensity;
+        let color = process_color(params.base_color, wave) * intensity;
         
         let scaled_color = vec3<i32>(floor(ATOMIC_SCALE * color));
         atomicAdd(&atomic_buffer[pixel_index * 3], scaled_color.x);
@@ -194,6 +202,6 @@ fn fs_pass2(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: ve
 @fragment
 fn fs_pass3(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
     let color = textureSample(prev_frame, tex_sampler, tex_coords);
-    let exposed = pow(color.rgb * (1.0 + 1.0), vec3<f32>(1.0/2.2));
+    let exposed = pow(color.rgb * (1.0 + params.color_shift), vec3<f32>(1.0/2.2));
     return vec4<f32>(exposed, color.a);
 }

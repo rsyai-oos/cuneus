@@ -9,10 +9,20 @@ use std::path::PathBuf;
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct LightningParams {
+    // First 16-byte chunk
     cloud_density: f32,
     lightning_intensity: f32,
     branch_count: f32,
     feedback_decay: f32,
+    
+    // Second 16-byte chunk (RGB color + padding)
+    base_color: [f32; 3],  // RGB color components
+    _pad1: f32,           // Padding for 16-byte alignment
+    
+    // Third 16-byte chunk
+    color_shift: f32,
+    spectrum_mix: f32,
+    _pad2: [f32; 2],      // Padding for 16-byte alignment
 }
 
 impl UniformProvider for LightningParams {
@@ -291,6 +301,11 @@ impl ShaderManager for AttractorShader {
                 lightning_intensity: 1.0,
                 branch_count: 1.0,
                 feedback_decay: 0.98,
+                base_color: [1.0, 1.0, 1.0], // White default color
+                _pad1: 0.0,
+                color_shift: 0.0,
+                spectrum_mix: 0.5,
+                _pad2: [0.0; 2],
             },
             &params_bind_group_layout,
             0,
@@ -451,18 +466,36 @@ impl ShaderManager for AttractorShader {
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
                 egui::Window::new("Lightning Settings").show(ctx, |ui| {
-                    changed |= ui.add(egui::Slider::new(&mut params.cloud_density, 0.0..=2.0)
-                        .text("Cloud Density")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.lightning_intensity, 0.1..=3.0)
-                        .text("Lightning Intensity")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.branch_count, 0.0..=2.0)
-                        .text("Branch Count")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.feedback_decay, 0.1..=1.0)
-                        .text("Feedback Decay")).changed();
+                    ui.group(|ui| {
+                        ui.label("Basic Parameters");
+                        changed |= ui.add(egui::Slider::new(&mut params.cloud_density, 0.0..=4.0)
+                            .text("Cloud Density")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.lightning_intensity, 0.1..=6.0)
+                            .text("Lightning Intensity")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.branch_count, 0.0..=4.0)
+                            .text("Branch Count")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.feedback_decay, 0.1..=1.0)
+                            .text("Feedback Decay")).changed();
+                    });
+        
+                    ui.group(|ui| {
+                        ui.label("Color Settings");
+                        let mut color = params.base_color;
+                        if ui.color_edit_button_rgb(&mut color).changed() {
+                            params.base_color = color;
+                            changed = true;
+                        }
+                        changed |= ui.add(egui::Slider::new(&mut params.color_shift, -1.0..=1.0)
+                            .text("Color Temperature")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.spectrum_mix, 0.0..=1.0)
+                            .text("Spectral Mix")).changed();
+                    });
+        
                     ui.separator();
                     ShaderControls::render_controls_widget(ui, &mut controls_request);
                     ui.separator();
                     should_start_export = ExportManager::render_export_ui_widget(ui, &mut export_request);
+        
                 });
             })
         } else {
