@@ -18,6 +18,11 @@ struct FeedbackParams {
     rotation_y: f32,
     rotation_z: f32,
     rotation_speed: f32,
+    attractor_a: f32,
+    attractor_b: f32,
+    attractor_c: f32,
+    attractor_d: f32,
+    attractor_animate_amount: f32,
 }
 impl UniformProvider for FeedbackParams {
     fn as_bytes(&self) -> &[u8] {
@@ -239,6 +244,11 @@ impl ShaderManager for FeedbackShader {
                 rotation_y: 0.0,
                 rotation_z: 0.0,
                 rotation_speed: 0.15,
+                attractor_a: 1.7,
+                attractor_b: 1.7,
+                attractor_c: 0.6,
+                attractor_d: 1.2,
+                attractor_animate_amount: 1.0,
             },
             &params_bind_group_layout,
             0,
@@ -368,8 +378,8 @@ impl ShaderManager for FeedbackShader {
                     ui.group(|ui| {
                         ui.heading("Visual");
                         changed |= ui.add(egui::Slider::new(&mut params.decay, 0.1..=1.0).text("Decay")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.intensity, 0.1..=3.99).text("speed")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.speed, 0.1..=4.0).text("Intensity")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.intensity, 0.1..=3.99).text("Intensity")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.speed, 0.1..=4.0).text("Speed")).changed();
                         changed |= ui.add(egui::Slider::new(&mut params.scale, 0.1..=4.0).text("Scale")).changed();
                     });
         
@@ -381,6 +391,17 @@ impl ShaderManager for FeedbackShader {
                         changed |= ui.add(egui::Slider::new(&mut params.rotation_y, -3.14..=3.14).text("Y")).changed();
                         changed |= ui.add(egui::Slider::new(&mut params.rotation_z, -3.14..=3.14).text("Z")).changed();
                         changed |= ui.add(egui::Slider::new(&mut params.rotation_speed, 0.0..=1.0).text("t")).changed();
+                    });
+        
+                    ui.add_space(10.0);
+        
+                    ui.group(|ui| {
+                        ui.heading("Attractor");
+                        changed |= ui.add(egui::Slider::new(&mut params.attractor_a, 0.0..=3.0).text("a")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.attractor_b, 0.0..=3.0).text("b")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.attractor_c, 0.0..=3.0).text("c")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.attractor_d, 0.0..=3.0).text("d")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.attractor_animate_amount, 0.0..=2.0).text("Anim")).changed();
                     });
         
                     ui.separator();

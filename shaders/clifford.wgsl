@@ -10,14 +10,19 @@ var<uniform> time_data: TimeUniform;
 
 struct Params {
     decay: f32,
-    intensity: f32,
     speed: f32,
+    intensity: f32,
     scale: f32,
     rotation_x: f32,
     rotation_y: f32,
     rotation_z: f32,
     rotation_speed: f32,
-};
+    attractor_a: f32,
+    attractor_b: f32,
+    attractor_c: f32,
+    attractor_d: f32,
+    attractor_animate_amount: f32,
+}
 @group(2) @binding(0)
 var<uniform> params: Params;
 
@@ -146,10 +151,11 @@ fn hsv_to_rgb(h: f32, s: f32, v: f32) -> vec3<f32> {
 }
 
 fn clifford_attractor(p: vec2<f32>, t: f32) -> vec2<f32> {
-    let a = 1.7 + sin(t * 0.1) * 0.1;
-    let b = 1.7 + cos(t * 0.15) * 0.1;
-    let c = 0.6 + sin(t * 0.2) * 0.1;
-    let d = 1.2 + cos(t * 0.25) * 0.1;
+    let anim = sin(t * 0.1) * params.attractor_animate_amount;
+    let a = params.attractor_a + anim * 0.1;
+    let b = params.attractor_b + cos(t * 0.15) * params.attractor_animate_amount * 0.1;
+    let c = params.attractor_c + sin(t * 0.2) * params.attractor_animate_amount * 0.1;
+    let d = params.attractor_d + cos(t * 0.25) * params.attractor_animate_amount * 0.1;
     
     return vec2<f32>(
         sin(a * p.y) + c * cos(a * p.x),
