@@ -10,9 +10,13 @@ var<uniform> time_data: TimeUniform;
 
 struct Params {
     decay: f32,
-    speed: f32,
     intensity: f32,
+    speed: f32,
     scale: f32,
+    rotation_x: f32,
+    rotation_y: f32,
+    rotation_z: f32,
+    rotation_speed: f32,
 };
 @group(2) @binding(0)
 var<uniform> params: Params;
@@ -63,19 +67,25 @@ fn set_camera() {
     let screen_size_f = vec2<f32>(dimensions);
     
     let t = time_data.time;
-    let vertical_speed = 0.15;
-    let rotation_speed = 0.05;
+    let vertical_speed = params.rotation_speed;
+    let base_rotation_speed = params.rotation_speed * 0.3;
     
     let ang = vec2<f32>(
-        PI * 0.5 + sin(t * rotation_speed) * 0.1,
-        PI * 0.45 + sin(t * vertical_speed) * 0.15
+        params.rotation_x + PI * 0.5 + sin(t * base_rotation_speed) * 0.1,
+        params.rotation_y + PI * 0.45 + sin(t * vertical_speed) * 0.15
+    );
+    let z_rot = mat3x3<f32>(
+        cos(params.rotation_z), -sin(params.rotation_z), 0.0,
+        sin(params.rotation_z), cos(params.rotation_z), 0.0,
+        0.0, 0.0, 1.0
     );
 
     camera.fov = FOV;
-    camera.cam = get_camera_matrix(ang);
+    camera.cam = z_rot * get_camera_matrix(ang);
     camera.pos = -(camera.cam * vec3<f32>(12.0, 0.0, 0.0));
     camera.size = screen_size_f;
 }
+
 
 fn project(cam: Camera, p: vec3<f32>) -> vec3<f32> {
     let td = distance(cam.pos, p);

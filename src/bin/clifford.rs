@@ -14,6 +14,10 @@ struct FeedbackParams {
     speed: f32,
     intensity: f32,
     scale: f32,
+    rotation_x: f32,
+    rotation_y: f32,
+    rotation_z: f32,
+    rotation_speed: f32,
 }
 impl UniformProvider for FeedbackParams {
     fn as_bytes(&self) -> &[u8] {
@@ -231,6 +235,10 @@ impl ShaderManager for FeedbackShader {
                 speed: 1.0,
                 intensity: 1.0,
                 scale: 1.0,
+                rotation_x: 0.0,
+                rotation_y: 0.0,
+                rotation_z: 0.0,
+                rotation_speed: 0.15,
             },
             &params_bind_group_layout,
             0,
@@ -357,11 +365,24 @@ impl ShaderManager for FeedbackShader {
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
                 egui::Window::new("Settings").show(ctx, |ui| {
-                    // Shader-specific controls
-                    changed |= ui.add(egui::Slider::new(&mut params.decay, 0.1..=1.0).text("Decay")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.speed, 0.1..=4.0).text("Speed")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.intensity, 0.1..=3.99).text("Intensity")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.scale, 0.1..=4.0).text("Scale")).changed();
+                    ui.group(|ui| {
+                        ui.heading("Visual");
+                        changed |= ui.add(egui::Slider::new(&mut params.decay, 0.1..=1.0).text("Decay")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.intensity, 0.1..=3.99).text("speed")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.speed, 0.1..=4.0).text("Intensity")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.scale, 0.1..=4.0).text("Scale")).changed();
+                    });
+        
+                    ui.add_space(10.0);
+        
+                    ui.group(|ui| {
+                        ui.heading("Rot");
+                        changed |= ui.add(egui::Slider::new(&mut params.rotation_x, -3.14..=3.14).text("X")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.rotation_y, -3.14..=3.14).text("Y")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.rotation_z, -3.14..=3.14).text("Z")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.rotation_speed, 0.0..=1.0).text("t")).changed();
+                    });
+        
                     ui.separator();
                     ShaderControls::render_controls_widget(ui, &mut controls_request);
                     ui.separator();
