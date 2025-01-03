@@ -132,7 +132,7 @@ fn fs_pass1(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: ve
     for(var q = 0; q < 1; q = q + 1) {
         let anim_frame = i32(time_data.time * 20.0);
         let f = anim_frame + 123457 * (q + 1); 
-        var seed = 3;
+        var seed = i32(params.cloud_density);
         
         var a = vec2<f32>(0.0, 1.0);
         var b = vec2<f32>(0.2, 0.7) + 0.4 * randn(rand2(seed ^ 859375)) / 8.0;

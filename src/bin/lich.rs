@@ -297,7 +297,7 @@ impl ShaderManager for AttractorShader {
             &core.device,
             "Params Uniform",
             LightningParams {
-                cloud_density: 0.5,
+                cloud_density: 3.0,
                 lightning_intensity: 1.0,
                 branch_count: 1.0,
                 feedback_decay: 0.98,
@@ -468,8 +468,8 @@ impl ShaderManager for AttractorShader {
                 egui::Window::new("Lightning Settings").show(ctx, |ui| {
                     ui.group(|ui| {
                         ui.label("Basic Parameters");
-                        changed |= ui.add(egui::Slider::new(&mut params.cloud_density, 0.0..=4.0)
-                            .text("Cloud Density")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.cloud_density, 0.0..=24.0)
+                            .text("seed")).changed();
                         changed |= ui.add(egui::Slider::new(&mut params.lightning_intensity, 0.1..=6.0)
                             .text("Lightning Intensity")).changed();
                         changed |= ui.add(egui::Slider::new(&mut params.branch_count, 0.0..=4.0)
