@@ -465,17 +465,17 @@ impl ShaderManager for AttractorShader {
         );
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
-                egui::Window::new("Lightning Settings").show(ctx, |ui| {
+                egui::Window::new("Settings").show(ctx, |ui| {
                     ui.group(|ui| {
-                        ui.label("Basic Parameters");
+                        ui.label(" Parameters");
                         changed |= ui.add(egui::Slider::new(&mut params.cloud_density, 0.0..=24.0)
                             .text("seed")).changed();
                         changed |= ui.add(egui::Slider::new(&mut params.lightning_intensity, 0.1..=6.0)
-                            .text("Lightning Intensity")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.branch_count, 0.0..=4.0)
-                            .text("Branch Count")).changed();
+                            .text("Lightning")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.branch_count, 0.0..=2.0)
+                            .text("Branch")).changed();
                         changed |= ui.add(egui::Slider::new(&mut params.feedback_decay, 0.1..=1.0)
-                            .text("Feedback Decay")).changed();
+                            .text("Decay")).changed();
                     });
         
                     ui.group(|ui| {
@@ -486,9 +486,9 @@ impl ShaderManager for AttractorShader {
                             changed = true;
                         }
                         changed |= ui.add(egui::Slider::new(&mut params.color_shift, -1.0..=1.0)
-                            .text("Color Temperature")).changed();
+                            .text("Temperature")).changed();
                         changed |= ui.add(egui::Slider::new(&mut params.spectrum_mix, 0.0..=1.0)
-                            .text("Spectral Mix")).changed();
+                            .text("Spectral")).changed();
                     });
         
                     ui.separator();
