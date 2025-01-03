@@ -108,6 +108,33 @@ fn rasterize_point(pos: vec3<f32>, color: vec3<f32>, dims: vec2<f32>) -> vec4<f3
     return vec4<f32>(color / (projected_pos.z * projected_pos.z + 0.2), 1.0);
 }
 
+fn hsv_to_rgb(h: f32, s: f32, v: f32) -> vec3<f32> {
+    let c = v * s;
+    let h_prime = h / 60.0;
+    let x = c * (1.0 - abs(fract(h_prime / 2.0) * 2.0 - 1.0));
+    let m = v - c;
+    
+    var r: f32 = 0.0;
+    var g: f32 = 0.0;
+    var b: f32 = 0.0;
+    
+    if (h_prime < 1.0) {
+        r = c; g = x; b = 0.0;
+    } else if (h_prime < 2.0) {
+        r = x; g = c; b = 0.0;
+    } else if (h_prime < 3.0) {
+        r = 0.0; g = c; b = x;
+    } else if (h_prime < 4.0) {
+        r = 0.0; g = x; b = c;
+    } else if (h_prime < 5.0) {
+        r = x; g = 0.0; b = c;
+    } else {
+        r = c; g = 0.0; b = x;
+    }
+    
+    return vec3<f32>(r + m, g + m, b + m);
+}
+
 fn clifford_attractor(p: vec2<f32>, t: f32) -> vec2<f32> {
     let a = 1.7 + sin(t * 0.1) * 0.1;
     let b = 1.7 + cos(t * 0.15) * 0.1;
@@ -116,7 +143,7 @@ fn clifford_attractor(p: vec2<f32>, t: f32) -> vec2<f32> {
     
     return vec2<f32>(
         sin(a * p.y) + c * cos(a * p.x),
-        sin(b * p.x) + d * cos(b * p.y)
+        -(sin(b * p.x) + d * cos(b * p.y))
     );
 }
 
@@ -125,20 +152,25 @@ fn point_gen(tex_coords: vec2<f32>, dims: vec2<f32>) -> vec4<f32> {
     var p = vec3<f32>(2.0 * (r4.x - 0.5), 2.0 * (r4.y - 0.5), 0.0);
     
     let t = time_data.time * params.speed;
-    let color = vec3<f32>(1.0, 0.0, 0.0);
     var result = vec4<f32>(0.0);
+    
     for(var i = 0; i < 25; i++) {
         let next = clifford_attractor(p.xy, t);
         p = vec3<f32>(next.x, next.y, 0.0);
         
         if(i > 20) {
+            let angle = atan2(p.y, p.x) + t * 0.1;
+            let hue = (degrees(angle) + 360.0) % 360.0;
+            let dist = length(p.xy);
+            let saturation = clamp(0.7 + sin(t * 0.2) * 0.3, 0.0, 1.0);
+            let value = clamp(1.0 - dist * 0.2, 0.3, 1.0);
+            
+            let color = hsv_to_rgb(hue, saturation, value);
             result += rasterize_point(p * params.scale, color * params.intensity, dims);
         }
     }
-    
     return result;
 }
-
 @fragment
 fn fs_pass1(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
     let dimensions = vec2<f32>(textureDimensions(prev_frame));
