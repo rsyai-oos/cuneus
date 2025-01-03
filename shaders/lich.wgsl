@@ -58,7 +58,7 @@ fn fs_pass1(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: ve
     let uv = (FragCoord.xy * 2.0 - dimensions.xy) / dimensions.y;
     
     var ds = 1e4;
-    let anim_frame = i32(time_data.time * 60.0);
+    let anim_frame = i32(time_data.time * 10.0);
     let lightning_color = vec3<f32>(0.7, 0.9, 1.0);
     let branch_count = i32(4.0 + params.branch_count * 3.0);
     
@@ -107,22 +107,26 @@ fn fs_pass1(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: ve
     let lightning = lightning_color * lightning_intensity;
     
     let prev = textureSample(prev_frame, tex_sampler, tex_coords);
-    return max(vec4<f32>(lightning, lightning_intensity), prev * params.feedback_decay);
+    let decay = params.feedback_decay * 0.95;
+    
+    return max(vec4<f32>(lightning, lightning_intensity), prev * decay);
 }
 
-// Pass 2: Just pass 
+// Pass 2: Just pass with additional decay
 @fragment
 fn fs_pass2(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
-    return textureSample(prev_frame, tex_sampler, tex_coords);
+    let previous = textureSample(prev_frame, tex_sampler, tex_coords);
+    return previous * 0.98;
 }
 
-// Pass 3: Final
+// Pass 3: Final with enhanced glow
 @fragment
 fn fs_pass3(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
     let lightning = textureSample(prev_frame, tex_sampler, tex_coords);
     let background_color = vec3<f32>(0.0, 0.0, 0.0);
     var final_color = lightning.rgb;
     
+    // Enhanced glow effect
     let glow = length(lightning.rgb) * 0.3;
     final_color = final_color + vec3<f32>(0.3, 0.4, 0.5) * glow;
     

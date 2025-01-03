@@ -262,7 +262,7 @@ impl ShaderManager for AttractorShader {
             LightningParams {
                 cloud_density: 0.5,
                 lightning_intensity: 1.0,
-                branch_count: 4.0,
+                branch_count: 1.0,
                 feedback_decay: 0.98,
             },
             &params_bind_group_layout,
@@ -419,13 +419,13 @@ impl ShaderManager for AttractorShader {
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
                 egui::Window::new("Lightning Settings").show(ctx, |ui| {
-                    changed |= ui.add(egui::Slider::new(&mut params.cloud_density, 0.0..=1.0)
+                    changed |= ui.add(egui::Slider::new(&mut params.cloud_density, 0.0..=2.0)
                         .text("Cloud Density")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.lightning_intensity, 0.1..=2.0)
+                    changed |= ui.add(egui::Slider::new(&mut params.lightning_intensity, 0.1..=3.0)
                         .text("Lightning Intensity")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.branch_count, 1.0..=8.0)
+                    changed |= ui.add(egui::Slider::new(&mut params.branch_count, 0.0..=2.0)
                         .text("Branch Count")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.feedback_decay, 0.8..=0.99)
+                    changed |= ui.add(egui::Slider::new(&mut params.feedback_decay, 0.1..=1.0)
                         .text("Feedback Decay")).changed();
                     ui.separator();
                     ShaderControls::render_controls_widget(ui, &mut controls_request);
