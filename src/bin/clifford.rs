@@ -356,7 +356,7 @@ impl ShaderManager for FeedbackShader {
 
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
-                egui::Window::new("Feedback Settings").show(ctx, |ui| {
+                egui::Window::new("Settings").show(ctx, |ui| {
                     // Shader-specific controls
                     changed |= ui.add(egui::Slider::new(&mut params.decay, 0.1..=1.0).text("Decay")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.speed, 0.1..=4.0).text("Speed")).changed();
@@ -446,7 +446,7 @@ impl ShaderManager for FeedbackShader {
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
-    let (app, event_loop) = ShaderApp::new("Feedback Shader", 800, 600);
+    let (app, event_loop) = ShaderApp::new("Clifford", 800, 600);
     let shader = FeedbackShader::init(app.core());
     app.run(event_loop, shader)
 }
