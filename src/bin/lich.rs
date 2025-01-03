@@ -303,7 +303,7 @@ impl ShaderManager for AttractorShader {
                 feedback_decay: 0.98,
                 base_color: [1.0, 1.0, 1.0], // White default color
                 _pad1: 0.0,
-                color_shift: 0.0,
+                color_shift: 2.0,
                 spectrum_mix: 0.5,
                 _pad2: [0.0; 2],
             },
@@ -485,7 +485,7 @@ impl ShaderManager for AttractorShader {
                             params.base_color = color;
                             changed = true;
                         }
-                        changed |= ui.add(egui::Slider::new(&mut params.color_shift, -1.0..=1.0)
+                        changed |= ui.add(egui::Slider::new(&mut params.color_shift, 0.1..=20.0)
                             .text("Temperature")).changed();
                         changed |= ui.add(egui::Slider::new(&mut params.spectrum_mix, 0.0..=1.0)
                             .text("Spectral")).changed();

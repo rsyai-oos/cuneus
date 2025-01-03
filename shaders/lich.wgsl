@@ -108,9 +108,9 @@ fn process_color(base_color: vec3<f32>, wave: f32) -> vec3<f32> {
     let mixed = mix(base_color, spectral, params.spectrum_mix);
     
     let temp_adjust = vec3<f32>(
-        1.0 + params.color_shift * 0.2, 
+        1.0 + 0.0 * 0.2, 
         1.0,                            
-        1.0 - params.color_shift * 0.1  
+        1.0 - 0.0 * 0.1  
     );
     
     return mixed * temp_adjust;
@@ -173,7 +173,7 @@ fn fs_pass1(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: ve
         ds = min(ds, lineDist(a, b, uv));
     }
     
-    let intensity = max(0.0, 1.0 - ds * dimensions.y / 2.0) * params.lightning_intensity;
+    let intensity = max(0.0, 1.0 - ds * dimensions.y / params.color_shift) * params.lightning_intensity;
     if(intensity > 0.001) {
         let wave = Hash(i32(time_data.time * 1000.0));
         let color = process_color(params.base_color, wave) * intensity;
@@ -202,6 +202,6 @@ fn fs_pass2(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: ve
 @fragment
 fn fs_pass3(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
     let color = textureSample(prev_frame, tex_sampler, tex_coords);
-    let exposed = pow(color.rgb * (1.0 + params.color_shift), vec3<f32>(1.0/2.2));
+    let exposed = pow(color.rgb * (1.0 + 0.0), vec3<f32>(1.0/2.2));
     return vec4<f32>(exposed, color.a);
 }
