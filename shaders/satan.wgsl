@@ -151,30 +151,26 @@ fn pin_sdf(p: vec2<f32>, time: f32) -> f32 {
 
 @fragment
 fn fs_pass1(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
-    let dimensions = vec2<f32>(1920.0, 1080.0);
-    let uv = (2.0 * FragCoord.xy - dimensions) / min(dimensions.x, dimensions.y);
+    let dimensions = vec2<f32>(textureDimensions(smoke_and_pentagram));
+    let uv = (FragCoord.xy / dimensions) * 2.0 - 1.0;
+    let aspect = dimensions.x / dimensions.y;
+    let auv = vec2<f32>(uv.x * aspect, uv.y);
     let time = time_data.time;
-    
     let rotated_uv = vec2<f32>(
-        uv.x * cos(2.14159) - uv.y * sin(2.14159),
-        uv.x * sin(2.14159) + uv.y * cos(2.14159)
+        auv.x * cos(2.14159) - auv.y * sin(2.14159),
+        auv.x * sin(2.14159) + auv.y * cos(2.14159)
     );
-    
     let d = pin_sdf(rotated_uv, time);
-    
     let baseColor = vec3<f32>(0.8, 0.0, 0.0);
     let glowColor = vec3<f32>(1.0, 0.2, 0.0);
     let darkEnergyColor = vec3<f32>(0.4, 0.0, 0.8);
-    
     let glow = 0.02 / (abs(d) + 0.01);
     let pulse = (sin(time * 3.0) * 0.5 + 0.5) * 0.3;
-    
     var col = mix(baseColor, glowColor, glow * (1.0 + pulse));
-    
-    let noise = fbm(uv * 3.0 + time * 0.1);
+    let noise = fbm(auv * 3.0 + time * 0.1);
     col = mix(col, darkEnergyColor, darkEnergy(rotated_uv, time) * 2.0 + noise * 0.3);
     col *= glow;
-    
+
     var sparkAccum = 0.0;
     for(var i: f32 = 0.0; i < 8.0; i += 1.0) {
         sparkAccum += spark(rotated_uv, time, random(vec2<f32>(i, 0.0)));
@@ -187,15 +183,14 @@ fn fs_pass1(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
     }
     col += params.color2 * emberAccum;
     
-    let darkness = length(uv);
+    let darkness = length(auv);
     col *= 1.0 - darkness * params.size;
     
-    let smoke = fbm(uv * 2.0 - time * 0.05) * 0.15;
-    col += mix(vec3<f32>(0.0), darkEnergyColor * 0.3, smoke + snoise(uv * 4.0 + time * 0.1) * 0.05);
+    let smoke = fbm(auv * 2.0 - time * 0.05) * 0.15;
+    col += mix(vec3<f32>(0.0), darkEnergyColor * 0.3, smoke + snoise(auv * 4.0 + time * 0.1) * 0.05);
     
     return vec4<f32>(col, glow);
 }
-
 fn noise_b(p: vec2<f32>) -> f32 {
     let i = floor(p);
     let f = fract(p);
