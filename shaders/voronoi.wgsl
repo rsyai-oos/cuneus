@@ -106,6 +106,7 @@ fn gamma(color: vec3<f32>, gamma: f32) -> vec3<f32> {
 
 @fragment
 fn fs_main(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
+    var hue: vec4<f32>;
     let bg = params.base_color.r;
     var fragColor = vec4<f32>(bg, bg, bg, 1.0);
     let screen_size = vec2<f32>(1920.0, 1080.0);
@@ -121,7 +122,10 @@ fn fs_main(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
         let fold = sin(t + layer * 0.2) * cos(t * 0.5 + layer * 0.1);
         let alternatingFold = sign(sin(layer * 0.5)) * sin(t + i * 2.0);
 
-        var uv = (FragCoord.xy - 0.5 * screen_size) / screen_size.y * 2.0;
+        // Fixed UV calculation for proper centering and aspect ratio
+        var uv = FragCoord.xy/screen_size.xy;  // Normalize to [0,1]
+        uv = uv * 2.0 - 1.0;           // Convert to [-1,1]
+        uv.x *= screen_size.x/screen_size.y;  // Correct aspect ratio
         uv = rotate(i + (angle + alternatingFold) + foldPattern) * uv;
 
         let voro = voronoi(uv * 8.0, t);
@@ -130,15 +134,16 @@ fn fs_main(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
         let lightIntensity = getLightIntensity(uv, voro, i, t, angle);
         let envLight = getEnvironmentLight(uv, angle, i, t);
 
+        let des = 0.75;
+        let des2 = 0.55;
+        
         let colorIntensity = 0.7 +
             0.3 * sin(layer * 18.37 + t * 1.2) *
             cos(layer * 13.54 - t * 0.4) *
             sin(angle * 2.0 + t * 0.7);
 
-        let hue = vec4<f32>(
-            params.accent_color * (sin(i + angle + fold * 0.5) * params.fold_intensity + colorIntensity),
-            1.0
-        );
+        let colorShift = 0.25;
+        hue = sin(i / des2 + angle / des + vec4<f32>(1.0, 2.0, 3.0, 1.0) + fold * params.fold_intensity) * colorShift + colorIntensity;
 
         let litColor = hue * (lightIntensity * globalLight + envLight);
 
@@ -146,14 +151,18 @@ fn fs_main(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
         let iridescence = sin(dot(uv, uv) * 6.0 + t * 1.4) * params.iridescence_power * depthFactor + 0.9;
         let litColorIrid = litColor * vec4<f32>(iridescence, iridescence * 0.98, iridescence * 1.02, 1.0);
 
-        let mixFactor = 0.3 / (abs(voro) + 0.01) * (0.4 - depthFactor * 0.15);
+        let des4 = 0.3;
+        let des12 = 0.2;
+
+        let mixFactor = des4 / (abs(voro) + 0.01) * (0.4 - depthFactor * 0.15);
         fragColor = mix(litColorIrid, fragColor, alpha) *
-                   mix(vec4<f32>(1.0), hue + 1.5 * alpha * 0.2 * (uv.x / (abs(voro) + 0.001) + lightIntensity), mixFactor);
+                   mix(vec4<f32>(1.0), hue + 1.5 * alpha * des12 * (uv.x / (abs(voro) + 0.001) + lightIntensity), mixFactor);
 
         i = i - asd;
     }
 
-    fragColor = vec4<f32>(fragColor.rgb * 1.1, 1.0);
+    let des2_final = 1.1;
+    fragColor = vec4<f32>(fragColor.rgb * (des2_final + globalLight * 0.1), 1.0);
 
     let vignetteUV = (FragCoord.xy - 0.5 * screen_size) / screen_size.y;
     let vignette = 1.0 - dot(vignetteUV, vignetteUV) * params.vignette_strength;
