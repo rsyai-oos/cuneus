@@ -321,26 +321,23 @@ impl ShaderManager for ChristmasShader {
                     changed |= ui.color_edit_button_rgb(&mut params.rim_color).changed();
                     ui.label("Rim Color");
                     
-                    changed |= ui.color_edit_button_rgb(&mut params.accent_color).changed();
-                    ui.label("Accent Color");
                     
-                    // Sliders for various parameters
-                    changed |= ui.add(egui::Slider::new(&mut params.light_intensity, 0.0..=5.0)
+                    changed |= ui.add(egui::Slider::new(&mut params.light_intensity, 0.0..=8.0)
                         .text("Light Power")).changed();
                     
-                    changed |= ui.add(egui::Slider::new(&mut params.rim_power, 0.0..=3.0)
+                    changed |= ui.add(egui::Slider::new(&mut params.rim_power, 0.0..=12.0)
                         .text("Rim Effect")).changed();
                         
-                    changed |= ui.add(egui::Slider::new(&mut params.iridescence_power, 0.0..=0.3)
+                    changed |= ui.add(egui::Slider::new(&mut params.iridescence_power, 0.0..=12.3)
                         .text("Iridescence")).changed();
                         
-                    changed |= ui.add(egui::Slider::new(&mut params.falloff_distance, 0.5..=5.0)
+                    changed |= ui.add(egui::Slider::new(&mut params.falloff_distance, 0.5..=12.0)
                         .text("Light Range")).changed();
                         
                     changed |= ui.add(egui::Slider::new(&mut params.wave_speed, 0.0..=2.0)
                         .text("Animation Speed")).changed();
                         
-                    changed |= ui.add(egui::Slider::new(&mut params.fold_intensity, 0.0..=3.0)
+                    changed |= ui.add(egui::Slider::new(&mut params.fold_intensity, 0.0..=6.0)
                         .text("light")).changed();
 
                     ui.separator();

@@ -143,7 +143,8 @@ fn fs_main(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
             sin(angle * 2.0 + t * 0.7);
 
         let colorShift = 0.25;
-        hue = sin(i / des2 + angle / des + vec4<f32>(1.0, 2.0, 3.0, 1.0) + fold * params.fold_intensity) * colorShift + colorIntensity;
+        let scaled_color = params.rim_color * vec3<f32>(1.0, 2.0, 3.0) + vec3<f32>(1.0, 1.0, 1.0);
+        hue = sin(i / des2 + angle / des + vec4<f32>(scaled_color, 1.0) + fold * params.fold_intensity) * colorShift + colorIntensity;
 
         let litColor = hue * (lightIntensity * globalLight + envLight);
 
