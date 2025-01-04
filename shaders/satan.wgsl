@@ -269,5 +269,9 @@ fn fs_pass3(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: ve
     let vignette = params.decay- length(uv - 0.5) * 1.5;
     col *= vignette;
     
+    col = gamma(col, 0.41);    
     return vec4<f32>(col, 1.0);
+}
+fn gamma(color: vec3<f32>, gamma: f32) -> vec3<f32> {
+    return pow(color, vec3<f32>(1.0 / gamma));
 }
