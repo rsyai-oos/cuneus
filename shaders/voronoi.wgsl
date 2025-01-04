@@ -121,11 +121,7 @@ fn fs_main(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
         let layer = i * 1.0;
         let fold = sin(t + layer * 0.2) * cos(t * 0.5 + layer * 0.1);
         let alternatingFold = sign(sin(layer * 0.5)) * sin(t + i * 2.0);
-
-        // Fixed UV calculation for proper centering and aspect ratio
-        var uv = FragCoord.xy/screen_size.xy;  // Normalize to [0,1]
-        uv = uv * 2.0 - 1.0;           // Convert to [-1,1]
-        uv.x *= screen_size.x/screen_size.y;  // Correct aspect ratio
+        var uv = (FragCoord.xy - screen_size.xy * 0.5) / min(screen_size.x, screen_size.y);
         uv = rotate(i + (angle + alternatingFold) + foldPattern) * uv;
 
         let voro = voronoi(uv * 8.0, t);
