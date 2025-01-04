@@ -6,9 +6,9 @@ struct TimeUniform {
 
 struct Params {
     color_core: vec3<f32>,
-    _pad1: f32,
+    distant: f32,
     color_bulb1: vec3<f32>,
-    _pad2: f32,
+    power: f32,
     color_bulb2: vec3<f32>,
     _pad3: f32,
     color_detail: vec3<f32>,
@@ -21,6 +21,10 @@ struct Params {
     max_steps: i32,
     max_dist: f32,
     min_dist: f32,
+    radius: f32,
+    _pad7: f32,
+    _pad8: f32,
+    _pad9: f32,
 };
 @group(1) @binding(0)
 var<uniform> params: Params;
@@ -51,7 +55,7 @@ fn oscWithPause(minValue: f32, maxValue: f32, interval: f32, pauseDuration: f32,
 }
 
 fn getPowerValue(time: f32) -> f32 {
-    return 8.0 + 4.0 * sin(time * 0.2);
+    return params.power;
 }
 
 fn getOrbitColor(trap: OrbitTrap, iterationRatio: f32) -> vec3<f32> {
@@ -120,13 +124,11 @@ fn map(pos: vec3<f32>, orbitColor: ptr<function, vec3<f32>>) -> f32 {
     
     let iterationRatio = f32(iterations) / f32(params.iterations);
     *orbitColor = getOrbitColor(trap, iterationRatio);
-    let asddd = oscWithPause(0.25, 0.1, 15.0, 3.0, u_time.time);
     return 0.25 * log(r) * r / dr;
 }
 
 fn calcNormal(pos: vec3<f32>, t: f32) -> vec3<f32> {
-    let zoomLevel = oscWithPause(0.1, 0.2325, 15.0, 3.0, u_time.time);
-    let e = vec2<f32>(-1.0, 1.0) * 0.1 * zoomLevel;
+    let e = vec2<f32>(-1.0, 1.0) * 0.1 * params.distant;
     var unusedColor: vec3<f32>;
     
     return normalize(
@@ -216,7 +218,7 @@ fn fs_main(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec
     
     let angle = u_time.time * 0.3;
     let baseHeight = 1.5;
-    let maxRadius = 6.8;
+    let maxRadius = params.radius;
     
     let detailView = sin(angle * 0.25) * 0.5 + 0.5;
     
@@ -249,6 +251,9 @@ fn fs_main(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec
     
     col = mix(col, col * vec3<f32>(1.05, 1.0, 0.95), 0.3);
     col = smoothstep(vec3<f32>(0.0), vec3<f32>(1.0), col);
-    
+    col = gamma(col, 0.41);    
     return vec4<f32>(col, 1.0);
+}
+fn gamma(color: vec3<f32>, gamma: f32) -> vec3<f32> {
+    return pow(color, vec3<f32>(1.0 / gamma));
 }
