@@ -36,6 +36,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Verify shader files
+        shell: bash
+        run: |
+          echo "Current directory structure:"
+          ls -R
+          echo "Checking shader files:"
+          test -f "shaders/vertex.wgsl" && echo "vertex.wgsl found" || echo "vertex.wgsl not found"
+          test -f "shaders/droste.wgsl" && echo "droste.wgsl found" || echo "droste.wgsl not found"
+
       - name: Install dependencies (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
         run: |
@@ -50,29 +59,42 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
 
+      - name: Create required directories
+        shell: bash
+        run: |
+          mkdir -p shaders
+          cp src/shaders/* shaders/ || true
+          echo "Shader directory contents:"
+          ls -la shaders/
+
       - name: Build binary
         run: cargo build --release --bin droste
+        env:
+          RUST_BACKTRACE: 1
 
-      - name: Prepare archive (Ubuntu/macOS)
+      - name: Prepare release package (Linux/macOS)
         if: matrix.os != 'windows-latest'
         run: |
-          mkdir -p release/bin
+          mkdir -p release/bin release/shaders
           cp target/release/droste release/bin/
-          tar czf ${{ matrix.asset_name }} -C release bin
+          cp shaders/* release/shaders/
+          tar czf ${{ matrix.asset_name }} -C release .
 
-      - name: Prepare archive (Windows)
+      - name: Prepare release package (Windows)
         if: matrix.os == 'windows-latest'
+        shell: bash
         run: |
-          mkdir -p release/bin
-          copy target\release\droste.exe release\bin\
-          7z a ${{ matrix.asset_name }} .\release\bin\*
+          mkdir -p release/bin release/shaders
+          cp target/release/droste.exe release/bin/
+          cp shaders/* release/shaders/
+          7z a ${{ matrix.asset_name }} ./release/*
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.asset_name }}
-          compression-level: 0 
+          compression-level: 0
 
   release:
     needs: build
