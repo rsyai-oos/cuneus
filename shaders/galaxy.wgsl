@@ -17,7 +17,9 @@ struct Params {
 @group(1) @binding(0) var<uniform> params: Params;
 const PI: f32 = 3.14159265359;
 const LIGHT_DIR: vec3<f32> = vec3<f32>(0.577350269, 0.577350269, 0.577350269);
-
+fn gamma(color: vec3<f32>, gamma: f32) -> vec3<f32> {
+    return pow(color, vec3<f32>(1.0 / gamma));
+}
 // h3: hash for 3D vectors
 fn h3(p: vec3<f32>) -> vec3<f32> {
     var pp = fract(p * vec3<f32>(443.8975, 397.2973, 491.1871));
@@ -222,6 +224,7 @@ fn fs_main(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec
     let xy2 = FragCoord.xy / dimensions;
     let vignette = 0.5 + 0.25 * pow(100.0 * xy2.x * xy2.y * (1.0 - xy2.x) * (1.0 - xy2.y), 0.5);
     finalColor *= vec3<f32>(vignette);
+    finalColor = gamma(finalColor, 0.41);
     
     return vec4<f32>(finalColor, 1.0);
 }
