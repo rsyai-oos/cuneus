@@ -13,21 +13,19 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
+        shader: [asahi, attractor, clifford, droste, fluid, galaxy, lich, mandelbulb, satan, sdvert, sinh, spiral, voronoi, xmas]
         include:
           - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
+            target: x86_64-linux-gnu
             ext: ""
-            archive_cmd: "tar -czf"
             archive_ext: ".tar.gz"
           - os: windows-latest
-            target: x86_64-pc-windows-gnu
+            target: x86_64-windows
             ext: ".exe"
-            archive_cmd: "7z a -tzip"
             archive_ext: ".zip"
           - os: macos-latest
-            target: x86_64-apple-darwin
+            target: x86_64-darwin
             ext: ""
-            archive_cmd: "tar -czf"
             archive_ext: ".tar.gz"
 
     steps:
@@ -50,31 +48,39 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: --release --bin droste
+          args: --release --bin ${{ matrix.shader }}
 
       # Create release directory structure and copy files
       - name: Prepare release package
         shell: bash
         run: |
           # Create directory structure
-          mkdir -p release/droste/shaders
+          mkdir -p release/${{ matrix.shader }}/shaders
           
           # Copy the binary
-          cp "target/release/droste${{ matrix.ext }}" "release/droste/"
+          cp "target/release/${{ matrix.shader }}${{ matrix.ext }}" "release/${{ matrix.shader }}/"
           
           # Copy shader files
-          cp shaders/droste.wgsl release/droste/shaders/
-          cp shaders/vertex.wgsl release/droste/shaders/
+          cp shaders/${{ matrix.shader }}.wgsl release/${{ matrix.shader }}/shaders/
+          cp shaders/vertex.wgsl release/${{ matrix.shader }}/shaders/
           
           # Create a README file
-          echo "Droste Shader" > release/droste/README.txt
-          echo "Please ensure the 'shaders' directory remains in the same folder as the executable." >> release/droste/README.txt
+          echo "${{ matrix.shader }} Shader" > release/${{ matrix.shader }}/README.txt
+          echo "Please ensure the 'shaders' directory remains in the same folder as the executable." >> release/${{ matrix.shader }}/README.txt
           
           # Windows-specific: create .bat launcher
           if [[ "${{ runner.os }}" == "Windows" ]]; then
-            echo "@echo off" > release/droste/run_droste.bat
-            echo "if not exist shaders mkdir shaders" >> release/droste/run_droste.bat
-            echo "droste.exe" >> release/droste/run_droste.bat
+            echo "@echo off" > release/${{ matrix.shader }}/run_${{ matrix.shader }}.bat
+            echo "if not exist shaders mkdir shaders" >> release/${{ matrix.shader }}/run_${{ matrix.shader }}.bat
+            echo "${{ matrix.shader }}.exe" >> release/${{ matrix.shader }}/run_${{ matrix.shader }}.bat
+          fi
+
+          # Create launcher script for Linux/MacOS
+          if [[ "${{ runner.os }}" != "Windows" ]]; then
+            echo '#!/bin/bash' > release/${{ matrix.shader }}/run_${{ matrix.shader }}.sh
+            echo 'mkdir -p shaders' >> release/${{ matrix.shader }}/run_${{ matrix.shader }}.sh
+            echo './${{ matrix.shader }}' >> release/${{ matrix.shader }}/run_${{ matrix.shader }}.sh
+            chmod +x release/${{ matrix.shader }}/run_${{ matrix.shader }}.sh
           fi
 
       # Create archive
@@ -83,17 +89,17 @@ jobs:
         run: |
           cd release
           if [[ "${{ runner.os }}" == "Windows" ]]; then
-            7z a "../droste-${{ matrix.target }}${{ matrix.archive_ext }}" droste
+            7z a "../${{ matrix.shader }}-${{ matrix.target }}${{ matrix.archive_ext }}" ${{ matrix.shader }}
           else
-            tar -czf "../droste-${{ matrix.target }}${{ matrix.archive_ext }}" droste
+            tar -czf "../${{ matrix.shader }}-${{ matrix.target }}${{ matrix.archive_ext }}" ${{ matrix.shader }}
           fi
 
       # Upload artifact
       - name: Upload artifact
         uses: actions/upload-artifact@v3
         with:
-          name: droste-${{ matrix.target }}
-          path: droste-${{ matrix.target }}${{ matrix.archive_ext }}
+          name: ${{ matrix.shader }}-${{ matrix.target }}
+          path: ${{ matrix.shader }}-${{ matrix.target }}${{ matrix.archive_ext }}
 
   release:
     needs: [build]
