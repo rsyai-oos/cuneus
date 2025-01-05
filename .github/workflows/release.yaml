@@ -3,7 +3,7 @@ on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:  # Allows manual triggering
+  workflow_dispatch:
 permissions:
   contents: write
   discussions: write
@@ -12,7 +12,7 @@ jobs:
     name: Build on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
-      fail-fast: false  # Continue with other builds if one fails
+      fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
@@ -31,43 +31,69 @@ jobs:
             asset_name: droste-macos-x86_64.tar.gz
     steps:
       - uses: actions/checkout@v4
+      
       - name: Install dependencies (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y libxcb-xfixes0-dev libxcb-shape0-dev libxcb1-dev libvulkan-dev
+          
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
+          
       - name: Rust cache
         uses: swatinem/rust-cache@v2
+        
       - name: Build binary
         run: cargo build --release --bin droste
+        
       - name: Prepare archive (Ubuntu/macOS)
         if: matrix.os != 'windows-latest'
+        shell: bash
         run: |
-          mkdir -p release/bin release/shaders
-          cp target/release/droste release/bin/
-          chmod +x release/bin/droste
+          # Create release directory structure
+          mkdir -p release
+          # Copy the binary
+          cp target/release/droste release/
+          chmod +x release/droste
+          # Create shaders directory next to the binary
           mkdir -p release/shaders
-          touch release/shaders/vertex.wgsl release/shaders/droste.wgsl
-          tar czf ${{ matrix.asset_name }} -C release .
+          # Create empty shader files
+          touch release/shaders/vertex.wgsl
+          touch release/shaders/droste.wgsl
+          # List directory structure for debugging
+          echo "Release directory structure:"
+          ls -R release
+          # Create archive
+          cd release
+          tar czf ../${{ matrix.asset_name }} .
+          
       - name: Prepare archive (Windows)
         if: matrix.os == 'windows-latest'
+        shell: pwsh
         run: |
-          mkdir -p release/bin release/shaders
-          copy target\release\droste.exe release\bin\
-          mkdir -p release\shaders
-          type nul > release\shaders\vertex.wgsl
-          type nul > release\shaders\droste.wgsl
-          7z a ${{ matrix.asset_name }} .\release\*
+          # Create release directory structure
+          New-Item -ItemType Directory -Force -Path release
+          # Copy the binary
+          Copy-Item "target\release\droste.exe" -Destination "release\"
+          # Create shaders directory next to the binary
+          New-Item -ItemType Directory -Force -Path "release\shaders"
+          # Create empty shader files
+          New-Item -ItemType File -Force -Path "release\shaders\vertex.wgsl"
+          New-Item -ItemType File -Force -Path "release\shaders\droste.wgsl"
+          # Create archive
+          cd release
+          7z a ..\${{ matrix.asset_name }} *
+          
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.asset_name }}
-          compression-level: 0  # Already compressed
+          compression-level: 0
+          
   release:
     needs: build
     runs-on: ubuntu-latest
@@ -77,6 +103,7 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
+          
       - name: Create Release
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
