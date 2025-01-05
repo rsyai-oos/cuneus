@@ -1,4 +1,4 @@
-# Cuneus
+# Cuneus 🌈
 
 A tool for experimenting with WGSL shaders, it uses `wgpu` for rendering, `egui` for the UI, `winit` for windowing, and `notify` for hot-reload.
 
@@ -21,7 +21,6 @@ A tool for experimenting with WGSL shaders, it uses `wgpu` for rendering, `egui`
 
 - cargo run --release --bin *file*
 - Or download on the [releases](https://github.com/altunenes/cuneus/releases)
-
 
 # Gallery
 
