@@ -1,19 +1,29 @@
 # Cuneus
+
+A tool for experimenting with WGSL shaders, it uses `wgpu` for rendering, `egui` for the UI, `winit` for windowing, and `notify` for hot-reload.
+
 ### Current Features
 
 - Hot shader reloading (crash if you make errors: WIP)
-- Multi-pass
+- Multi-pass (see examples)
 - Interactive parameter adjustment, ez Texture loading through egui
 - Export HQ frames via egui
 
+## Keys
 
-#### How can I compute my own shader?
+- `F` full screen/minimal screen, `H` hide egui
 
-- See [usage.md](usage.md)
+#### Usage
+
+- If you want to try your own shaders, check out the [usage.md](usage.md).
+
+#### Open my shaders
+
+- cargo run --release --bin *file*
+- Or download on the [releases](https://github.com/altunenes/cuneus/releases)
+
 
 # Gallery
-
-
 
 | **Sinh** | **Signed Distance** | **Satan** |
 |:---:|:---:|:---:|
