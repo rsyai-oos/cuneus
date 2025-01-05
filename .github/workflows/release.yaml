@@ -1,115 +1,93 @@
 name: Shader Binary Release
+
 on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:
-permissions:
-  contents: write
-  discussions: write
+
+permissions: write-all
+
 jobs:
   build:
-    name: Build on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
-      fail-fast: false
       matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            artifact_name: droste-linux
-            asset_name: droste-linux-x86_64.tar.gz
-            
+            ext: ""
           - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            artifact_name: droste-windows
-            asset_name: droste-windows-x86_64.zip
-            
+            target: x86_64-pc-windows-gnu
+            ext: ".exe"
           - os: macos-latest
             target: x86_64-apple-darwin
-            artifact_name: droste-macos
-            asset_name: droste-macos-x86_64.tar.gz
+            ext: ""
+
     steps:
       - uses: actions/checkout@v4
-      
-      - name: Install dependencies (Ubuntu)
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libxcb-xfixes0-dev libxcb-shape0-dev libxcb1-dev libvulkan-dev
-          
-      - name: Setup Rust
+
+      - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
-          
-      - name: Rust cache
-        uses: swatinem/rust-cache@v2
-        
+
+      # Install required dependencies for Linux
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libudev-dev
+
+      # Build the binary
       - name: Build binary
-        run: cargo build --release --bin droste
-        
-      - name: Prepare archive (Ubuntu/macOS)
-        if: matrix.os != 'windows-latest'
-        shell: bash
-        run: |
-          # Create release directory structure
-          mkdir -p release
-          # Copy the binary
-          cp target/release/droste release/
-          chmod +x release/droste
-          # Copy actual shader files
-          mkdir -p release/shaders
-          cp shaders/vertex.wgsl release/shaders/
-          cp shaders/droste.wgsl release/shaders/
-          # Create README
-          echo "To run the shader:\n1. Open terminal in this directory\n2. Run: ./droste" > release/README.txt
-          # Create archive
-          cd release
-          tar czf ../${{ matrix.asset_name }} .
-          
-      - name: Prepare archive (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          # Create release directory structure
-          New-Item -ItemType Directory -Force -Path release
-          # Copy the binary
-          Copy-Item "target\release\droste.exe" -Destination "release\"
-          # Copy actual shader files
-          New-Item -ItemType Directory -Force -Path "release\shaders"
-          Copy-Item "shaders\vertex.wgsl" -Destination "release\shaders\"
-          Copy-Item "shaders\droste.wgsl" -Destination "release\shaders\"
-          # Create README
-          Set-Content -Path "release\README.txt" -Value "To run the shader:`nDouble click droste.exe"
-          # Create archive
-          cd release
-          7z a ..\${{ matrix.asset_name }} *
-          
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions-rs/cargo@v1
         with:
-          name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.asset_name }}
-          compression-level: 0
-          
+          command: build
+          args: --release --bin droste
+
+      # Create release directory structure
+      - name: Prepare release package
+        run: |
+          mkdir -p release/droste/shaders
+          # Copy the binary
+          cp "target/release/droste${{ matrix.ext }}" "release/droste/"
+          # Copy shader files
+          cp shaders/droste.wgsl release/droste/shaders/
+          cp shaders/vertex.wgsl release/droste/shaders/
+        shell: bash
+
+      # Create ZIP archive
+      - name: Create ZIP archive
+        run: |
+          cd release
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            7z a "../droste-${{ matrix.os }}.zip" droste
+          else
+            zip -r "../droste-${{ matrix.os }}.zip" droste
+          fi
+        shell: bash
+
+      # Upload artifact
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: droste-${{ matrix.os }}
+          path: droste-${{ matrix.os }}.zip
+
   release:
-    needs: build
+    needs: [build]
     runs-on: ubuntu-latest
     steps:
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v3
         with:
           path: artifacts
-          merge-multiple: true
-          
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
-        if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: artifacts/*
-          generate_release_notes: true
+          files: artifacts/**/*.zip
+          token: ${{ secrets.GITHUB_TOKEN }}
           draft: false
           prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
