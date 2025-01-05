@@ -16,15 +16,11 @@ struct Params {
     glow_color: vec3<f32>,
     _pad5: f32,
     color_bulb3: vec3<f32>,
-    _pad6: f32,
     iterations: i32,
     max_steps: i32,
     max_dist: f32,
     min_dist: f32,
     radius: f32,
-    _pad7: f32,
-    _pad8: f32,
-    _pad9: f32,
 };
 @group(1) @binding(0)
 var<uniform> params: Params;

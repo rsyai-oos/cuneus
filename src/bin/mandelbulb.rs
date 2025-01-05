@@ -7,11 +7,11 @@ use std::path::PathBuf;
 struct ShaderParams {
     // Colors
     color_core: [f32; 3],
-    _pad1: f32,
+    power: f32,
     color_bulb1: [f32; 3],
-    _pad2: f32,
+    distant: f32,
     color_bulb2: [f32; 3],
-    _pad3: f32,
+    radius: f32,
     color_detail: [f32; 3],
     _pad4: f32,
     glow_color: [f32; 3],
@@ -199,11 +199,11 @@ impl ShaderManager for ChristmasShader {
             ShaderParams {
                 // Colors
                 color_core: [0.82, 0.41, 0.12],
-                _pad1: 0.0,
+                power: 2.0,
                 color_bulb1: [1.0, 0.65, 0.25],
-                _pad2: 0.0,
+                distant: 0.1,
                 color_bulb2: [0.95, 0.4, 0.55],
-                _pad3: 0.0,
+                radius: 6.8,
                 color_detail: [0.7, 0.7, 0.7],
                 _pad4: 0.0,
                 glow_color: [0.3, 0.5, 0.7],
@@ -339,6 +339,12 @@ impl ShaderManager for ChristmasShader {
                         changed |= ui.add(egui::Slider::new(&mut params.min_dist, 0.0001..=0.1)
                             .logarithmic(true)
                             .text("Min Distance")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.power, 1.0..=8.0)
+                            .text("Power")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.distant, 1.0..=100.0)
+                            .text("Distant")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.radius, 1.0..=10.0)
+                            .text("Radius")).changed();
                     });
                     ui.separator();
                     ShaderControls::render_controls_widget(ui, &mut controls_request);
