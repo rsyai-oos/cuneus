@@ -58,14 +58,12 @@ jobs:
           # Copy the binary
           cp target/release/droste release/
           chmod +x release/droste
-          # Create shaders directory next to the binary
+          # Copy actual shader files
           mkdir -p release/shaders
-          # Create empty shader files
-          touch release/shaders/vertex.wgsl
-          touch release/shaders/droste.wgsl
-          # List directory structure for debugging
-          echo "Release directory structure:"
-          ls -R release
+          cp shaders/vertex.wgsl release/shaders/
+          cp shaders/droste.wgsl release/shaders/
+          # Create README
+          echo "To run the shader:\n1. Open terminal in this directory\n2. Run: ./droste" > release/README.txt
           # Create archive
           cd release
           tar czf ../${{ matrix.asset_name }} .
@@ -78,11 +76,12 @@ jobs:
           New-Item -ItemType Directory -Force -Path release
           # Copy the binary
           Copy-Item "target\release\droste.exe" -Destination "release\"
-          # Create shaders directory next to the binary
+          # Copy actual shader files
           New-Item -ItemType Directory -Force -Path "release\shaders"
-          # Create empty shader files
-          New-Item -ItemType File -Force -Path "release\shaders\vertex.wgsl"
-          New-Item -ItemType File -Force -Path "release\shaders\droste.wgsl"
+          Copy-Item "shaders\vertex.wgsl" -Destination "release\shaders\"
+          Copy-Item "shaders\droste.wgsl" -Destination "release\shaders\"
+          # Create README
+          Set-Content -Path "release\README.txt" -Value "To run the shader:`nDouble click droste.exe"
           # Create archive
           cd release
           7z a ..\${{ matrix.asset_name }} *
