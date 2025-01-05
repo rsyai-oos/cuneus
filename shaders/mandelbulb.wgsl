@@ -210,8 +210,7 @@ fn render(ray: Ray) -> vec3<f32> {
 @fragment
 fn fs_main(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
     let dimensions = vec2<f32>(1920.0, 1080.0);
-    let uv = (FragCoord.xy - 0.5 * dimensions) / dimensions.y;
-    
+    var uv = 1.0*(FragCoord.xy - 0.5 * dimensions) / dimensions.y;
     let angle = u_time.time * 0.3;
     let baseHeight = 1.5;
     let maxRadius = params.radius;
