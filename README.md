@@ -1,15 +1,10 @@
 # Cuneus
-
-
-
 ### Current Features
 
-- Hot shader reloading
-- Multi-pass rendering
-- Interactive parameter adjustment through egui
-- Easy high quality frame through via egui
-- Texture loading through egui
-- Simple event handling for keyboard inputs
+- Hot shader reloading (crash if you make errors: WIP)
+- Multi-pass
+- Interactive parameter adjustment, ez Texture loading through egui
+- Export HQ frames via egui
 
 
 #### How can I compute my own shader?
