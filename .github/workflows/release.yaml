@@ -16,15 +16,15 @@ jobs:
         shader: [asahi, attractor, clifford, droste, fluid, galaxy, lich, mandelbulb, satan, sdvert, sinh, spiral, voronoi, xmas]
         include:
           - os: ubuntu-latest
-            target: x86_64-linux-gnu
+            target: x86_64-unknown-linux-gnu
             ext: ""
             archive_ext: ".tar.gz"
           - os: windows-latest
-            target: x86_64-windows
+            target: x86_64-pc-windows-msvc
             ext: ".exe"
             archive_ext: ".zip"
           - os: macos-latest
-            target: x86_64-darwin
+            target: x86_64-apple-darwin
             ext: ""
             archive_ext: ".tar.gz"
 
