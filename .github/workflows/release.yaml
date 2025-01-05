@@ -17,12 +17,18 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             ext: ""
+            archive_cmd: "tar -czf"
+            archive_ext: ".tar.gz"
           - os: windows-latest
             target: x86_64-pc-windows-gnu
             ext: ".exe"
+            archive_cmd: "7z a -tzip"
+            archive_ext: ".zip"
           - os: macos-latest
             target: x86_64-apple-darwin
             ext: ""
+            archive_cmd: "tar -czf"
+            archive_ext: ".tar.gz"
 
     steps:
       - uses: actions/checkout@v4
@@ -46,34 +52,48 @@ jobs:
           command: build
           args: --release --bin droste
 
-      # Create release directory structure
+      # Create release directory structure and copy files
       - name: Prepare release package
+        shell: bash
         run: |
+          # Create directory structure
           mkdir -p release/droste/shaders
+          
           # Copy the binary
           cp "target/release/droste${{ matrix.ext }}" "release/droste/"
+          
           # Copy shader files
           cp shaders/droste.wgsl release/droste/shaders/
           cp shaders/vertex.wgsl release/droste/shaders/
-        shell: bash
+          
+          # Create a README file
+          echo "Droste Shader" > release/droste/README.txt
+          echo "Please ensure the 'shaders' directory remains in the same folder as the executable." >> release/droste/README.txt
+          
+          # Windows-specific: create .bat launcher
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            echo "@echo off" > release/droste/run_droste.bat
+            echo "if not exist shaders mkdir shaders" >> release/droste/run_droste.bat
+            echo "droste.exe" >> release/droste/run_droste.bat
+          fi
 
-      # Create ZIP archive
-      - name: Create ZIP archive
+      # Create archive
+      - name: Create archive
+        shell: bash
         run: |
           cd release
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            7z a "../droste-${{ matrix.os }}.zip" droste
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            7z a "../droste-${{ matrix.target }}${{ matrix.archive_ext }}" droste
           else
-            zip -r "../droste-${{ matrix.os }}.zip" droste
+            tar -czf "../droste-${{ matrix.target }}${{ matrix.archive_ext }}" droste
           fi
-        shell: bash
 
       # Upload artifact
       - name: Upload artifact
         uses: actions/upload-artifact@v3
         with:
-          name: droste-${{ matrix.os }}
-          path: droste-${{ matrix.os }}.zip
+          name: droste-${{ matrix.target }}
+          path: droste-${{ matrix.target }}${{ matrix.archive_ext }}
 
   release:
     needs: [build]
@@ -87,7 +107,8 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          files: artifacts/**/*.zip
+          files: artifacts/**/*
           token: ${{ secrets.GITHUB_TOKEN }}
           draft: false
           prerelease: false
+          generate_release_notes: true
