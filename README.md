@@ -1,13 +1,19 @@
 # Cuneus 🌈
 
-A tool for experimenting with WGSL shaders, it uses `wgpu` for rendering, `egui` for the UI, `winit` for windowing, and `notify` for hot-reload.
+A tool for experimenting with WGSL shaders, it uses `wgpu` for rendering, `egui` for the UI, `winit` for windowing, and `notify` for hot-reload. :-)
 
 ### Current Features
 
 - Hot shader reloading (crash if you make errors: WIP)
-- Multi-pass (see examples)
+- Multi-pass, atomics etc
 - Interactive parameter adjustment, ez Texture loading through egui
 - Export HQ frames via egui
+
+## Current look
+
+  <a href="https://github.com/user-attachments/assets/7eea9b94-875a-4e01-9204-3da978d3cd65">
+    <img src="https://github.com/user-attachments/assets/7eea9b94-875a-4e01-9204-3da978d3cd65" width="300" alt="Cuneus IDE Interface"/>
+  </a>
 
 ## Keys
 
@@ -39,5 +45,3 @@ A tool for experimenting with WGSL shaders, it uses `wgpu` for rendering, `egui`
 | **Voronoi** | **Spiral** | **Fluid** |
 |:---:|:---:|:---:|
 | <a href="https://github.com/user-attachments/assets/a5a28533-4c3b-466a-9ea2-a92750f46957"><img src="https://github.com/user-attachments/assets/a5a28533-4c3b-466a-9ea2-a92750f46957" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/voronoi.rs) | <a href="https://github.com/user-attachments/assets/f9361ec1-26d3-4f37-8cbd-d135ee632854"><img src="https://github.com/user-attachments/assets/f9361ec1-26d3-4f37-8cbd-d135ee632854" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/spiral.rs) | <a href="https://github.com/user-attachments/assets/da7d40ce-345e-4d4c-a8d2-7b0fe6cdf319"><img src="https://github.com/user-attachments/assets/da7d40ce-345e-4d4c-a8d2-7b0fe6cdf319" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/fluid.rs) |
-
-
