@@ -1,37 +1,32 @@
 struct TimeUniform {
     time: f32,
 };
-
 @group(0) @binding(0) var<uniform> u_time: TimeUniform;
-
 struct Params {
     color_core: vec3<f32>,
-    distant: f32,
-    color_bulb1: vec3<f32>,
     power: f32,
+    color_bulb1: vec3<f32>,
+    distant: f32,
     color_bulb2: vec3<f32>,
-    _pad3: f32,
+    radius: f32,
     color_detail: vec3<f32>,
     _pad4: f32,
     glow_color: vec3<f32>,
     _pad5: f32,
     color_bulb3: vec3<f32>,
+    _pad6: f32,
     iterations: i32,
     max_steps: i32,
     max_dist: f32,
     min_dist: f32,
-    radius: f32,
 };
 @group(1) @binding(0)
 var<uniform> params: Params;
-
 const PI: f32 = 3.14159265358979323846;
-
 struct Ray {
     origin: vec3<f32>,
     direction: vec3<f32>,
 };
-
 struct OrbitTrap {
     minRadius: f32,
     xPlane: f32,
@@ -39,7 +34,6 @@ struct OrbitTrap {
     zPlane: f32,
     bulbFactor: f32,
 };
-
 fn oscWithPause(minValue: f32, maxValue: f32, interval: f32, pauseDuration: f32, time: f32) -> f32 {
     let normalizedTime = time / (interval + pauseDuration);
     let timeWithinCycle = fract(normalizedTime) * (interval + pauseDuration);
@@ -49,11 +43,9 @@ fn oscWithPause(minValue: f32, maxValue: f32, interval: f32, pauseDuration: f32,
     }
     return minValue;
 }
-
 fn getPowerValue(time: f32) -> f32 {
     return params.power;
 }
-
 fn getOrbitColor(trap: OrbitTrap, iterationRatio: f32) -> vec3<f32> {
     let radiusFactor = smoothstep(0.0, 2.0, trap.minRadius);
     let planeFactor = smoothstep(0.0, 1.0, (trap.xPlane + trap.yPlane + trap.zPlane) / 2.0);
@@ -74,7 +66,6 @@ fn getOrbitColor(trap: OrbitTrap, iterationRatio: f32) -> vec3<f32> {
               pow(iterationRatio, 2.0) * bulbIntensity * 
               (0.0 + 0.2 * sin(trap.zPlane * 8.0)));
 }
-
 fn map(pos: vec3<f32>, orbitColor: ptr<function, vec3<f32>>) -> f32 {
     var z = pos;
     var dr = 1.0;
@@ -122,7 +113,6 @@ fn map(pos: vec3<f32>, orbitColor: ptr<function, vec3<f32>>) -> f32 {
     *orbitColor = getOrbitColor(trap, iterationRatio);
     return 0.25 * log(r) * r / dr;
 }
-
 fn calcNormal(pos: vec3<f32>, t: f32) -> vec3<f32> {
     let e = vec2<f32>(-1.0, 1.0) * 0.1 * params.distant;
     var unusedColor: vec3<f32>;
@@ -134,7 +124,6 @@ fn calcNormal(pos: vec3<f32>, t: f32) -> vec3<f32> {
         e.xxx * map(pos + e.xxx, &unusedColor)
     );
 }
-
 fn softshadow(ro: vec3<f32>, rd: vec3<f32>, mint: f32, maxt: f32, k: f32) -> f32 {
     var res = 25.0;
     var t = mint;
@@ -153,7 +142,6 @@ fn softshadow(ro: vec3<f32>, rd: vec3<f32>, mint: f32, maxt: f32, k: f32) -> f32
     
     return clamp(res * 0.6 + 0.4, 0.0, 1.0);
 }
-
 fn rayMarch(ray: Ray, orbitColor: ptr<function, vec3<f32>>) -> vec2<f32> {
     var t = 0.0;
     
@@ -166,7 +154,6 @@ fn rayMarch(ray: Ray, orbitColor: ptr<function, vec3<f32>>) -> vec2<f32> {
     }
     return vec2<f32>(-1.0, 0.0);
 }
-
 fn render(ray: Ray) -> vec3<f32> {
     var orbitColor: vec3<f32>;
     let res = rayMarch(ray, &orbitColor);
@@ -206,11 +193,10 @@ fn render(ray: Ray) -> vec3<f32> {
     let y = ray.direction.y * 0.5 + 0.5;
     return mix(params.color_core * 0.4, params.glow_color, y);
 }
-
 @fragment
 fn fs_main(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
     let dimensions = vec2<f32>(1920.0, 1080.0);
-    var uv = 1.0*(FragCoord.xy - 0.5 * dimensions) / dimensions.y;
+    let uv = (FragCoord.xy - 0.5 * dimensions) / dimensions.y;
     let angle = u_time.time * 0.3;
     let baseHeight = 1.5;
     let maxRadius = params.radius;

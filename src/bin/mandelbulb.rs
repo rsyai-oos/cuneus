@@ -18,7 +18,6 @@ struct ShaderParams {
     _pad5: f32,
     color_bulb3: [f32; 3],
     _pad6: f32,
-
     // Numeric parameters
     iterations: i32,
     max_steps: i32,
@@ -340,7 +339,7 @@ impl ShaderManager for ChristmasShader {
                             .logarithmic(true)
                             .text("Min Distance")).changed();
                         changed |= ui.add(egui::Slider::new(&mut params.power, 1.0..=8.0)
-                            .text("Power")).changed();
+                        .text("Power")).changed();
                         changed |= ui.add(egui::Slider::new(&mut params.distant, 1.0..=100.0)
                             .text("Distant")).changed();
                         changed |= ui.add(egui::Slider::new(&mut params.radius, 1.0..=10.0)
