@@ -52,9 +52,9 @@ fn fs_main(@builtin(position) f: vec4<f32>) -> @location(0) vec4<f32> {
     let y = fract((st.y + t) / ws);
 
     let sg = clamp((st.y + 0.8) * 0.6, 0.0, 1.0);
-    let sc = mix(vec3(0.3, 0.4, 0.5), vec3(0.1, 0.15, 0.2), pow(sg, 1.2));
+    let sc = mix(vec3(0.0, 0.0, 0.0), vec3(0.1, 0.15, 0.2), pow(sg, 12.2));
 
-    let mp = vec2(0.0, 1.3);
+    let mp = vec2(0.0, 1.7);
     let mr = 0.5;
     let md = sdc(st - mp, mr);
     let mg = exp(-md * 1.2) * 0.8;
