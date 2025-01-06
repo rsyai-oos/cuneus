@@ -17,7 +17,9 @@ struct Params {
 @group(1) @binding(0) var<uniform> params: Params;
 
 const PI: f32 = 3.14159265359;
-
+fn gamma(color: vec3<f32>, gamma: f32) -> vec3<f32> {
+    return pow(color, vec3<f32>(1.0 / gamma));
+}
 fn pal(t: f32, a: vec3<f32>, b: vec3<f32>, c: vec3<f32>, d: vec3<f32>) -> vec3<f32> {
     return a + b * cos(2.0 * PI * (c * t + d));
 }
@@ -52,7 +54,7 @@ fn fs_main(@builtin(position) f: vec4<f32>) -> @location(0) vec4<f32> {
     let sg = clamp((st.y + 0.8) * 0.6, 0.0, 1.0);
     let sc = mix(vec3(0.3, 0.4, 0.5), vec3(0.1, 0.15, 0.2), pow(sg, 1.2));
 
-    let mp = vec2(0.0, 0.6);
+    let mp = vec2(0.0, 1.3);
     let mr = 0.5;
     let md = sdc(st - mp, mr);
     let mg = exp(-md * 1.2) * 0.8;
@@ -79,6 +81,6 @@ fn fs_main(@builtin(position) f: vec4<f32>) -> @location(0) vec4<f32> {
     let rs = 1.1;
     let rm = exp(-abs(st.x - mp.x) * 3.0) * smoothstep(0.1, -0.8, st.y) * (rs + 0.2 * sin(st.y * 30.0 + t));
     fc = fc + vec3(0.9, 0.9, 0.8) * rm;
-
+    fc = gamma(fc, 0.4);
     return vec4(fc, 1.0);
 }
