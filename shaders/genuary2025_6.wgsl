@@ -10,7 +10,7 @@ struct Params {
     gradient_color: vec3<f32>,
     _pad2: f32,
     c_value_max: f32,
-    iterations: i32,
+    iterations: f32,
     aa_level: i32,
     _pad3: f32,
 };
@@ -25,7 +25,7 @@ fn pal(t: f32, a: vec3<f32>, b: vec3<f32>, c: vec3<f32>, d: vec3<f32>) -> vec3<f
 }
 
 fn wav(x: f32, p: f32) -> f32 {
-    let x1 = x * 3.0;
+    let x1 = x * params.c_value_max;
     let t = u_time.time * 0.5;
     return (sin(x1 * 0.25 + t + p) * 5.0 +
             sin(x1 * 4.5 + t * 2.0 + p) * 0.2 +
@@ -43,7 +43,7 @@ fn fs_main(@builtin(position) f: vec4<f32>) -> @location(0) vec4<f32> {
     var st = (f.xy - d * 0.5) / min(d.x, d.y) * 3.0;
     st.y = -st.y;
     st += 1.0;
-    let th = 0.04;
+    let th = params.iterations;
     let sf = 0.015 + 0.1 * length(smoothstep(vec2(0.1, 0.2), vec2(2.0, 0.7), abs(st)));
 
     let t = u_time.time * 0.25;
@@ -52,7 +52,7 @@ fn fs_main(@builtin(position) f: vec4<f32>) -> @location(0) vec4<f32> {
     let y = fract((st.y + t) / ws);
 
     let sg = clamp((st.y + 0.8) * 0.6, 0.0, 1.0);
-    let sc = mix(vec3(0.0, 0.0, 0.0), vec3(0.1, 0.15, 0.2), pow(sg, 12.2));
+    let sc = mix(vec3(0.0, 0.0, 0.0), params.color1, pow(sg, 12.2));
 
     let mp = vec2(0.0, 1.7);
     let mr = 0.5;
@@ -73,7 +73,7 @@ fn fs_main(@builtin(position) f: vec4<f32>) -> @location(0) vec4<f32> {
     }
     var fc = sc;
     fc = mix(fc, vec3(1.0, 0.98, 0.9), mm);
-    fc = fc + vec3(0.9, 0.9, 0.8) * mg;
+    fc = fc + params.gradient_color * mg;
 
     let wv = smoothstep(0.3, -0.6, st.y);
     fc = mix(fc, mix(sc * 0.1, wc, 0.8), wv);

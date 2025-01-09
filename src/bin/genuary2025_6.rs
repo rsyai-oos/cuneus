@@ -12,7 +12,7 @@ struct ShaderParams {
     _pad2: f32,
     
     c_value_max: f32,
-    iterations: i32,
+    iterations: f32,
     aa_level: i32,
     _pad3: f32,
 }
@@ -188,14 +188,14 @@ impl ShaderManager for ChristmasShader {
             "Params Uniform",
             ShaderParams {
                 // Colors
-                color1: [0.0, 0.5, 1.0],
+                color1: [0.1, 0.15, 0.2],
                 _pad1: 0.0,
-                gradient_color: [0.5, 0.25, 0.05],
+                gradient_color: [0.9, 0.9, 0.8],
                 _pad2: 0.0,
                 
                 // Numeric parameters
-                c_value_max: 2.99225,
-                iterations: 65,
+                c_value_max: 3.0,
+                iterations: 0.04,
                 aa_level: 1,
                 _pad3: 0.0,
             },
@@ -275,8 +275,8 @@ impl ShaderManager for ChristmasShader {
         let output = core.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
         
-        let params = self.params_uniform.data;
-        let changed = false;
+        let mut params = self.params_uniform.data;
+        let mut changed = false;
         let mut should_start_export = false;
         let mut export_request = self.base.export_manager.get_ui_request();
         let mut controls_request = self.base.controls.get_ui_request(
@@ -286,7 +286,23 @@ impl ShaderManager for ChristmasShader {
 
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
-                egui::Window::new("Genuary").show(ctx, |ui| {
+                egui::Window::new("Genary").show(ctx, |ui| {
+                    ui.collapsing("Colors", |ui| {
+                        changed |= ui.color_edit_button_rgb(&mut params.color1).changed();
+                        ui.label("Sky");
+                        
+                        changed |= ui.color_edit_button_rgb(&mut params.gradient_color).changed();
+                        ui.label("Bloom");
+                    });
+        
+                    ui.collapsing("Parameters", |ui| {
+                        changed |= ui.add(egui::Slider::new(&mut params.c_value_max, 1.0..=30.5)
+                            .text("waves")).changed();
+                        
+                        changed |= ui.add(egui::Slider::new(&mut params.iterations, -1.5..=1.5)
+                            .text("thick")).changed();
+                    });
+                    
                     ui.separator();
                     ShaderControls::render_controls_widget(ui, &mut controls_request);
                     ui.separator();
