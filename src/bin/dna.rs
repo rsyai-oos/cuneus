@@ -223,7 +223,7 @@ impl ShaderManager for Shader {
                 
                 rotation_speed: 0.1,
                 wave_speed: 0.5,
-                fold_intensity: 0.1,
+                fold_intensity: 1.2,
                 _pad4: 0.0,
             },
             &params_bind_group_layout,

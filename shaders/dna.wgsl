@@ -32,14 +32,7 @@ struct Params {
 
 const PI: f32 = 3.14159265359;
 
-fn rotate(angle: f32) -> mat2x2<f32> {
-    let c = cos(angle);
-    let s = sin(angle);
-    return mat2x2<f32>(
-        vec2<f32>(c, -s),
-        vec2<f32>(s, c)
-    );
-}
+
 
 fn waveSDF(p: vec2<f32>, time: f32, frequency: f32, amplitude: f32) -> f32 {
     var minDist: f32 = 1000.0;
@@ -47,14 +40,15 @@ fn waveSDF(p: vec2<f32>, time: f32, frequency: f32, amplitude: f32) -> f32 {
     for(var i: i32 = 0; i < waves; i = i + 1) {
         let phase = f32(i) * PI * 2.0 / f32(waves);
         let wave_time = time + phase;
-        let wave_y = amplitude * sin(p.x * frequency + wave_time);
-        let dist = abs(p.y - wave_y);
-        let thickness = 0.1 + 0.05 * sin(p.x * 2.0 + time);
+        let wave_x = amplitude * sin(p.y * frequency + wave_time);
+        let dist = abs(p.x - wave_x);
+        let thickness = 0.1 + 0.05 * sin(p.y * 2.0 + time);
         minDist = min(minDist, dist - thickness);
     }
     
     return minDist;
 }
+
 
 fn getWaveLightPositions(time: f32, layer: f32) -> array<vec2<f32>, 4> {
     var positions: array<vec2<f32>, 4>;
@@ -85,14 +79,14 @@ fn getLightIntensity(uv: vec2<f32>, wave_dist: f32, layer: f32, time: f32) -> f3
     let ao = 0.5 - (layer * 0.1) * (1.0 + 0.2 * sin(layer * 8.0 + time));
     // rim lighting
     let normal = normalize(vec2<f32>(wave_dist, 1.0));
-    let rim = 1.2 - abs(dot(normalize(uv), normal));
-    let rim_light = pow(rim, 2.0);
+    let rim = params.fold_intensity - abs(dot(normalize(uv), normal));
+    let rim_light = pow(rim, 4.0);
     
     //  shimmer effect
     let shimmer = sin(layer * 6.0 + time) * cos(layer * 4.0 - time * 0.8);
     intensity = intensity * (1.0 + 0.1 * shimmer);
     
-    return intensity * ao * 2.0 + rim_light * 0.3;
+    return intensity * ao * 5.0 + rim_light * 0.7;
 }
 
 fn getEnvironmentLight(uv: vec2<f32>, layer: f32, time: f32) -> f32 {
@@ -113,8 +107,7 @@ fn gamma(color: vec3<f32>, gamma: f32) -> vec3<f32> {
 
 @fragment
 fn fs_main(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
-  let bg = 0.4;
-;
+    let bg = 0.4;
     var frag_color = vec4<f32>(bg, bg, bg, 1.0);
     let screen_size = vec2<f32>(1920.0, 1080.0);
     let t = u_time.time * 0.5;
@@ -123,12 +116,8 @@ fn fs_main(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
     while(i > 1.1) {
         let layer = i * 3.0;
         
-        // Calculate UV coordinates with rotation
         var uv = (FragCoord.xy - screen_size.xy * 0.5) / min(screen_size.x, screen_size.y);
-        let rotation_angle = i + t * 0.2 + 0.3;
-        uv = rotate(rotation_angle) * uv;
         
-        // Get wave SDF
         let wave = waveSDF(uv * params.falloff_distance, t, 3.0 + sin(layer + t) * 0.5, 0.5);
         let alpha = smoothstep(params.rim_power, 0.1, (wave + 0.01) * screen_size.y * 0.2);
         
@@ -149,7 +138,7 @@ fn fs_main(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
         frag_color = mix(lit_color_irid, frag_color, alpha) *
                     mix(vec4<f32>(params.base_color,1.0), hue + alpha * params.wave_speed * (uv.x / (abs(wave) + 0.001) + light_intensity), mix_factor);
         
-        i = i - params.fold_intensity;
+        i = i -1.0;
     }
     
     frag_color = vec4<f32>(frag_color.rgb * 1.1, 1.0);
