@@ -204,20 +204,20 @@ impl ShaderManager for Shader {
             &core.device,
             "Params Uniform",
             ShaderParams {
-                base_color: [0.6, 0.6, 0.6],
+                base_color: [0.4, 0.6, 0.6],
                 _pad1: 0.0,
                 rim_color: [0.8, 0.85, 0.9],
                 _pad2: 0.0,
                 accent_color: [0.4, 0.6, 0.8],
                 _pad3: 0.0,
                 
-                light_intensity: 2.8,
-                rim_power: 1.8,
+                light_intensity: 1.5,
+                rim_power: 0.0,
                 ao_strength: 0.1,
                 env_light_strength: 0.3,
                 
-                iridescence_power: 0.12,
-                falloff_distance: 2.0,
+                iridescence_power: 0.4,
+                falloff_distance: 3.0,
                 vignette_strength: 0.25,
                 num_cells: 12,
                 
@@ -322,23 +322,18 @@ impl ShaderManager for Shader {
                     ui.label("Rim Color");
                     
                     
-                    changed |= ui.add(egui::Slider::new(&mut params.light_intensity, 0.0..=8.0)
-                        .text("Light Power")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.light_intensity, 1.0..=12.0)
+                        .text("n")).changed();
                     
-                    changed |= ui.add(egui::Slider::new(&mut params.rim_power, 0.0..=12.0)
-                        .text("Rim Effect")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.rim_power, 0.0..=0.5)
+                        .text("alpha")).changed();
                         
-                    changed |= ui.add(egui::Slider::new(&mut params.iridescence_power, 0.0..=12.3)
+                    changed |= ui.add(egui::Slider::new(&mut params.iridescence_power, 0.0..=2.3)
                         .text("Iridescence")).changed();
                         
-                    changed |= ui.add(egui::Slider::new(&mut params.falloff_distance, 0.5..=12.0)
-                        .text("Light Range")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.falloff_distance, 0.5..=24.0)
+                        .text("Range")).changed();
                         
-                    changed |= ui.add(egui::Slider::new(&mut params.wave_speed, 0.0..=2.0)
-                        .text("Animation Speed")).changed();
-                        
-                    changed |= ui.add(egui::Slider::new(&mut params.fold_intensity, 0.0..=6.0)
-                        .text("light")).changed();
 
                     ui.separator();
                     ShaderControls::render_controls_widget(ui, &mut controls_request);

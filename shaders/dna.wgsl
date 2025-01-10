@@ -113,12 +113,13 @@ fn gamma(color: vec3<f32>, gamma: f32) -> vec3<f32> {
 
 @fragment
 fn fs_main(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
-    let bg = 0.4;
+  let bg = params.base_color.r;
+;
     var frag_color = vec4<f32>(bg, bg, bg, 1.0);
     let screen_size = vec2<f32>(1920.0, 1080.0);
     let t = u_time.time * 0.5;
     
-    var i: f32 = 1.5;
+    var i: f32 = params.light_intensity;
     while(i > 1.1) {
         let layer = i * 3.0;
         
@@ -128,14 +129,15 @@ fn fs_main(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
         uv = rotate(rotation_angle) * uv;
         
         // Get wave SDF
-        let wave = waveSDF(uv * 3.0, t, 3.0 + sin(layer + t) * 0.5, 0.5);
-        let alpha = smoothstep(0.0, 0.1, (wave + 0.01) * screen_size.y * 0.2);
+        let wave = waveSDF(uv * params.falloff_distance, t, 3.0 + sin(layer + t) * 0.5, 0.5);
+        let alpha = smoothstep(params.rim_power, 0.1, (wave + 0.01) * screen_size.y * 0.2);
         
         let light_intensity = getLightIntensity(uv, wave, i, t);
         let env_light = getEnvironmentLight(uv, layer, t);
         
         let color_intensity = 0.7 + 0.3 * sin(layer * 15.0 + t) * cos(layer * 10.0 - t * 0.5);
-        let hue = sin(i * 0.7 + vec4<f32>(1.0, 2.0, 3.0, 1.0) + wave * 0.5) * 0.25 + color_intensity;
+        let scaled_color = params.rim_color * vec3<f32>(1.0, 2.0, 3.0) + vec3<f32>(1.0, 1.0, 1.0);
+        let hue = sin(i * 0.7 + vec4<f32>(scaled_color, 1.0) + wave * 0.5) * 0.25 + color_intensity;
         
         let lit_color = hue * (light_intensity + env_light);
         
@@ -143,7 +145,7 @@ fn fs_main(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
         let iridescence = sin(dot(uv, uv) * 4.0 + t) * 0.15 * depth_factor + 0.9;
         let lit_color_irid = lit_color * vec4<f32>(iridescence, iridescence * 0.98, iridescence * 1.02, 1.0);
         
-        let mix_factor = 0.3 / (abs(wave) + 0.01) * (0.4 - depth_factor * 0.15);
+        let mix_factor = 0.3 / (abs(wave) + 0.01) * (params.iridescence_power- depth_factor * 0.15);
         frag_color = mix(lit_color_irid, frag_color, alpha) *
                     mix(vec4<f32>(1.0), hue + alpha * 0.2 * (uv.x / (abs(wave) + 0.001) + light_intensity), mix_factor);
         
