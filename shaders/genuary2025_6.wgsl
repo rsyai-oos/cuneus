@@ -1,3 +1,7 @@
+// MIT License Enes Altun, 2025
+// https://genuary.art/
+// Make a landscape using only primitive shapes. (Day 6)
+
 struct TimeUniform {
     time: f32,
 };

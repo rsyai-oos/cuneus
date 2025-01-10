@@ -1,3 +1,5 @@
+// MIT License Enes Altun, 2025
+
 struct TimeUniform {
     time: f32,
 };
