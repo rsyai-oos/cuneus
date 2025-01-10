@@ -14,7 +14,8 @@ struct Params {
     y: f32,
     accent_color: vec3<f32>,
     _pad3: f32,
-    
+    _pad4: f32,
+
     iteration: i32,
     col_ext: f32,
     zoom: f32,
@@ -28,7 +29,6 @@ struct Params {
     trap_s1: f32,
     wave_speed: f32,
     fold_intensity: f32,
-    _pad4: f32,
 };
 
 @group(1) @binding(0) var<uniform> params: Params;
@@ -106,7 +106,7 @@ fn fs_main(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
             let uv_sample = ((fragCoord + sample_offset - 0.5 * screen_size) / min_res * params.zoom + pan + camPath) * 2.033 - vec2<f32>(params.x, params.y);
             
             let z_data = implicit(uv_sample, trap1, trap2, u_time.time* 0.1);
-            let iter_ratio = smoothstep(0.0, 1.0, z_data.x / f32(MAX_ITER));
+            let iter_ratio = smoothstep(0.0, params.fold_intensity, z_data.x / f32(MAX_ITER));
             let d = z_data.y;
             let trap1_dist = z_data.z;
             let trap2_dist = z_data.w;
@@ -116,20 +116,20 @@ fn fs_main(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
                 let c2 = pow(clamp(normalize_trap(1.5 * trap1_dist, 2.0), 0.0, 1.0), 2.0);
                 let c3 = pow(clamp(normalize_trap(0.4 * trap2_dist, 0.25), 0.0, 1.0), 0.25);
                 
-                let phase1 = 2.0 * PI * (c2 + c3);
+                let phase1 = params.col_ext * PI * (c2 + c3);
                 let phase2 = 2.0 * PI * c3;
                 let phase3 = 2.0 * PI * iter_ratio;
                 
                 let col1 = 0.5 + 0.5 * sin(phase1 + params.rim_color);
                 let col2 = 0.5 + 0.5 * sin(phase2 + params.accent_color);
                 let osc_val = osc(0.0, 1.0, 10.0, u_time.time);
-                let exteriorColor = 0.5 + 0.5 * sin(2.0 * PI * normalize_trap(trap2_dist, params.trap_pow) + params.base_color + phase3 + osc_val);
+                let exteriorColor = 0.5 + params.wave_speed * sin(params.trap_s1 * PI * normalize_trap(trap2_dist, params.trap_pow) + params.base_color + phase3 + osc_val);
 
                 col = col + mix(col1 + col2, exteriorColor, iter_ratio);
             }
         }
     }
 
-    col = gamma(col / f32(AA * AA), 0.4);
+    col = gamma(col / f32(AA * AA),0.4);
     return vec4<f32>(col, 1.0);
 }

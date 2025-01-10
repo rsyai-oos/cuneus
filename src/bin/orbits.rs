@@ -12,7 +12,7 @@ pub struct ShaderParams {
     y: f32,
     accent_color: [f32; 3],
     _pad3: f32,
-
+    _pad4: f32,
     // xy vec2
     
     // Lighting parameters
@@ -26,7 +26,7 @@ pub struct ShaderParams {
     trap_y: f32,
     trap_c1: f32,
     aa: i32,
-    _pad4: f32,
+
 
     // Animation parameters
     trap_s1: f32,
@@ -214,7 +214,7 @@ impl ShaderManager for Shader {
                 _pad3: 0.0,
                 _pad4: 0.0,
                 iteration: 220,
-                col_ext: 12.0,
+                col_ext: 2.0,
                 zoom: 0.0004,
                 trap_pow: 2.0,
 
@@ -224,9 +224,9 @@ impl ShaderManager for Shader {
                 trap_c1: 0.13,
                 aa: 1,
                 
-                trap_s1: 0.13,
+                trap_s1: 2.0,
                 wave_speed: 0.5,
-                fold_intensity: 0.5,
+                fold_intensity: 1.0,
             },
             &params_bind_group_layout,
             0,
@@ -334,11 +334,11 @@ impl ShaderManager for Shader {
                         
 
                         
-                    changed |= ui.add(egui::Slider::new(&mut params.wave_speed, 0.0..=2.0)
-                        .text("Animation Speed")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.wave_speed, 0.0..=12.0)
+                        .text("cols")).changed();
                         
                     changed |= ui.add(egui::Slider::new(&mut params.fold_intensity, 0.0..=6.0)
-                        .text("light")).changed();
+                        .text("escape")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.aa, 1..=8)
                     .text("AA(care!)")).changed(); 
 
@@ -350,7 +350,7 @@ impl ShaderManager for Shader {
                     changed |= ui.add(egui::Slider::new(&mut params.trap_y, -12.0..=12.0)
                         .text("trap_y")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.col_ext, 0.0..=25.0)
-                    .text("Orbit effect")).changed();
+                    .text("c1")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.trap_pow, 0.0..=10.0)
                     .text("Trap Power")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.trap_c1, 0.0..=6.2)
