@@ -204,7 +204,7 @@ impl ShaderManager for Shader {
             &core.device,
             "Params Uniform",
             ShaderParams {
-                base_color: [0.4, 0.6, 0.6],
+                base_color: [1.0, 1.0, 1.0],
                 _pad1: 0.0,
                 rim_color: [0.8, 0.85, 0.9],
                 _pad2: 0.0,
@@ -223,7 +223,7 @@ impl ShaderManager for Shader {
                 
                 rotation_speed: 0.1,
                 wave_speed: 0.5,
-                fold_intensity: 0.5,
+                fold_intensity: 0.1,
                 _pad4: 0.0,
             },
             &params_bind_group_layout,
@@ -334,6 +334,11 @@ impl ShaderManager for Shader {
                     changed |= ui.add(egui::Slider::new(&mut params.falloff_distance, 0.5..=24.0)
                         .text("Range")).changed();
                         
+                    changed |= ui.add(egui::Slider::new(&mut params.wave_speed, 0.0..=2.0)
+                        .text("ALPHA")).changed();
+                        
+                    changed |= ui.add(egui::Slider::new(&mut params.fold_intensity, 0.1..=6.0)
+                        .text("light")).changed();
 
                     ui.separator();
                     ShaderControls::render_controls_widget(ui, &mut controls_request);

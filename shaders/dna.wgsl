@@ -113,7 +113,7 @@ fn gamma(color: vec3<f32>, gamma: f32) -> vec3<f32> {
 
 @fragment
 fn fs_main(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
-  let bg = params.base_color.r;
+  let bg = 0.4;
 ;
     var frag_color = vec4<f32>(bg, bg, bg, 1.0);
     let screen_size = vec2<f32>(1920.0, 1080.0);
@@ -147,9 +147,9 @@ fn fs_main(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
         
         let mix_factor = 0.3 / (abs(wave) + 0.01) * (params.iridescence_power- depth_factor * 0.15);
         frag_color = mix(lit_color_irid, frag_color, alpha) *
-                    mix(vec4<f32>(1.0), hue + alpha * 0.2 * (uv.x / (abs(wave) + 0.001) + light_intensity), mix_factor);
+                    mix(vec4<f32>(params.base_color,1.0), hue + alpha * params.wave_speed * (uv.x / (abs(wave) + 0.001) + light_intensity), mix_factor);
         
-        i = i - 0.1;
+        i = i - params.fold_intensity;
     }
     
     frag_color = vec4<f32>(frag_color.rgb * 1.1, 1.0);
