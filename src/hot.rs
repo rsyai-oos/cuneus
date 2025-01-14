@@ -1,7 +1,9 @@
-use notify::{Watcher, RecursiveMode};
+use notify::{Watcher, RecursiveMode, Event, EventKind };
+use notify::event::ModifyKind;
 use std::sync::Arc;
 use std::path::PathBuf;
 use std::fs;
+use std::sync::mpsc::channel;
 
 pub struct ShaderHotReload {
     pub vs_module: wgpu::ShaderModule,
@@ -10,6 +12,9 @@ pub struct ShaderHotReload {
     shader_paths: Vec<PathBuf>,
     last_vs_content: String,
     last_fs_content: String,
+    #[allow(dead_code)]
+    watcher: notify::RecommendedWatcher,
+    rx: std::sync::mpsc::Receiver<notify::Event>,
     _watcher_tx: std::sync::mpsc::Sender<notify::Event>,
 }
 
@@ -20,9 +25,16 @@ impl ShaderHotReload {
         vs_module: wgpu::ShaderModule,
         fs_module: wgpu::ShaderModule,
     ) -> notify::Result<Self> {
-        let (tx, _rx) = std::sync::mpsc::channel();
+        let (tx, rx) = channel();
         let watcher_tx = tx.clone();
-        
+        let mut watcher = notify::recommended_watcher(move |res: Result<Event, _>| {
+            if let Ok(event) = res {
+                if let EventKind::Modify(ModifyKind::Data(_)) = event.kind {
+                    tx.send(event).unwrap_or_default();
+                }
+            }
+        })?;
+
         if let Some(first_path) = shader_paths.first() {
             if let Some(parent) = first_path.parent() {
                 fs::create_dir_all(parent).unwrap_or_else(|_| {
@@ -30,12 +42,6 @@ impl ShaderHotReload {
                 });
             }
         }
-
-        let mut watcher = notify::recommended_watcher(move |res| {
-            if let Ok(event) = res {
-                tx.send(event).unwrap_or_default();
-            }
-        })?;
 
         for path in &shader_paths {
             if let Some(parent) = path.parent() {
@@ -58,6 +64,8 @@ impl ShaderHotReload {
             shader_paths,
             last_vs_content,
             last_fs_content,
+            watcher,
+            rx,
             _watcher_tx: watcher_tx,
         })
     }
@@ -86,6 +94,7 @@ impl ShaderHotReload {
     }
 
     pub fn check_and_reload(&mut self) -> Option<(&wgpu::ShaderModule, &wgpu::ShaderModule)> {
+    if let Ok(_event) = self.rx.try_recv() {
         let vs_content = match fs::read_to_string(&self.shader_paths[0]) {
             Ok(content) => content,
             Err(e) => {
@@ -122,6 +131,9 @@ impl ShaderHotReload {
         self.fs_module = new_fs;
 
         Some((&self.vs_module, &self.fs_module))
+    } else {
+        None
+    }
     }
 
     pub fn has_shader_changed(&self, shader_type: &str) -> bool {
