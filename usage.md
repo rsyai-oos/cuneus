@@ -140,7 +140,7 @@ fn fs_pass2(...) -> @location(0) vec4<f32> {
 
 
 ### Hot Reloading
-cuneus supports hot reloading of shaders. Simply modify your WGSL files and they will automatically reload. For now, it crashes if you make an error. 
+cuneus supports hot reloading of shaders. Simply modify your WGSL files and they will automatically reload.
 
 ### Export Support
 Built-in support for exporting frames as images. Access through the UI when enabled. "Start time" is not working correctly currently.

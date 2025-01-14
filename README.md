@@ -6,7 +6,7 @@ A tool for experimenting with WGSL shaders, it uses `wgpu` for rendering, `egui`
 
 ### Current Features
 
-- Hot shader reloading (crash if you make errors: WIP)
+- Hot shader reloading
 - Multi-pass, atomics etc
 - Interactive parameter adjustment, ez Texture loading through egui
 - Export HQ frames via egui
