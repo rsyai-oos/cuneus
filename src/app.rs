@@ -20,8 +20,8 @@ impl ShaderApp {
         let window = event_loop
             .create_window(window_attributes)
             .expect("Failed to create window");
+        window.set_window_level(winit::window::WindowLevel::AlwaysOnTop);
         let core = pollster::block_on(Core::new(window));
-
         (Self { core }, event_loop)
     }
     pub fn run<S: ShaderManager + 'static>(
