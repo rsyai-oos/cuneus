@@ -53,6 +53,9 @@ impl ChristmasShader {
         });
         self.base.time_uniform.data.time = time;
         self.base.time_uniform.update(&core.queue);
+        self.base.resolution_uniform.data.dimensions = [settings.width as f32, settings.height as f32];
+        self.base.resolution_uniform.update(&core.queue);
+
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Capture Pass"),
@@ -71,7 +74,8 @@ impl ChristmasShader {
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
             render_pass.set_bind_group(0, &self.base.time_uniform.bind_group, &[]);
-            render_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
+            render_pass.set_bind_group(1, &self.base.resolution_uniform.bind_group, &[]);
+            render_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
         }
         encoder.copy_texture_to_buffer( 
@@ -377,7 +381,9 @@ impl ShaderManager for ChristmasShader {
 
         Ok(())
     }
-
+    fn resize(&mut self, core: &Core) {
+        self.base.update_resolution(&core.queue, core.size);
+    }
     fn handle_input(&mut self, core: &Core, event: &WindowEvent) -> bool {
         if self.base.egui_state.on_window_event(core.window(), event).consumed {
             return true;

@@ -43,6 +43,7 @@ impl ShaderApp {
                             }
                             WindowEvent::Resized(size) => {
                                 self.core.resize(*size);
+                                shader.resize(&self.core);
                             }
                             WindowEvent::RedrawRequested => {
                                 shader.update(&self.core);
