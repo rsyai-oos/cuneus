@@ -3,7 +3,10 @@
 struct TimeUniform {
     time: f32,
 };
-
+struct ResolutionUniform {
+    dimensions: vec2<f32>,
+    _padding: vec2<f32>,
+};
 struct Params {
     max_iterations: i32,
     max_sub_iterations: i32,
@@ -15,7 +18,9 @@ struct Params {
 };
 
 @group(0) @binding(0) var<uniform> u_time: TimeUniform;
-@group(1) @binding(0) var<uniform> params: Params;
+@group(1) @binding(0) var<uniform> u_resolution: ResolutionUniform;
+@group(2) @binding(0) var<uniform> params: Params;
+
 const PI: f32 = 3.14159265359;
 const LIGHT_DIR: vec3<f32> = vec3<f32>(0.577350269, 0.577350269, 0.577350269);
 fn gamma(color: vec3<f32>, gamma: f32) -> vec3<f32> {
@@ -151,7 +156,7 @@ fn gs(fragCoord: vec2<f32>) -> f32 {
 
 @fragment
 fn fs_main(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
-    let dim = vec2<f32>(1920.0, 1080.0);
+    let dim = u_resolution.dimensions;
     var uv = (FragCoord.xy - 0.5 * dim) / dim.y;
 
     let dfc = length(uv) * params.center_scale;
