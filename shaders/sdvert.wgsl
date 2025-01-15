@@ -1,8 +1,13 @@
 struct TimeUniform {
     time: f32,
 };
-
+struct ResolutionUniform {
+    dimensions: vec2<f32>,
+    _padding: vec2<f32>,
+};
 @group(0) @binding(0) var<uniform> u_time: TimeUniform;
+@group(1) @binding(0) var<uniform> u_resolution: ResolutionUniform;
+@group(2) @binding(0) var<uniform> params: Params;
 struct Params {
     lambda: f32,
     theta: f32,
@@ -22,8 +27,7 @@ struct Params {
     f:f32,
     g:f32,
 };
-@group(1) @binding(0)
-var<uniform> params: Params;
+
 const PI: f32 = 3.14159265358979323846;
 const LIGHT_INTENSITY: f32 = 2.2;
 const RIM_POWER: f32 = 2.0;
@@ -164,7 +168,7 @@ fn gamma(color: vec3<f32>, gamma: f32) -> vec3<f32> {
 fn fs_main(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
     let bg = oscillate(0.6, 0.6, 8.0, u_time.time);
     var fragColor = vec4<f32>(bg, bg, bg, 1.0);
-    let screen_size = vec2<f32>(800.0, 600.0) ;
+    let screen_size = u_resolution.dimensions;
     let t = u_time.time * 0.5;
     var angle: f32 = 0.25;
     let foldPattern = cos(t * 0.5) * PI * 0.25;
@@ -183,9 +187,9 @@ fn fs_main(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
 
         let alternatingFold = sign(sin(layer * params.b)) * sin(t + i * 2.0);
 
-        var uv = 2.7 * (FragCoord.xy - screen_size) / screen_size.y;
-        uv.y = uv.y - 0.3;
-        uv.x = uv.x - 0.3;
+        var uv = 4.7 * (FragCoord.xy - screen_size) / screen_size.y;
+        uv.y = uv.y + 2.3;
+        uv.x = uv.x + 3.0;
         uv = rotate(i + (angle + alternatingFold) + foldPattern) * uv;
 
         let pentagon = sdPentagon(uv, i, angle + t * (1.0 + 0.2 * sin(layer)));

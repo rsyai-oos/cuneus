@@ -2,7 +2,13 @@
 struct TimeUniform {
     time: f32,
 };
+struct ResolutionUniform {
+    dimensions: vec2<f32>,
+    _padding: vec2<f32>,
+};
 @group(0) @binding(0) var<uniform> u_time: TimeUniform;
+@group(1) @binding(0) var<uniform> u_resolution: ResolutionUniform;
+@group(2) @binding(0) var<uniform> params: Params;
 struct Params {
     color_core: vec3<f32>,
     power: f32,
@@ -21,8 +27,7 @@ struct Params {
     max_dist: f32,
     min_dist: f32,
 };
-@group(1) @binding(0)
-var<uniform> params: Params;
+
 const PI: f32 = 3.14159265358979323846;
 struct Ray {
     origin: vec3<f32>,
@@ -196,7 +201,7 @@ fn render(ray: Ray) -> vec3<f32> {
 }
 @fragment
 fn fs_main(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
-    let dimensions = vec2<f32>(1920.0, 1080.0);
+    let dimensions = u_resolution.dimensions;
     let uv = (FragCoord.xy - 0.5 * dimensions) / dimensions.y;
     let angle = u_time.time * 0.3;
     let baseHeight = 1.5;

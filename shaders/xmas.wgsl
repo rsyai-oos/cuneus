@@ -10,8 +10,13 @@ struct TimeUniform {
     time: f32,
 };
 
-@group(0) @binding(0)
-var<uniform> u_time: TimeUniform;
+struct ResolutionUniform {
+    dimensions: vec2<f32>,
+    _padding: vec2<f32>,
+};
+@group(0) @binding(0) var<uniform> u_time: TimeUniform;
+@group(1) @binding(0) var<uniform> u_resolution: ResolutionUniform;
+@group(2) @binding(0) var<uniform> params: Params;
 
 struct Params {
     lambda: f32,
@@ -33,8 +38,6 @@ struct Params {
     g: f32,
 };
 
-@group(1) @binding(0)
-var<uniform> params: Params;
 
 struct Dec {
     dist: f32,
@@ -309,7 +312,7 @@ fn snowy(uv: vec2<f32>) -> f32 {
 }
 @fragment
 fn fs_main(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
-    let res = vec2<f32>(1920.0, 1080.0);
+    let res = u_resolution.dimensions;
     let uv = -1.5 * (2.0 * FragCoord.xy - res.xy) / min(res.x, res.y);
     var col = vec3<f32>(0.08, 0.09, 0.11) + vec3<f32>(params.b, params.c, params.d) * length(uv);
     

@@ -2,7 +2,13 @@ struct TimeUniform {
     time: f32,
 };
 
+struct ResolutionUniform {
+    dimensions: vec2<f32>,
+    _padding: vec2<f32>,
+};
 @group(0) @binding(0) var<uniform> u_time: TimeUniform;
+@group(1) @binding(0) var<uniform> u_resolution: ResolutionUniform;
+@group(2) @binding(0) var<uniform> params: Params;
 
 struct Params {
     base_color: vec3<f32>,
@@ -28,7 +34,6 @@ struct Params {
     _pad4: f32,
 };
 
-@group(1) @binding(0) var<uniform> params: Params;
 
 const PI: f32 = 3.14159265358979323846;
 
@@ -109,7 +114,7 @@ fn fs_main(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
     var hue: vec4<f32>;
     let bg = params.base_color.r;
     var fragColor = vec4<f32>(bg, bg, bg, 1.0);
-    let screen_size = vec2<f32>(1920.0, 1080.0);
+    let screen_size =  u_resolution.dimensions;
     let t = u_time.time * params.wave_speed;
     var angle: f32 = 0.25;
     let foldPattern = cos(t * 0.5) * PI * 0.25 * 0.5;
