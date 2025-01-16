@@ -30,6 +30,7 @@ struct SpiralShader {
     hot_reload: ShaderHotReload,
     texture_bind_group_layout: wgpu::BindGroupLayout,
     time_bind_group_layout: wgpu::BindGroupLayout,
+    resolution_bind_group_layout: wgpu::BindGroupLayout,
     params_bind_group_layout: wgpu::BindGroupLayout,
 }
 impl SpiralShader {
@@ -50,6 +51,8 @@ impl SpiralShader {
         });
         self.base.time_uniform.data.time = time;
         self.base.time_uniform.update(&core.queue);
+        self.base.resolution_uniform.data.dimensions = [settings.width as f32, settings.height as f32];
+        self.base.resolution_uniform.update(&core.queue);
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Capture Pass"),
@@ -67,12 +70,18 @@ impl SpiralShader {
             });
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
+            
             if let Some(texture_manager) = &self.base.texture_manager {
                 render_pass.set_bind_group(0, &texture_manager.bind_group, &[]);
             }
+            // Time (group 1)
             render_pass.set_bind_group(1, &self.base.time_uniform.bind_group, &[]);
+            // Params (group 2)
             render_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
+            // Resolution (group 3)
+            render_pass.set_bind_group(3, &self.base.resolution_uniform.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
+
         }
         encoder.copy_texture_to_buffer(
             wgpu::ImageCopyTexture {
@@ -168,9 +177,22 @@ impl ShaderManager for SpiralShader {
             }],
             label: Some("time_bind_group_layout"),
         });
+        let resolution_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+            label: Some("resolution_bind_group_layout"),
+        });
         let params_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 2,
+                binding: 0,  // Change from 2 to 0
                 visibility: wgpu::ShaderStages::FRAGMENT,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
@@ -194,7 +216,7 @@ impl ShaderManager for SpiralShader {
                 use_texture_colors: 0.0,
             },
             &params_bind_group_layout,
-            2,
+            0,
         );
         let texture_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
@@ -218,9 +240,10 @@ impl ShaderManager for SpiralShader {
             label: Some("texture_bind_group_layout"),
         });
         let bind_group_layouts = vec![
-            &texture_bind_group_layout,
-            &time_bind_group_layout,
-            &params_bind_group_layout,
+            &texture_bind_group_layout,    // group 0
+            &time_bind_group_layout,       // group 1 
+            &params_bind_group_layout,     // group 2
+            &resolution_bind_group_layout, // group 3
         ];
         let vs_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Vertex Shader"),
@@ -256,6 +279,7 @@ impl ShaderManager for SpiralShader {
             hot_reload,
             texture_bind_group_layout,
             time_bind_group_layout,
+            resolution_bind_group_layout,
             params_bind_group_layout,
         }
     }
@@ -266,9 +290,10 @@ impl ShaderManager for SpiralShader {
             let pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
                 bind_group_layouts: &[
-                    &self.texture_bind_group_layout,
-                    &self.time_bind_group_layout,
-                    &self.params_bind_group_layout,
+                    &self.texture_bind_group_layout,    // group 0
+                    &self.time_bind_group_layout,       // group 1
+                    &self.resolution_bind_group_layout, // group 2
+                    &self.params_bind_group_layout,     // group 3
                 ],
                 push_constant_ranges: &[],
             });
@@ -370,17 +395,27 @@ impl ShaderManager for SpiralShader {
             });
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
+            
+            // Texture (group 0)
             if let Some(texture_manager) = &self.base.texture_manager {
                 render_pass.set_bind_group(0, &texture_manager.bind_group, &[]);
             }
+            // Time (group 1)
             render_pass.set_bind_group(1, &self.base.time_uniform.bind_group, &[]);
+            // Params (group 2)
             render_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
+            // Resolution (group 3)
+            render_pass.set_bind_group(3, &self.base.resolution_uniform.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
+
         }
         self.base.handle_render_output(core, &view, full_output, &mut encoder);
         core.queue.submit(Some(encoder.finish()));
         output.present();
         Ok(())
+    }
+    fn resize(&mut self, core: &Core) {
+        self.base.update_resolution(&core.queue, core.size);
     }
     fn handle_input(&mut self, core: &Core, event: &WindowEvent) -> bool {
         if self.base.egui_state.on_window_event(core.window(), event).consumed {
