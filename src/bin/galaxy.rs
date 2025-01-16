@@ -25,7 +25,8 @@ struct ChristmasShader {
     base: BaseShader,
     params_uniform: UniformBinding<ShaderParams>,
     hot_reload: ShaderHotReload,
-    time_bind_group_layout: wgpu::BindGroupLayout,
+    time_bind_group_layout: wgpu::BindGroupLayout,    
+    resolution_bind_group_layout: wgpu::BindGroupLayout,
     params_bind_group_layout: wgpu::BindGroupLayout,
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -52,6 +53,9 @@ impl ChristmasShader {
         });
         self.base.time_uniform.data.time = time;
         self.base.time_uniform.update(&core.queue);
+        self.base.resolution_uniform.data.dimensions = [settings.width as f32, settings.height as f32];
+        self.base.resolution_uniform.update(&core.queue);
+
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Capture Pass"),
@@ -70,7 +74,8 @@ impl ChristmasShader {
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
             render_pass.set_bind_group(0, &self.base.time_uniform.bind_group, &[]);
-            render_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
+            render_pass.set_bind_group(1, &self.base.resolution_uniform.bind_group, &[]);
+            render_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
         }
         encoder.copy_texture_to_buffer( 
@@ -168,6 +173,19 @@ impl ShaderManager for ChristmasShader {
             label: Some("time_bind_group_layout"),
         });
 
+        let resolution_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+            label: Some("resolution_bind_group_layout"),
+        });
         let params_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
@@ -200,6 +218,7 @@ impl ShaderManager for ChristmasShader {
 
         let bind_group_layouts = vec![
             &time_bind_group_layout,
+            &resolution_bind_group_layout,
             &params_bind_group_layout,
         ];
         let vs_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -237,6 +256,7 @@ impl ShaderManager for ChristmasShader {
             params_uniform,
             hot_reload,
             time_bind_group_layout,
+            resolution_bind_group_layout,
             params_bind_group_layout,
         }
     }
@@ -248,6 +268,7 @@ impl ShaderManager for ChristmasShader {
                 label: Some("Render Pipeline Layout"),
                 bind_group_layouts: &[
                     &self.time_bind_group_layout,
+                    &self.resolution_bind_group_layout,
                     &self.params_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
@@ -266,7 +287,6 @@ impl ShaderManager for ChristmasShader {
             self.handle_export(core);
         }
     }
-
     fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {
         let output = core.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -350,7 +370,8 @@ impl ShaderManager for ChristmasShader {
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
             render_pass.set_bind_group(0, &self.base.time_uniform.bind_group, &[]);
-            render_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
+            render_pass.set_bind_group(1, &self.base.resolution_uniform.bind_group, &[]);
+            render_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
         }
 
@@ -360,7 +381,9 @@ impl ShaderManager for ChristmasShader {
 
         Ok(())
     }
-
+    fn resize(&mut self, core: &Core) {
+        self.base.update_resolution(&core.queue, core.size);
+    }
     fn handle_input(&mut self, core: &Core, event: &WindowEvent) -> bool {
         if self.base.egui_state.on_window_event(core.window(), event).consumed {
             return true;

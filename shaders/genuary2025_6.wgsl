@@ -6,8 +6,13 @@ struct TimeUniform {
     time: f32,
 };
 
+struct ResolutionUniform {
+    dimensions: vec2<f32>,
+    _padding: vec2<f32>,
+};
 @group(0) @binding(0) var<uniform> u_time: TimeUniform;
-
+@group(1) @binding(0) var<uniform> u_resolution: ResolutionUniform;
+@group(2) @binding(0) var<uniform> params: Params;
 struct Params {
     color1: vec3<f32>,
     _pad1: f32,
@@ -18,7 +23,6 @@ struct Params {
     aa_level: i32,
     _pad3: f32,
 };
-@group(1) @binding(0) var<uniform> params: Params;
 
 const PI: f32 = 3.14159265359;
 fn gamma(color: vec3<f32>, gamma: f32) -> vec3<f32> {
@@ -43,7 +47,7 @@ fn sdc(p: vec2<f32>, r: f32) -> f32 {
 
 @fragment
 fn fs_main(@builtin(position) f: vec4<f32>) -> @location(0) vec4<f32> {
-    let d = vec2<f32>(1920.0, 1080.0);
+    let d = u_resolution.dimensions;
     var st = (f.xy - d * 0.5) / min(d.x, d.y) * 3.0;
     st.y = -st.y;
     st += 1.0;

@@ -1,7 +1,7 @@
 use std::time::Instant;
 use egui_wgpu::ScreenDescriptor;
 use egui::ViewportId;
-use crate::{Core, Renderer, TextureManager, UniformProvider, UniformBinding,KeyInputHandler,ExportManager,ShaderControls,ControlsRequest};
+use crate::{Core, Renderer, TextureManager, UniformProvider, UniformBinding,KeyInputHandler,ExportManager,ShaderControls,ControlsRequest,ResolutionUniform};
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct TimeUniform {
@@ -22,6 +22,7 @@ pub struct BaseShader {
     pub texture_bind_group_layout: wgpu::BindGroupLayout,
     pub start_time: Instant,
     pub time_uniform: UniformBinding<TimeUniform>,
+    pub resolution_uniform: UniformBinding<ResolutionUniform>,
     pub key_handler: KeyInputHandler,
     pub export_manager: ExportManager,
     pub controls: ShaderControls,
@@ -47,6 +48,19 @@ impl BaseShader {
             }],
             label: Some("time_bind_group_layout"),
         });
+        let resolution_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+            label: Some("resolution_bind_group_layout"),
+        });
         let time_uniform = UniformBinding::new(
             &core.device,
             "Time Uniform",
@@ -55,6 +69,16 @@ impl BaseShader {
                 frame: 0,
             },
             &time_bind_group_layout,
+            0,
+        );
+        let resolution_uniform = UniformBinding::new(
+            &core.device,
+            "Resolution Uniform",
+            ResolutionUniform {
+                dimensions: [core.size.width as f32, core.size.height as f32],
+                _padding: [0.0; 2],
+            },
+            &resolution_bind_group_layout,
             0,
         );
         let vs_shader = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -130,6 +154,7 @@ impl BaseShader {
             texture_bind_group_layout,
             start_time: Instant::now(),
             time_uniform,
+            resolution_uniform,
             key_handler: KeyInputHandler::new(),
             export_manager: ExportManager::new(),
             controls: ShaderControls::new(),
@@ -140,7 +165,10 @@ impl BaseShader {
         self.time_uniform.data.time = self.start_time.elapsed().as_secs_f32();
         self.time_uniform.update(queue);
     }
-
+    pub fn update_resolution(&mut self, queue: &wgpu::Queue, new_size: winit::dpi::PhysicalSize<u32>) {
+        self.resolution_uniform.data.dimensions = [new_size.width as f32, new_size.height as f32];
+        self.resolution_uniform.update(queue);
+    }
     fn create_default_texture_manager(
         core: &Core,
         texture_bind_group_layout: &wgpu::BindGroupLayout,

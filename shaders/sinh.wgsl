@@ -4,7 +4,13 @@ struct TimeUniform {
     time: f32,
 };
 
+struct ResolutionUniform {
+    dimensions: vec2<f32>,
+    _padding: vec2<f32>,
+};
 @group(0) @binding(0) var<uniform> u_time: TimeUniform;
+@group(1) @binding(0) var<uniform> u_resolution: ResolutionUniform;
+@group(2) @binding(0) var<uniform> params: Params;
 
 struct Params {
     color1: vec3<f32>,
@@ -16,7 +22,6 @@ struct Params {
     aa_level: i32,
     _pad3: f32,
 };
-@group(1) @binding(0) var<uniform> params: Params;
 fn gamma_correction(color: vec3<f32>, gamma: f32) -> vec3<f32> {
     return pow(max(color, vec3<f32>(0.0)), vec3<f32>(1.0 / gamma));
 }
@@ -60,7 +65,7 @@ fn implicit(z: vec2<f32>, c: vec2<f32>) -> vec2<f32> {
 
 @fragment
 fn fs_main(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
-    let dimensions = vec2<f32>(1920.0, 1080.0);
+    let dimensions = u_resolution.dimensions;
     let uv = ((FragCoord.xy - 0.5 * dimensions) / min(dimensions.y, dimensions.x) * 2.0) * 0.5;
     
     let c_value = mix(2.197, params.c_value_max, 0.01 + 0.01 * sin(0.1 * u_time.time));

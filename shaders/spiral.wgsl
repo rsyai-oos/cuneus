@@ -1,13 +1,15 @@
 //MIT License, altunenes, 2023
 @group(0) @binding(0) var tex: texture_2d<f32>;
 @group(0) @binding(1) var tex_sampler: sampler;
+struct ResolutionUniform {
+    dimensions: vec2<f32>,
+    _padding: vec2<f32>,
+};
+
 
 struct TimeUniform {
     time: f32,
 };
-@group(1) @binding(0)
-var<uniform> u_time: TimeUniform;
-
 struct Params {
     lambda: f32,
     theta: f32,
@@ -17,9 +19,10 @@ struct Params {
     blue: f32,
     use_texture_colors: f32,
 };
-@group(2) @binding(2)
-var<uniform> params: Params;
 
+@group(1) @binding(0) var<uniform> u_time: TimeUniform;
+@group(2) @binding(0) var<uniform> params: Params;
+@group(3) @binding(0) var<uniform> u_resolution: ResolutionUniform;
 const PI: f32 = 3.14159265359;
 
 fn trge(x: f32) -> f32 {
@@ -51,7 +54,7 @@ fn spiral(pos: vec2<f32>, slope: f32, resolution: vec2<f32>) -> spires {
 }
 
 fn sts(uv: vec2<f32>, blur_amount: f32) -> vec3<f32> {
-    let pixel_size = 1.0 / vec2<f32>(1920.0, 1080.0);
+    let pixel_size = 1.0 / u_resolution.dimensions;     
     var color = vec3<f32>(0.0);
     let samples = 5;
     
@@ -103,8 +106,8 @@ fn gradyy(fc: vec2<f32>, eps: f32, resolution: vec2<f32>) -> vec2<f32> {
 
 @fragment
 fn fs_main(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
-    let resolution = vec2<f32>(1920.0, 1080.0);
-    let centered_coord = FragCoord.xy - 0.5 * resolution;
+    let resolution = u_resolution.dimensions;
+    let centered_coord = 1.0*FragCoord.xy - 0.5 * resolution;
     
     let sr = spiral(centered_coord, params.lambda, resolution);
     let pattern = vec3<f32>(sr.pattern);

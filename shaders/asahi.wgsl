@@ -1,7 +1,10 @@
 struct TimeUniform {
     time: f32,
 };
-
+struct ResolutionUniform {
+    dimensions: vec2<f32>,
+    _padding: vec2<f32>,
+};
 struct Params {
     // Colors
     color_petal_start_a: vec3<f32>,
@@ -23,7 +26,8 @@ struct Params {
 };
 
 @group(0) @binding(0) var<uniform> u_time: TimeUniform;
-@group(1) @binding(0) var<uniform> params: Params;
+@group(1) @binding(0) var<uniform> u_resolution: ResolutionUniform;
+@group(2) @binding(0) var<uniform> params: Params;
 
 const PI: f32 = 3.14159265359;
 const LAMBDA: f32 = 0.8; 
@@ -59,7 +63,7 @@ fn draw_petal_polar(uv: vec2<f32>, pos: vec2<f32>, size: f32, dir: vec2<f32>, co
 
 @fragment
 fn fs_main(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
-    let dimensions = vec2<f32>(1920.0, 1080.0);
+    let dimensions = u_resolution.dimensions;
     let uv = 1.3 * (FragCoord.xy - 0.5 * dimensions) / dimensions.y;
     var fragColor = vec4<f32>(params.bg_color, 1.0);
     

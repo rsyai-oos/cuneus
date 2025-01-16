@@ -2,6 +2,19 @@ use wgpu::util::DeviceExt;
 pub trait UniformProvider {
     fn as_bytes(&self) -> &[u8];
 }
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ResolutionUniform {
+    pub dimensions: [f32; 2],
+    pub _padding: [f32; 2],
+}
+
+impl UniformProvider for ResolutionUniform {
+    fn as_bytes(&self) -> &[u8] {
+        bytemuck::bytes_of(self)
+    }
+}
+
 pub struct UniformBinding<T: UniformProvider> {
     pub buffer: wgpu::Buffer,
     pub bind_group: wgpu::BindGroup,

@@ -5,7 +5,13 @@ struct TimeUniform {
 };
 const PI: f32 = 3.141592653589793;
 
+struct ResolutionUniform {
+    dimensions: vec2<f32>,
+    _padding: vec2<f32>,
+};
 @group(0) @binding(0) var<uniform> u_time: TimeUniform;
+@group(1) @binding(0) var<uniform> u_resolution: ResolutionUniform;
+@group(2) @binding(0) var<uniform> params: Params;
 fn osc(minValue: f32, maxValue: f32, interval: f32, currentTime: f32) -> f32 {
     return minValue + (maxValue - minValue) * 0.5 * (sin(2.0 * PI * currentTime / interval) + 1.0);
 }
@@ -32,8 +38,6 @@ struct Params {
     wave_speed: f32,
     fold_intensity: f32,
 };
-
-@group(1) @binding(0) var<uniform> params: Params;
 
 fn normalize_trap(trap_dist: f32, scale: f32) -> f32 {
     return 0.5 + 0.5 * tanh(scale * trap_dist);
@@ -73,7 +77,7 @@ fn gamma(color: vec3<f32>, gamma: f32) -> vec3<f32> {
 
 @fragment
 fn fs_main(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
-    let screen_size = vec2<f32>(1920.0, 1080.0);
+    let screen_size = u_resolution.dimensions;
     let fragCoord = vec2<f32>(FragCoord.x, screen_size.y - FragCoord.y);
     let uv_base = 0.4 * (fragCoord - 0.5 * screen_size) / screen_size.y;
     let AA: i32 = params.aa;
