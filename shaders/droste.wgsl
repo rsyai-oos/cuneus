@@ -1,11 +1,16 @@
 @group(0) @binding(0) var tex: texture_2d<f32>;
 @group(0) @binding(1) var tex_sampler: sampler;
+@group(1) @binding(0) var<uniform> u_time: TimeUniform;
+@group(2) @binding(0) var<uniform> params: Params;
+@group(3) @binding(0) var<uniform> u_resolution: ResolutionUniform;
+struct ResolutionUniform {
+    dimensions: vec2<f32>,
+    _padding: vec2<f32>,
+};
 
 struct TimeUniform {
     time: f32,
 };
-@group(1) @binding(0)
-var<uniform> u_time: TimeUniform;
 
 struct Params {
     branches: f32,
@@ -19,8 +24,7 @@ struct Params {
     smoothing: f32, 
     use_animation: f32, 
 };
-@group(2) @binding(2)
-var<uniform> params: Params;
+
 
 const PI: f32 = 3.141592653589793;
 const TWO_PI: f32 = 6.283185307179586;
@@ -96,7 +100,7 @@ fn apply_smoothing(uv: vec2<f32>, amount: f32) -> vec2<f32> {
 }
 @fragment
 fn fs_main(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
-    let resolution = vec2<f32>(1920.0, 1080.0);
+    let resolution = u_resolution.dimensions;
     var uv = (FragCoord.xy / resolution.xy) * 2.0 - 1.0;
     uv.x *= resolution.x / resolution.y;
     let offset = vec2<f32>(params.offset_x, params.offset_y) * (1.0 + abs(params.smoothing) * 0.5);
