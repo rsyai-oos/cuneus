@@ -122,7 +122,7 @@ impl ChristmasShader {
         Ok(unpadded_data)
     }
 
-    fn save_frame(&self, data: Vec<u8>, frame: u32, settings: &ExportSettings) -> Result<(), ExportError> {
+    fn save_frame(&self, mut data: Vec<u8>, frame: u32, settings: &ExportSettings) -> Result<(), ExportError> {
         let frame_path = settings.export_path
             .join(format!("frame_{:05}.png", frame));
         
