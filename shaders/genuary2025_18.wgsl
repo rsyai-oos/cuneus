@@ -1,3 +1,4 @@
+// MIT License Enes Altun, 2025
 @group(0) @binding(0) var prev_frame: texture_2d<f32>;
 @group(0) @binding(1) var tex_sampler: sampler;
 
@@ -64,10 +65,10 @@ fn simplex(vl: vec2<f32>) -> f32 {
     let grid_pnt3 = vec2<f32>(grid.x + min_step, grid.y);
     let grid_pnt4 = vec2<f32>(grid_pnt3.x, grid_pnt2.y);
     
-    let s = rand2(grid_pnt1);
-    let t = rand2(grid_pnt3);
-    let u = rand2(grid_pnt2);
-    let v = rand2(grid_pnt4);
+    let s = rand2(grid_pnt1) * 1.1;
+    let t = rand2(grid_pnt3) * 1.1;
+    let u = rand2(grid_pnt2) * 1.1;
+    let v = rand2(grid_pnt4) * 1.1;
     
     let x1 = smoothstep(0.0, 1.0, fract(vl.x));
     let interp_x1 = mix(s, t, x1);
@@ -135,15 +136,16 @@ fn fs_pass2(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: ve
     let dx = right - left;
     let dy = down - up;
     let curl_value = (dy - dx) / (2.0 * DELTA);
-    velocity += vec2<f32>(-curl_value, curl_value) * 0.15;
-    velocity = velocity + vec2<f32>(-curl_value, curl_value) * 0.1;
+    
+    velocity = velocity + vec2<f32>(-curl_value, curl_value) * 0.15;
     return vec4<f32>(velocity, curl_value * 0.5 + 0.5, 1.0);
 }
 
 fn get_palette(t: f32) -> vec3<f32> {
-    return params.palette_a + 
-           params.palette_b * 
-           cos(3.28318 * (params.palette_c * t + params.palette_d));
+    let a = params.palette_a;
+    let b = params.palette_b;
+    let result = a + b * cos(3.28318 * (params.palette_c * t + params.palette_d));
+    return clamp(result, vec3<f32>(0.0), vec3<f32>(1.0));
 }
 
 fn gamma(color: vec3<f32>, gamma: f32) -> vec3<f32> {
@@ -157,8 +159,8 @@ fn fs_pass3(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: ve
     let fluid = textureSample(prev_frame, tex_sampler, uv).x;
     let velocity = textureSample(prev_frame, tex_sampler, uv).xy;
     
-    let col1 = get_palette(fluid * 0.5 + params.palette_time * 1.35);
-    let col2 = get_palette(fluid * 0.6 + params.palette_time * 1.5);
+    let col1 = get_palette(fluid * 0.6 + params.palette_time * 0.35);
+    let col2 = get_palette(fluid * 0.8 + params.palette_time * 0.25);
     
     let dis_uv = uv + velocity * 0.12;
     let dis_fluid = textureSample(prev_frame, tex_sampler, dis_uv).x;
@@ -172,7 +174,7 @@ fn fs_pass3(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: ve
     let vignette = 1.5 - dot(center, center) * 1.8;
     fc *= vignette;
     
-    fc = gamma(fc, 0.45);
+    fc = pow(fc, vec3<f32>(0.85));
     
     return vec4<f32>(fc, 1.0);
 }
