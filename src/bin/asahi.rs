@@ -129,7 +129,12 @@ impl ChristmasShader {
         if let Some(parent) = frame_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-
+        #[cfg(target_os = "macos")]
+        {
+            for chunk in data.chunks_mut(4) {
+                chunk.swap(0, 2);
+            }
+        }
         let image = image::ImageBuffer::<image::Rgba<u8>, Vec<u8>>::from_raw(
             settings.width,
             settings.height,

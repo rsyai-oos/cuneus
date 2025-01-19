@@ -2,6 +2,11 @@ use std::time::Instant;
 use egui_wgpu::ScreenDescriptor;
 use egui::ViewportId;
 use crate::{Core, Renderer, TextureManager, UniformProvider, UniformBinding,KeyInputHandler,ExportManager,ShaderControls,ControlsRequest,ResolutionUniform};
+#[cfg(target_os = "macos")]
+pub const CAPTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8UnormSrgb;
+#[cfg(not(target_os = "macos"))]
+pub const CAPTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct TimeUniform {
@@ -313,16 +318,14 @@ impl BaseShader {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format: CAPTURE_FORMAT,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
-        //per row for buffer alignment
         let align = 256;
         let unpadded_bytes_per_row = width * 4;
         let padding = (align - unpadded_bytes_per_row % align) % align;
         let padded_bytes_per_row = unpadded_bytes_per_row + padding;
-    
         let buffer_size = padded_bytes_per_row * height;
         let output_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Capture Buffer"),
@@ -330,7 +333,6 @@ impl BaseShader {
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
-    
         (capture_texture, output_buffer)
     }
     pub fn apply_control_request(&mut self, request: ControlsRequest) {
