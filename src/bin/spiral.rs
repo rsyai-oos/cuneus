@@ -20,7 +20,7 @@ impl UniformProvider for ShaderParams {
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
-    let (app, event_loop) = ShaderApp::new("Spiral Shader", 800, 600);
+    let (app, event_loop) = ShaderApp::new("Spiral", 800, 600);
     let shader = SpiralShader::init(app.core());
     app.run(event_loop, shader)
 }

@@ -31,7 +31,7 @@ impl UniformProvider for ShaderParams {
     }
 }
 
-struct ChristmasShader {
+struct Shader {
     base: BaseShader,
     params_uniform: UniformBinding<ShaderParams>,
     hot_reload: ShaderHotReload,
@@ -42,10 +42,10 @@ struct ChristmasShader {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let (app, event_loop) = ShaderApp::new("mandelbulb", 800, 600);
-    let shader = ChristmasShader::init(app.core());
+    let shader = Shader::init(app.core());
     app.run(event_loop, shader)
 }
-impl ChristmasShader {
+impl Shader {
     fn capture_frame(&mut self, core: &Core, time: f32) -> Result<Vec<u8>, wgpu::SurfaceError> {
         let settings = self.base.export_manager.settings();
         let (capture_texture, output_buffer) = self.base.create_capture_texture(
@@ -167,7 +167,7 @@ impl ChristmasShader {
         }
     }
 }
-impl ShaderManager for ChristmasShader {
+impl ShaderManager for Shader {
     fn init(core: &Core) -> Self {
         let time_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[wgpu::BindGroupLayoutEntry {

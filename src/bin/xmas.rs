@@ -41,7 +41,7 @@ struct ChristmasShader {
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
-    let (app, event_loop) = ShaderApp::new("Christmas Tree Shader", 800, 600);
+    let (app, event_loop) = ShaderApp::new("xmas", 800, 600);
     let shader = ChristmasShader::init(app.core());
     app.run(event_loop, shader)
 }

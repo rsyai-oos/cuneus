@@ -562,7 +562,7 @@ fn handle_input(&mut self, core: &Core, event: &WindowEvent) -> bool {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 env_logger::init();
-let (app, event_loop) = ShaderApp::new("Attractor Shader", 800, 600);
+let (app, event_loop) = ShaderApp::new("Attractor", 800, 600);
 let shader = AttractorShader::init(app.core());
 app.run(event_loop, shader)
 }
