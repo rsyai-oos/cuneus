@@ -22,7 +22,6 @@ struct Params {
     num_vortices: f32,
     vortex_scale: f32,
     flow_influence: f32,
-    // PLACEHOLDER
     min_radius: f32,
     max_radius: f32,
     palette_time: f32,
@@ -30,7 +29,6 @@ struct Params {
 };
 @group(2) @binding(0)
 var<uniform> params: Params;
-
 
 fn rand(co: vec2<f32>) -> f32 {
     return fract(sin(dot(co.xy, vec2<f32>(12.9898, 78.233))) * 43758.5453);
@@ -80,8 +78,8 @@ fn simplex(vl: vec2<f32>) -> f32 {
 }
 
 fn fb(vl: vec2<f32>) -> f32 {
-    let persistence = 2.0;
-    var amplitude = 0.5;
+    let persistence = 2.1;
+    var amplitude = 0.55;
     var rez = 0.0;
     var p_local = vl;
     
@@ -94,22 +92,22 @@ fn fb(vl: vec2<f32>) -> f32 {
 }
 
 fn complex_fbm(p_in: vec2<f32>, t: f32) -> f32 {
-    let base_flow = vec2<f32>(cos(t * 0.3), sin(t * 0.2)) * 1.15;
+    let base_flow = vec2<f32>(cos(t * 0.3), sin(t * 0.2)) * 1.25;
     var total_vortex = vec2<f32>(0.0);
     for(var i = 0.0; i < params.num_vortices; i += 1.0) {
         let center = vort_pos(i, t, base_flow);
         let ang_s = sin(t * 2.0 + i * 6.28318 / params.num_vortices);
-        let strength = 12.0 + 0.3 * ang_s;
+        let strength = 14.0 + 0.4 * ang_s;
         
         total_vortex += fluid_vortex(p_in, center, strength, params.vortex_scale, t + i, base_flow);
     }
     
-    var p = p_in + total_vortex * 0.2;
+    var p = p_in + total_vortex * 0.25;
     
     return fb(
-        p + base_flow + fb(
-            p + fb(
-                p + 2.0 * fb(p)
+        p + base_flow + 1.2 * fb(
+            p + 1.1 * fb(
+                p + 2.2 * fb(p)
             )
         )
     );
@@ -125,7 +123,6 @@ fn fs_pass1(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
 
 @fragment
 fn fs_pass2(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
-    let dimensions = vec2<f32>(textureDimensions(prev_frame));
     let uv = tex_coords;
     let DELTA = 0.01;
     
@@ -134,14 +131,12 @@ fn fs_pass2(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: ve
     let up = textureSample(prev_frame, tex_sampler, uv - vec2<f32>(0.0, DELTA)).x;
     let down = textureSample(prev_frame, tex_sampler, uv + vec2<f32>(0.0, DELTA)).x;
     
-    var velocity = vec2<f32>(right - left, down - up) * 3.5;
-    
+    var velocity = vec2<f32>(right - left, down - up) * 4.0;
     let dx = right - left;
     let dy = down - up;
     let curl_value = (dy - dx) / (2.0 * DELTA);
-    
+    velocity += vec2<f32>(-curl_value, curl_value) * 0.15;
     velocity = velocity + vec2<f32>(-curl_value, curl_value) * 0.1;
-    
     return vec4<f32>(velocity, curl_value * 0.5 + 0.5, 1.0);
 }
 
@@ -150,8 +145,6 @@ fn get_palette(t: f32) -> vec3<f32> {
            params.palette_b * 
            cos(3.28318 * (params.palette_c * t + params.palette_d));
 }
-
-
 
 fn gamma(color: vec3<f32>, gamma: f32) -> vec3<f32> {
     return pow(color, vec3<f32>(1.0 / gamma));
@@ -162,26 +155,24 @@ fn fs_pass3(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: ve
     let uv = tex_coords;
     
     let fluid = textureSample(prev_frame, tex_sampler, uv).x;
-    
     let velocity = textureSample(prev_frame, tex_sampler, uv).xy;
     
-    let col1 = get_palette(fluid * 0.5 + params.palette_time * 0.32);
-    let col2 = get_palette(fluid * 0.7 + params.palette_time * 0.2);
-
+    let col1 = get_palette(fluid * 0.5 + params.palette_time * 1.35);
+    let col2 = get_palette(fluid * 0.6 + params.palette_time * 1.5);
     
-    let dis_uv = uv + velocity * 0.1;
+    let dis_uv = uv + velocity * 0.12;
     let dis_fluid = textureSample(prev_frame, tex_sampler, dis_uv).x;
     
     var fc = mix(col1, col2, dis_fluid);
     
     let velocity_mag = length(velocity);
-    fc += params.highlight_color * smoothstep(0.5, 0.8, velocity_mag) * 0.2;
+    fc += params.highlight_color * smoothstep(0.45, 0.85, velocity_mag) * 0.25;
     
     let center = uv - 0.5;
-    let vignette = 1.0 - dot(center, center) * 1.5;
+    let vignette = 1.5 - dot(center, center) * 1.8;
     fc *= vignette;
     
-    fc = gamma(fc, 0.412);
+    fc = gamma(fc, 0.45);
     
     return vec4<f32>(fc, 1.0);
 }
