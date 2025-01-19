@@ -122,17 +122,12 @@ impl ChristmasShader {
         Ok(unpadded_data)
     }
 
-    fn save_frame(&self, mut data: Vec<u8>, frame: u32, settings: &ExportSettings) -> Result<(), ExportError> {
+    fn save_frame(&self, data: Vec<u8>, frame: u32, settings: &ExportSettings) -> Result<(), ExportError> {
         let frame_path = settings.export_path
             .join(format!("frame_{:05}.png", frame));
         
         if let Some(parent) = frame_path.parent() {
             std::fs::create_dir_all(parent)?;
-        }
-
-        // Convert BGRA to RGBA
-        for chunk in data.chunks_mut(4) {
-            chunk.swap(0, 2);
         }
 
         let image = image::ImageBuffer::<image::Rgba<u8>, Vec<u8>>::from_raw(

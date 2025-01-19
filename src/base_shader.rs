@@ -313,18 +313,16 @@ impl BaseShader {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Bgra8UnormSrgb,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
-
-        // Calculate padded bytes per row 
+        //per row for buffer alignment
         let align = 256;
         let unpadded_bytes_per_row = width * 4;
         let padding = (align - unpadded_bytes_per_row % align) % align;
         let padded_bytes_per_row = unpadded_bytes_per_row + padding;
-
-        // buffer with padded size
+    
         let buffer_size = padded_bytes_per_row * height;
         let output_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Capture Buffer"),
@@ -332,7 +330,7 @@ impl BaseShader {
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
-
+    
         (capture_texture, output_buffer)
     }
     pub fn apply_control_request(&mut self, request: ControlsRequest) {
