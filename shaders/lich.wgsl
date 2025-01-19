@@ -26,7 +26,7 @@ var<uniform> params: Params;
 
 const ATOMIC_SCALE: f32 = 2048.0;
 const SPECTRUM_SIZE: i32 = 45;
-
+// based on the Michael Friendly (2015): https://gist.github.com/friendly/67a7df339aa999e2bcfcfec88311abfc
 fn wavelength_to_rgb(wave: f32) -> vec3<f32> {
     let x = (wave - 380.0) / 10.0;
     let factor = select(0.0, 
