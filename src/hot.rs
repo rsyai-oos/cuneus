@@ -1,4 +1,4 @@
-use notify::{Watcher, RecursiveMode, Event, EventKind, Config};
+use notify::{Watcher, RecursiveMode, Event, EventKind};
 use std::sync::Arc;
 use std::path::{PathBuf, Path};
 use std::fs;
@@ -17,8 +17,8 @@ pub struct ShaderHotReload {
     watcher: notify::RecommendedWatcher,
     rx: Receiver<notify::Event>,
     _watcher_tx: std::sync::mpsc::Sender<notify::Event>,
-    last_update_times: HashMap<PathBuf, Instant>,
-    debounce_duration: Duration,
+    last_update_times: HashMap<PathBuf, Instant>, //Keeps track of when each shader file was last updated.
+    debounce_duration: Duration, //Defines how long to wait before allowing another reload of the same file. The default is 100ms.
 }
 
 impl ShaderHotReload {
