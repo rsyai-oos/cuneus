@@ -1,9 +1,10 @@
-use notify::{Watcher, RecursiveMode, Event, EventKind };
-use notify::event::ModifyKind;
+use notify::{Watcher, RecursiveMode, Event, EventKind, Config};
 use std::sync::Arc;
-use std::path::PathBuf;
+use std::path::{PathBuf, Path};
 use std::fs;
-use std::sync::mpsc::channel;
+use std::sync::mpsc::{channel, Receiver};
+use std::time::{Duration, Instant};
+use std::collections::HashMap;
 
 pub struct ShaderHotReload {
     pub vs_module: wgpu::ShaderModule,
@@ -14,8 +15,10 @@ pub struct ShaderHotReload {
     last_fs_content: String,
     #[allow(dead_code)]
     watcher: notify::RecommendedWatcher,
-    rx: std::sync::mpsc::Receiver<notify::Event>,
+    rx: Receiver<notify::Event>,
     _watcher_tx: std::sync::mpsc::Sender<notify::Event>,
+    last_update_times: HashMap<PathBuf, Instant>,
+    debounce_duration: Duration,
 }
 
 impl ShaderHotReload {
@@ -27,74 +30,100 @@ impl ShaderHotReload {
     ) -> notify::Result<Self> {
         let (tx, rx) = channel();
         let watcher_tx = tx.clone();
+
+
+
         let mut watcher = notify::recommended_watcher(move |res: Result<Event, _>| {
             if let Ok(event) = res {
-                if let EventKind::Modify(ModifyKind::Data(_)) = event.kind {
-                    tx.send(event).unwrap_or_default();
+                match event.kind {
+                    EventKind::Modify(_) |
+                    EventKind::Create(_) |
+                    EventKind::Remove(_)
+                    => {
+                        tx.send(event).unwrap_or_default();
+                    },
+                    _ => {}
                 }
             }
         })?;
 
-        if let Some(first_path) = shader_paths.first() {
-            if let Some(parent) = first_path.parent() {
-                fs::create_dir_all(parent).unwrap_or_else(|_| {
-                    println!("Could not create shader directory, hot reload might be limited");
-                });
-            }
-        }
+        //normalize for Windows
+        let normalized_paths: Vec<PathBuf> = shader_paths.iter()
+            .map(|path| Self::normalize_path(path))
+            .collect();
 
-        for path in &shader_paths {
+        for path in &normalized_paths {
             if let Some(parent) = path.parent() {
-                if parent.exists() {
-                    watcher.watch(parent, RecursiveMode::NonRecursive).unwrap_or_else(|_| {
-                        println!("Could not watch shader directory: {}", parent.display());
+                if !parent.exists() {
+                    fs::create_dir_all(parent).unwrap_or_else(|e| {
+                        println!("Failed to create shader directory: {}", e);
                     });
-                } else {
-                    println!("Shader directory does not exist: {}", parent.display());
+                }
+                
+                if let Err(e) = watcher.watch(parent, RecursiveMode::Recursive) {
+                    println!("Warning: Could not watch shader directory {}: {}", parent.display(), e);
+                    if cfg!(windows) {
+                        if let Err(e) = watcher.watch(parent, RecursiveMode::NonRecursive) {
+                            println!("Fallback watch failed: {}", e);
+                        }
+                    }
                 }
             }
         }
-        let last_vs_content = fs::read_to_string(&shader_paths[0]).unwrap_or_default();
-        let last_fs_content = fs::read_to_string(&shader_paths[1]).unwrap_or_default();
+
+        let last_vs_content = fs::read_to_string(&normalized_paths[0]).unwrap_or_default();
+        let last_fs_content = fs::read_to_string(&normalized_paths[1]).unwrap_or_default();
 
         Ok(Self {
             vs_module,
             fs_module,
             device,
-            shader_paths,
+            shader_paths: normalized_paths,
             last_vs_content,
             last_fs_content,
             watcher,
             rx,
             _watcher_tx: watcher_tx,
+            last_update_times: HashMap::new(),
+            debounce_duration: Duration::from_millis(100),
         })
     }
-    // on here, we are create shader module cathing the panics and it will return Option<wgpu::ShaderModule> - Never panics
-    fn create_shader_module(&self, source: &str, label: &str) -> Option<wgpu::ShaderModule> {
-        let desc = wgpu::ShaderModuleDescriptor {
-            label: Some(label),
-            source: wgpu::ShaderSource::Wgsl(source.into()),
-        };
 
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            self.device.create_shader_module(desc)
-        }));
-
-        match result {
-            Ok(module) => Some(module),
-            Err(e) => {
-                if let Some(error_msg) = e.downcast_ref::<String>() {
-                    eprintln!("Shader compilation error in {}: {}", label, error_msg);
-                } else {
-                    eprintln!("Shader compilation error in {}", label);
-                }
-                None
-            }
+    fn normalize_path(path: &Path) -> PathBuf {
+        if cfg!(windows) {
+            
+            path.components()
+                .collect::<PathBuf>()
+                .canonicalize()
+                .unwrap_or_else(|_| path.to_path_buf())
+        } else {
+            path.to_path_buf()
         }
     }
 
     pub fn check_and_reload(&mut self) -> Option<(&wgpu::ShaderModule, &wgpu::ShaderModule)> {
-    if let Ok(_event) = self.rx.try_recv() {
+        let mut should_reload = false;
+        
+        // Process all pending events
+        while let Ok(event) = self.rx.try_recv() {
+            for path in event.paths {
+                let now = Instant::now();
+                
+                if let Some(last_update) = self.last_update_times.get(&path) {
+                    if now.duration_since(*last_update) < self.debounce_duration {
+                        continue;
+                    }
+                }
+                
+                self.last_update_times.insert(path.clone(), now);
+                should_reload = true;
+            }
+        }
+
+        if !should_reload {
+            return None;
+        }
+
         let vs_content = match fs::read_to_string(&self.shader_paths[0]) {
             Ok(content) => content,
             Err(e) => {
@@ -124,27 +153,34 @@ impl ShaderHotReload {
             Some(module) => module,
             None => return None,
         };
-
         self.last_vs_content = vs_content;
         self.last_fs_content = fs_content;
         self.vs_module = new_vs;
         self.fs_module = new_fs;
 
         Some((&self.vs_module, &self.fs_module))
-    } else {
-        None
-    }
     }
 
-    pub fn has_shader_changed(&self, shader_type: &str) -> bool {
-        let (path, last_content) = match shader_type {
-            "vertex" => (&self.shader_paths[0], &self.last_vs_content),
-            "fragment" => (&self.shader_paths[1], &self.last_fs_content),
-            _ => return false,
+    fn create_shader_module(&self, source: &str, label: &str) -> Option<wgpu::ShaderModule> {
+        let desc = wgpu::ShaderModuleDescriptor {
+            label: Some(label),
+            source: wgpu::ShaderSource::Wgsl(source.into()),
         };
-        match fs::read_to_string(path) {
-            Ok(current_content) => current_content != *last_content,
-            Err(_) => false,
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.device.create_shader_module(desc)
+        }));
+
+        match result {
+            Ok(module) => Some(module),
+            Err(e) => {
+                if let Some(error_msg) = e.downcast_ref::<String>() {
+                    eprintln!("Shader compilation error in {}: {}", label, error_msg);
+                } else {
+                    eprintln!("Shader compilation error in {}", label);
+                }
+                None
+            }
         }
     }
 }
