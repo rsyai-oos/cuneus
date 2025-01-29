@@ -389,7 +389,7 @@ impl ShaderManager for Shader {
                     ui.group(|ui| {
                         ui.heading("General");
                         changed |= ui.add(egui::Slider::new(&mut params.time_scale, 0.01..=1.0).text("Time Scale")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.decay, 0.5..=0.99).text("Decay")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.decay, 0.0..=0.99).text("Decay")).changed();
                         changed |= ui.add(egui::Slider::new(&mut params.intensity, 0.0..=1.0).text("Clean/Blend")).changed();
                     });
             
