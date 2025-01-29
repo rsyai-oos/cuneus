@@ -9,30 +9,38 @@ use cuneus::ExportManager;
 use std::path::PathBuf;
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct FeedbackParams {
+struct ShaderParams {
+    // Matrix 1
+    m1_scale: f32,
+    m1_y_scale: f32,
+    // Matrix 2
+    m2_scale: f32,
+    m2_shear: f32,
+    m2_shift: f32,
+    // Matrix 3
+    m3_scale: f32,
+    m3_shear: f32,
+    m3_shift: f32,
+    // Matrix 4
+    m4_scale: f32,
+    m4_shift: f32,
+    // Matrix 5
+    m5_scale: f32,
+    m5_shift: f32,
+    time_scale: f32,
     decay: f32,
-    speed: f32,
     intensity: f32,
-    scale: f32,
-    rotation_x: f32,
-    rotation_y: f32,
-    rotation_z: f32,
-    rotation_speed: f32,
-    attractor_a: f32,
-    attractor_b: f32,
-    attractor_c: f32,
-    attractor_d: f32,
-    attractor_animate_amount: f32,
 }
-impl UniformProvider for FeedbackParams {
+
+impl UniformProvider for ShaderParams {
     fn as_bytes(&self) -> &[u8] {
         bytemuck::bytes_of(self)
     }
 }
-struct FeedbackShader {
+struct Shader {
     base: BaseShader,
     renderer_pass2: Renderer,
-    params_uniform: UniformBinding<FeedbackParams>,
+    params_uniform: UniformBinding<ShaderParams>,
     texture_a: Option<TextureManager>,
     texture_b: Option<TextureManager>,
     frame_count: u32,
@@ -43,7 +51,7 @@ struct FeedbackShader {
     atomic_buffer: AtomicBuffer,
     atomic_bind_group_layout: wgpu::BindGroupLayout,
 }
-impl FeedbackShader {
+impl Shader {
     fn capture_frame(&mut self, core: &Core, time: f32) -> Result<Vec<u8>, wgpu::SurfaceError> {
         let settings = self.base.export_manager.settings();
         let (capture_texture, output_buffer) = self.base.create_capture_texture(
@@ -163,7 +171,7 @@ impl FeedbackShader {
 }
 
 
-impl ShaderManager for FeedbackShader {
+impl ShaderManager for Shader {
     fn init(core: &Core) -> Self {
         let texture_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
@@ -236,20 +244,22 @@ impl ShaderManager for FeedbackShader {
         let params_uniform = UniformBinding::new(
             &core.device,
             "Params Uniform",
-            FeedbackParams {
-                decay: 0.9,
-                speed: 1.0,
-                intensity: 1.0,
-                scale: 1.0,
-                rotation_x: 0.0,
-                rotation_y: 0.0,
-                rotation_z: 0.0,
-                rotation_speed: 0.15,
-                attractor_a: 1.7,
-                attractor_b: 1.7,
-                attractor_c: 0.6,
-                attractor_d: 1.2,
-                attractor_animate_amount: 1.0,
+            ShaderParams {
+                m1_scale: 0.8,
+                m1_y_scale: 0.5,
+                m2_scale: 0.4,
+                m2_shear: 0.2,
+                m2_shift: 0.3,
+                m3_scale: 0.4,
+                m3_shear: 0.2,
+                m3_shift: 0.3,
+                m4_scale: 0.3,
+                m4_shift: 0.2,
+                m5_scale: 0.2,
+                m5_shift: 0.4,
+                time_scale: 0.1,
+                decay: 0.0,
+                intensity: 0.0,
             },
             &params_bind_group_layout,
             0,
@@ -266,7 +276,7 @@ impl ShaderManager for FeedbackShader {
         });
         let fs_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Fragment Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/clifford.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/rorschach.wgsl").into()),
         });
         let pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Render Pipeline Layout"),
@@ -280,7 +290,7 @@ impl ShaderManager for FeedbackShader {
         });
         let shader_paths = vec![
             PathBuf::from("shaders/vertex.wgsl"),
-            PathBuf::from("shaders/clifford.wgsl"),
+            PathBuf::from("shaders/rorschach.wgsl"),
         ];
         let hot_reload = ShaderHotReload::new(
             core.device.clone(),
@@ -299,7 +309,7 @@ impl ShaderManager for FeedbackShader {
         let base = BaseShader::new(
             core,
             include_str!("../../shaders/vertex.wgsl"),
-            include_str!("../../shaders/clifford.wgsl"),
+            include_str!("../../shaders/rorschach.wgsl"),
             &[
                 &texture_bind_group_layout,
                 &time_bind_group_layout,
@@ -375,41 +385,48 @@ impl ShaderManager for FeedbackShader {
 
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
-                egui::Window::new("Settings").show(ctx, |ui| {
+                egui::Window::new("Rorschach Settings").show(ctx, |ui| {
                     ui.group(|ui| {
-                        ui.heading("Visual");
-                        changed |= ui.add(egui::Slider::new(&mut params.decay, 0.1..=1.0).text("Decay")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.intensity, 0.1..=3.99).text("Intensity")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.speed, 0.1..=4.0).text("Speed")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.scale, 0.1..=4.0).text("Scale")).changed();
+                        ui.heading("General");
+                        changed |= ui.add(egui::Slider::new(&mut params.time_scale, 0.01..=1.0).text("Time Scale")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.decay, 0.0..=0.99).text("Decay")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.intensity, 0.0..=1.0).text("Clean/Blend")).changed();
                     });
-        
+            
                     ui.add_space(10.0);
-        
+            
                     ui.group(|ui| {
-                        ui.heading("Rot");
-                        changed |= ui.add(egui::Slider::new(&mut params.rotation_x, -3.14..=3.14).text("X")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.rotation_y, -3.14..=3.14).text("Y")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.rotation_z, -3.14..=3.14).text("Z")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.rotation_speed, 0.0..=1.0).text("t")).changed();
+                        ui.heading("Matrix 1");
+                        changed |= ui.add(egui::Slider::new(&mut params.m1_scale, 0.1..=1.0).text("Scale")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.m1_y_scale, 0.1..=1.0).text("Y Scale")).changed();
                     });
-        
-                    ui.add_space(10.0);
-        
+            
                     ui.group(|ui| {
-                        ui.heading("Attractor");
-                        changed |= ui.add(egui::Slider::new(&mut params.attractor_a, 0.0..=3.0).text("a")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.attractor_b, 0.0..=3.0).text("b")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.attractor_c, 0.0..=3.0).text("c")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.attractor_d, 0.0..=3.0).text("d")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.attractor_animate_amount, 0.0..=2.0).text("Anim")).changed();
+                        ui.heading("Matrix 2");
+                        changed |= ui.add(egui::Slider::new(&mut params.m2_scale, 0.1..=1.0).text("Scale")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.m2_shear, -0.5..=0.5).text("Shear")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.m2_shift, -0.5..=0.5).text("Shift")).changed();
                     });
-        
+            
+                    ui.group(|ui| {
+                        ui.heading("Matrix 3");
+                        changed |= ui.add(egui::Slider::new(&mut params.m3_scale, 0.1..=1.0).text("Scale")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.m3_shear, -0.5..=0.5).text("Shear")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.m3_shift, -0.5..=0.5).text("Shift")).changed();
+                    });
+            
+                    ui.group(|ui| {
+                        ui.heading("Matrix 4 & 5");
+                        changed |= ui.add(egui::Slider::new(&mut params.m4_scale, 0.1..=1.0).text("M4 Scale")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.m4_shift, -0.5..=0.5).text("M4 Shift")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.m5_scale, 0.1..=1.0).text("M5 Scale")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.m5_shift, -0.5..=0.5).text("M5 Shift")).changed();
+                    });
+            
                     ui.separator();
                     ShaderControls::render_controls_widget(ui, &mut controls_request);
                     ui.separator();
                     should_start_export = ExportManager::render_export_ui_widget(ui, &mut export_request);
-              
                 });
             })
         } else {
@@ -489,7 +506,7 @@ impl ShaderManager for FeedbackShader {
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
-    let (app, event_loop) = ShaderApp::new("Clifford", 800, 600);
-    let shader = FeedbackShader::init(app.core());
+    let (app, event_loop) = ShaderApp::new("inkblot", 800, 600);
+    let shader = Shader::init(app.core());
     app.run(event_loop, shader)
 }
