@@ -105,11 +105,10 @@ fn fs_pass1(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: ve
     output.x += exp(-800.0 * d) * 0.5;
     output.y += exp(-900.0 * d) * 0.4;
     output.z += exp(-700.0 * d) * 0.3;
-    
-    let effective_decay = mix(params.decay, 0.99, 1.0 - params.intensity);
-    return mix(output, prev, effective_decay);
+    let fade_factor = pow(1.0 - params.intensity, 3.0);
+    output = mix(vec4<f32>(0.0), output, fade_factor);
+    return mix(output, prev * fade_factor, params.decay);
 }
-
 @fragment
 fn fs_pass2(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
     let color = textureSample(prev_frame, tex_sampler, tex_coords);
