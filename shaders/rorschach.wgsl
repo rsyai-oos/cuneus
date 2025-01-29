@@ -9,51 +9,59 @@ struct TimeUniform {
 var<uniform> time_data: TimeUniform;
 
 struct Params {
+    // Matrix 1
+    m1_scale: f32,
+    m1_y_scale: f32,
+    // Matrix 2
+    m2_scale: f32,
+    m2_shear: f32,
+    m2_shift: f32,
+    // Matrix 3
+    m3_scale: f32,
+    m3_shear: f32,
+    m3_shift: f32,
+    // Matrix 4
+    m4_scale: f32,
+    m4_shift: f32,
+    // Matrix 5
+    m5_scale: f32,
+    m5_shift: f32,
+    time_scale: f32,
     decay: f32,
-    speed: f32,
     intensity: f32,
-    scale: f32,
-    rotation_x: f32,
-    rotation_y: f32,
-    rotation_z: f32,
-    rotation_speed: f32,
-    attractor_a: f32,
-    attractor_b: f32,
-    attractor_c: f32,
-    attractor_d: f32,
-    attractor_animate_amount: f32,
 }
 @group(2) @binding(0)
 var<uniform> params: Params;
 
-
-const M: array<mat3x3<f32>, 5> = array<mat3x3<f32>, 5>(
-    mat3x3<f32>(
-        0.8, 0.0, 0.0,
-        0.0, 0.5, 0.0,
-        0.0, 0.0, 1.0
-    ),
-    mat3x3<f32>(
-        0.4, -0.2, 0.0,
-        0.3, 0.3, 0.0,
-        -0.4, 0.2, 1.0
-    ),
-    mat3x3<f32>(
-        0.4, 0.2, 0.0,
-        -0.3, 0.3, 0.0,
-        0.4, 0.2, 1.0
-    ),
-    mat3x3<f32>(
-        0.3, 0.0, 0.0,
-        0.0, 0.3, 0.0,
-        0.0, -0.2, 1.0
-    ),
-    mat3x3<f32>(
-        0.2, 0.0, 0.0,
-        0.0, 0.2, 0.0,
-        0.0, 0.4, 1.0
-    )
-);
+fn create_matrices() -> array<mat3x3<f32>, 5> {
+    return array<mat3x3<f32>, 5>(
+        mat3x3<f32>(
+            params.m1_scale, 0.0, 0.0,
+            0.0, params.m1_y_scale, 0.0,
+            0.0, 0.0, 1.0
+        ),
+        mat3x3<f32>(
+            params.m2_scale, -params.m2_shear, 0.0,
+            params.m2_shift, params.m2_scale, 0.0,
+            -params.m2_shift, params.m2_shear, 1.0
+        ),
+        mat3x3<f32>(
+            params.m3_scale, params.m3_shear, 0.0,
+            -params.m3_shift, params.m3_scale, 0.0,
+            params.m3_shift, params.m3_shear, 1.0
+        ),
+        mat3x3<f32>(
+            params.m4_scale, 0.0, 0.0,
+            0.0, params.m4_scale, 0.0,
+            0.0, -params.m4_shift, 1.0
+        ),
+        mat3x3<f32>(
+            params.m5_scale, 0.0, 0.0,
+            0.0, params.m5_scale, 0.0,
+            0.0, params.m5_shift, 1.0
+        )
+    );
+}
 
 fn hash11(p: f32) -> f32 {
     var p_mut = fract(p * 0.1031);
@@ -78,9 +86,10 @@ fn fs_pass1(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: ve
     var output = prev;
     var p = vec3<f32>(1.0);
     var d = 9.0;
+    let M = create_matrices();
     
     for(var i: f32 = 0.0; i < 200.0; i += 1.0) {
-        let r = hash11(i + time_data.time * 0.1);
+        let r = hash11(i + time_data.time * params.time_scale);
         var j = i32(r * 4.0) & 3;
         if (r > 0.95) {
             j += 1;
@@ -97,7 +106,7 @@ fn fs_pass1(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: ve
     output.y += exp(-900.0 * d) * 0.4;
     output.z += exp(-700.0 * d) * 0.3;
     
-    return mix(output, prev, 0.9);
+    return mix(output, prev, params.decay);
 }
 
 @fragment

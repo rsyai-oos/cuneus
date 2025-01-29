@@ -10,20 +10,28 @@ use std::path::PathBuf;
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct ShaderParams {
+    // Matrix 1
+    m1_scale: f32,
+    m1_y_scale: f32,
+    // Matrix 2
+    m2_scale: f32,
+    m2_shear: f32,
+    m2_shift: f32,
+    // Matrix 3
+    m3_scale: f32,
+    m3_shear: f32,
+    m3_shift: f32,
+    // Matrix 4
+    m4_scale: f32,
+    m4_shift: f32,
+    // Matrix 5
+    m5_scale: f32,
+    m5_shift: f32,
+    time_scale: f32,
     decay: f32,
-    speed: f32,
     intensity: f32,
-    scale: f32,
-    rotation_x: f32,
-    rotation_y: f32,
-    rotation_z: f32,
-    rotation_speed: f32,
-    attractor_a: f32,
-    attractor_b: f32,
-    attractor_c: f32,
-    attractor_d: f32,
-    attractor_animate_amount: f32,
 }
+
 impl UniformProvider for ShaderParams {
     fn as_bytes(&self) -> &[u8] {
         bytemuck::bytes_of(self)
@@ -237,19 +245,21 @@ impl ShaderManager for Shader {
             &core.device,
             "Params Uniform",
             ShaderParams {
+                m1_scale: 0.8,
+                m1_y_scale: 0.5,
+                m2_scale: 0.4,
+                m2_shear: 0.2,
+                m2_shift: 0.3,
+                m3_scale: 0.4,
+                m3_shear: 0.2,
+                m3_shift: 0.3,
+                m4_scale: 0.3,
+                m4_shift: 0.2,
+                m5_scale: 0.2,
+                m5_shift: 0.4,
+                time_scale: 0.1,
                 decay: 0.9,
-                speed: 1.0,
-                intensity: 1.0,
-                scale: 1.0,
-                rotation_x: 0.0,
-                rotation_y: 0.0,
-                rotation_z: 0.0,
-                rotation_speed: 0.15,
-                attractor_a: 1.7,
-                attractor_b: 1.7,
-                attractor_c: 0.6,
-                attractor_d: 1.2,
-                attractor_animate_amount: 1.0,
+                intensity: 0.5,
             },
             &params_bind_group_layout,
             0,
@@ -375,41 +385,48 @@ impl ShaderManager for Shader {
 
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
-                egui::Window::new("Settings").show(ctx, |ui| {
+                egui::Window::new("Rorschach Settings").show(ctx, |ui| {
                     ui.group(|ui| {
-                        ui.heading("Visual");
-                        changed |= ui.add(egui::Slider::new(&mut params.decay, 0.1..=1.0).text("Decay")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.intensity, 0.1..=3.99).text("Intensity")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.speed, 0.1..=4.0).text("Speed")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.scale, 0.1..=4.0).text("Scale")).changed();
+                        ui.heading("General");
+                        changed |= ui.add(egui::Slider::new(&mut params.time_scale, 0.01..=1.0).text("Time Scale")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.decay, 0.5..=0.99).text("Decay")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.intensity, 0.1..=1.0).text("Intensity")).changed();
                     });
-        
+            
                     ui.add_space(10.0);
-        
+            
                     ui.group(|ui| {
-                        ui.heading("Rot");
-                        changed |= ui.add(egui::Slider::new(&mut params.rotation_x, -3.14..=3.14).text("X")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.rotation_y, -3.14..=3.14).text("Y")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.rotation_z, -3.14..=3.14).text("Z")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.rotation_speed, 0.0..=1.0).text("t")).changed();
+                        ui.heading("Matrix 1");
+                        changed |= ui.add(egui::Slider::new(&mut params.m1_scale, 0.1..=1.0).text("Scale")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.m1_y_scale, 0.1..=1.0).text("Y Scale")).changed();
                     });
-        
-                    ui.add_space(10.0);
-        
+            
                     ui.group(|ui| {
-                        ui.heading("Attractor");
-                        changed |= ui.add(egui::Slider::new(&mut params.attractor_a, 0.0..=3.0).text("a")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.attractor_b, 0.0..=3.0).text("b")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.attractor_c, 0.0..=3.0).text("c")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.attractor_d, 0.0..=3.0).text("d")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.attractor_animate_amount, 0.0..=2.0).text("Anim")).changed();
+                        ui.heading("Matrix 2");
+                        changed |= ui.add(egui::Slider::new(&mut params.m2_scale, 0.1..=1.0).text("Scale")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.m2_shear, -0.5..=0.5).text("Shear")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.m2_shift, -0.5..=0.5).text("Shift")).changed();
                     });
-        
+            
+                    ui.group(|ui| {
+                        ui.heading("Matrix 3");
+                        changed |= ui.add(egui::Slider::new(&mut params.m3_scale, 0.1..=1.0).text("Scale")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.m3_shear, -0.5..=0.5).text("Shear")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.m3_shift, -0.5..=0.5).text("Shift")).changed();
+                    });
+            
+                    ui.group(|ui| {
+                        ui.heading("Matrix 4 & 5");
+                        changed |= ui.add(egui::Slider::new(&mut params.m4_scale, 0.1..=1.0).text("M4 Scale")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.m4_shift, -0.5..=0.5).text("M4 Shift")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.m5_scale, 0.1..=1.0).text("M5 Scale")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.m5_shift, -0.5..=0.5).text("M5 Shift")).changed();
+                    });
+            
                     ui.separator();
                     ShaderControls::render_controls_widget(ui, &mut controls_request);
                     ui.separator();
                     should_start_export = ExportManager::render_export_ui_widget(ui, &mut export_request);
-              
                 });
             })
         } else {
