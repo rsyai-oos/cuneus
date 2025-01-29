@@ -103,7 +103,7 @@ fn fs_pass1(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: ve
 @fragment
 fn fs_pass2(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
     let color = textureSample(prev_frame, tex_sampler, tex_coords);
-    var final_color = vec3<f32>(0.7 - log(1.0 + color.xxx) * 0.3);
-    final_color = gamma_correction(final_color, 0.412);
+    var final_color = vec3<f32>(0.7 - log(1.0 + color.xxx) * 1.3);
+    final_color = gamma_correction(final_color, 0.2);
     return vec4<f32>(final_color, 1.0);
 }
