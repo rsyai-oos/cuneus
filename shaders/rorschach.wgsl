@@ -106,7 +106,8 @@ fn fs_pass1(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: ve
     output.y += exp(-900.0 * d) * 0.4;
     output.z += exp(-700.0 * d) * 0.3;
     
-    return mix(output, prev, params.decay);
+    let effective_decay = mix(params.decay, 0.99, 1.0 - params.intensity);
+    return mix(output, prev, effective_decay);
 }
 
 @fragment

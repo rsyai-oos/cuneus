@@ -259,7 +259,7 @@ impl ShaderManager for Shader {
                 m5_shift: 0.4,
                 time_scale: 0.1,
                 decay: 0.9,
-                intensity: 0.5,
+                intensity: 0.0,
             },
             &params_bind_group_layout,
             0,
@@ -390,7 +390,7 @@ impl ShaderManager for Shader {
                         ui.heading("General");
                         changed |= ui.add(egui::Slider::new(&mut params.time_scale, 0.01..=1.0).text("Time Scale")).changed();
                         changed |= ui.add(egui::Slider::new(&mut params.decay, 0.5..=0.99).text("Decay")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.intensity, 0.1..=1.0).text("Intensity")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.intensity, 0.0..=1.0).text("Clean/Blend")).changed();
                     });
             
                     ui.add_space(10.0);
@@ -465,7 +465,7 @@ impl ShaderManager for Shader {
                 render_pass.set_bind_group(0, &source_texture.bind_group, &[]);
                 render_pass.set_bind_group(1, &self.base.time_uniform.bind_group, &[]);
                 render_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
-                render_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]); // Add this line
+                render_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]);
                 render_pass.draw(0..4, 0..1);
             }
     
