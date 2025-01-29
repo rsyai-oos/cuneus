@@ -259,7 +259,7 @@ impl ShaderManager for Shader {
                 m5_shift: 0.4,
                 time_scale: 0.1,
                 decay: 0.9,
-                intensity: 0.0,
+                intensity: 1.0,
             },
             &params_bind_group_layout,
             0,
