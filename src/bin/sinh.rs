@@ -7,7 +7,7 @@ use std::path::PathBuf;
 struct ShaderParams {
     // Colors
     color1: [f32; 3],
-    _pad1: f32,
+    pad1: f32,
     gradient_color: [f32; 3],
     _pad2: f32,
     
@@ -206,7 +206,7 @@ impl ShaderManager for Shader {
             ShaderParams {
                 // Colors
                 color1: [0.0, 0.5, 1.0],
-                _pad1: 0.0,
+                pad1: 33.0,
                 gradient_color: [0.5, 0.25, 0.05],
                 _pad2: 0.0,
                 
@@ -314,15 +314,16 @@ impl ShaderManager for Shader {
                         changed |= ui.color_edit_button_rgb(&mut params.gradient_color).changed();
                         ui.label("Gradient Color");
                     });
-        
                     ui.collapsing("Parameters", |ui| {
                         changed |= ui.add(egui::Slider::new(&mut params.c_value_max, 2.197..=3.5)
                             .text("C Value Max")).changed();
-                        
+                        changed |= ui.add(egui::Slider::new(&mut params.pad1, 0.0..=63.0)
+                            .text("escape")).changed();
                         changed |= ui.add(egui::Slider::new(&mut params.iterations, 1..=100)
                             .text("Iterations")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.aa_level, 1..=8)
+                            .text("AA Level")).changed();
                     });
-                    
                     ui.separator();
                     ShaderControls::render_controls_widget(ui, &mut controls_request);
                     ui.separator();

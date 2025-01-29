@@ -1,5 +1,5 @@
 // MIT License Enes Altun, 2025
-
+//Sinh forumla: https://paulbourke.net/fractals/sinh/
 struct TimeUniform {
     time: f32,
 };
@@ -14,7 +14,7 @@ struct ResolutionUniform {
 
 struct Params {
     color1: vec3<f32>,
-    _pad1: f32,
+    pad1: f32,
     gradient_color: vec3<f32>,
     _pad2: f32,
     c_value_max: f32,
@@ -66,18 +66,19 @@ fn implicit(z: vec2<f32>, c: vec2<f32>) -> vec2<f32> {
 @fragment
 fn fs_main(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
     let dimensions = u_resolution.dimensions;
-    let uv = ((FragCoord.xy - 0.5 * dimensions) / min(dimensions.y, dimensions.x) * 2.0) * 0.5;
-    
-    let c_value = mix(2.197, params.c_value_max, 0.01 + 0.01 * sin(0.1 * u_time.time));
-    let oscillation = 0.00004 + 0.02040101 * (sin(0.1 * u_time.time) + 0.1);
     var col = vec3<f32>(0.0);
+    let pixel_size = vec2<f32>(1.0) / dimensions;
+    let c_value = mix(2.197, params.c_value_max, 0.01 + 0.01 * sin(0.1 * params.pad1));
+    let oscillation = 0.00004 + 0.02040101 * (sin(0.1 * params.pad1) + 0.1);
     let frequency = 1.0;
     let oscillating_frequency = 1.0;
     let phase = 45.2;
     let A = 5.25 * sin(oscillating_frequency * u_time.time + phase) + 5.75;
-    // AA loop
     for(var m = 0; m < params.aa_level; m = m + 1) {
         for(var n = 0; n < params.aa_level; n = n + 1) {
+            let offset = vec2<f32>(f32(m), f32(n)) / f32(params.aa_level);
+            let pos = FragCoord.xy + offset;
+            let uv = ((pos - 0.5 * dimensions) / min(dimensions.y, dimensions.x) * 2.0) * 0.5;
             let c = vec2<f32>(oscillation, c_value);
             let z_and_i = implicit(uv, c);
             let iter_ratio = z_and_i.x / f32(params.iterations);
@@ -87,7 +88,6 @@ fn fs_main(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
             let col3 = 4.5 + 0.5 * cos(3.0 + u_time.time + vec3<f32>(1.0, 0.5, 0.0) + PI * vec3<f32>(2.0 * sin(lenSq)));
             let gradientIndex = fract(iter_ratio * 24.0);
             let blend = fract(gradientIndex);
-            
             let col4 = params.gradient_color;
             
             col = col + sqrt(col1 * col2 * col3) * col4;
