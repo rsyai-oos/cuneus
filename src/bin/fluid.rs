@@ -390,6 +390,16 @@ impl ShaderManager for FluidShader {
         } else {
             self.base.render_ui(core, |_ctx| {})
         };
+        if controls_request.should_clear_buffers {
+            let (texture_a, texture_b) = create_feedback_texture_pair(
+                core,
+                core.config.width,
+                core.config.height,
+                &self.texture_bind_group_layout,
+            );
+            self.texture_a = Some(texture_a);
+            self.texture_b = Some(texture_b);
+        }
         self.base.export_manager.apply_ui_request(export_request);
         self.base.apply_control_request(controls_request);
         let current_time = self.base.controls.get_time(&self.base.start_time);

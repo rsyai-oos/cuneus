@@ -4,6 +4,7 @@ use std::time::Instant;
 pub struct ControlsRequest {
     pub is_paused: bool,
     pub should_reset: bool,
+    pub should_clear_buffers: bool,  
     pub current_time: Option<f32>, 
     pub window_size: Option<(u32, u32)>, 
 }
@@ -26,7 +27,17 @@ impl Default for ShaderControls {
         }
     }
 }
-
+impl Default for ControlsRequest {
+    fn default() -> Self {
+        Self {
+            is_paused: false,
+            should_reset: false,
+            should_clear_buffers: false,
+            current_time: None,
+            window_size: None,
+        }
+    }
+}
 impl ShaderControls {
     pub fn new() -> Self {
         Self::default()
@@ -54,6 +65,7 @@ impl ShaderControls {
             ControlsRequest {
                 is_paused: self.is_paused,
                 should_reset: false,
+                should_clear_buffers: false,
                 current_time: Some(self.get_time(start_time)),
                 window_size: Some((size.width, size.height)),
             }
@@ -83,6 +95,7 @@ impl ShaderControls {
                 }
                 if ui.button("↺ Reset").clicked() {
                     request.should_reset = true;
+                    request.should_clear_buffers = true;
                 }
                 if let Some(time) = request.current_time { 
                     ui.label(format!("Time: {:.2}s", time));
