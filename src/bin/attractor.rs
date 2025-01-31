@@ -432,6 +432,24 @@ impl ShaderManager for AttractorShader {
             self.base.render_ui(core, |_ctx| {})
         };
         self.base.export_manager.apply_ui_request(export_request);
+        if controls_request.should_clear_buffers {
+            let (texture_pair1, texture_pair2) = (
+                create_feedback_texture_pair(
+                    core,
+                    core.config.width,
+                    core.config.height,
+                    &self.texture_bind_group_layout,
+                ),
+                create_feedback_texture_pair(
+                    core,
+                    core.config.width,
+                    core.config.height,
+                    &self.texture_bind_group_layout,
+                )
+            );
+            self.texture_pair1 = texture_pair1;
+            self.texture_pair2 = texture_pair2;
+        }
         self.base.apply_control_request(controls_request);
         let current_time = self.base.controls.get_time(&self.base.start_time);
         self.base.time_uniform.data.time = current_time;
