@@ -25,10 +25,12 @@ pub struct Core {
 impl Core {
     pub async fn new(window: Window) -> Self {
         let size = window.inner_size();
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        let instance_desc = wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
+            backend_options: wgpu::BackendOptions::default(),
             ..Default::default()
-        });
+        };
+        let instance = wgpu::Instance::new(&instance_desc);
         let window_box = Box::new(window);
         let window_ptr = Box::into_raw(window_box);
         // SAFETY: window_ptr is valid as we just created it

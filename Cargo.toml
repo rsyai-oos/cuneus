@@ -11,12 +11,12 @@ keywords = ["graphics", "wgpu", "shaders", "gpu"]
 categories = ["graphics", "rendering"]
 
 [dependencies]
-wgpu = "23.0.1"
+wgpu = "24.0.1"
 winit = "0.30.7"
 bytemuck = { version = "1.21", features = ["derive"] }
-egui-wgpu = "0.30.0"
-egui = "0.30.0"
-egui-winit = "0.30.0"
+egui-wgpu = "0.31.0"
+egui = "0.31.0"
+egui-winit = "0.31.0"
 image = { version = "0.25.5", features = ["png"] }
 env_logger = "0.11.6"
 pollster = "0.4.0"
