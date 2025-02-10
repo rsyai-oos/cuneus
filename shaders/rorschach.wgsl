@@ -44,16 +44,16 @@ fn create_matrices() -> array<mat3x3<f32>, 5> {
         mat3x3<f32>(
             params.m2_scale, -params.m2_shear, 0.0,
             params.m2_shift, params.m2_scale, 0.0,
-            -params.m2_shift, params.m2_shear, 1.0
+            -0.4, params.m2_shear, 1.0 
         ),
         mat3x3<f32>(
             params.m3_scale, params.m3_shear, 0.0,
-            -params.m3_shift, params.m3_scale, 0.0,
-            params.m3_shift, params.m3_shear, 1.0
+            -params.m3_shift, 0.7, 0.0,
+            0.4, params.m3_shear, 1.0 
         ),
         mat3x3<f32>(
             params.m4_scale, 0.0, 0.0,
-            0.0, params.m4_scale, 0.0,
+            0.0, 0.7, 0.0,
             0.0, -params.m4_shift, 1.0
         ),
         mat3x3<f32>(
