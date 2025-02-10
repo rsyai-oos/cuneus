@@ -5,20 +5,21 @@ use std::path::PathBuf;
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct ShaderParams {
-    // Hilbert curve parameters
-    iterations: u32,
-    num_rays: u32,
+    zoom_base: f32,
+    space_distort_x: f32,
+    space_distort_y: f32,
+    space_distort_z: f32,
+    
+    zoom_delay: f32,
+    zoom_speed: f32,
+    max_zoom: f32,
+    min_zoom: f32,
+    
+    noise_scale: f32,
+    time_scale: f32,
     _pad1: [f32; 2],
     
-    // Animation and scaling stuff
-    scale: f32,
-    time_scale: f32,
-    vignette_radius: f32,
-    vignette_softness: f32,
-    
-    // Color parameters
-    color_offset: [f32; 3],
-    _pad2: f32, 
+    disk_color: [f32; 4],
 }
 impl UniformProvider for ShaderParams {
     fn as_bytes(&self) -> &[u8] {
@@ -36,7 +37,7 @@ struct Shader {
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
-    let (app, event_loop) = ShaderApp::new("hilbert", 800, 600);
+    let (app, event_loop) = ShaderApp::new("nebula", 800, 600);
     let shader = Shader::init(app.core());
     app.run(event_loop, shader)
 }
@@ -208,17 +209,21 @@ impl ShaderManager for Shader {
             &core.device,
             "Params Uniform",
             ShaderParams {
-                iterations: 2, 
-                num_rays: 45,   
+                zoom_base: 1.0,
+                space_distort_x: -0.5,
+                space_distort_y: -0.4,
+                space_distort_z: -1.5,
+                
+                zoom_delay: 7.0,
+                zoom_speed: 0.2,
+                max_zoom: 10.0,
+                min_zoom: 1.0,
+                
+                noise_scale: 100.0,
+                time_scale: 1.3,
                 _pad1: [0.0; 2],
                 
-                scale: 0.3,          
-                time_scale: 1.5,    
-                vignette_radius: 0.3, 
-                vignette_softness: 0.4,
-                
-                color_offset: [0.0, 0.33, 0.67],
-                _pad2: 0.0,
+                disk_color: [1.0, 0.6, 0.2, 1.0],
             },
             &params_bind_group_layout,
             0,
@@ -236,18 +241,18 @@ impl ShaderManager for Shader {
 
         let fs_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Fragment Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/hilbert.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/nebula.wgsl").into()),
         });
 
         let shader_paths = vec![
             PathBuf::from("shaders/vertex.wgsl"),
-            PathBuf::from("shaders/hilbert.wgsl"),
+            PathBuf::from("shaders/nebula.wgsl"),
         ];
 
         let base = BaseShader::new(
             core,
             include_str!("../../shaders/vertex.wgsl"),
-            include_str!("../../shaders/hilbert.wgsl"),
+            include_str!("../../shaders/nebula.wgsl"),
             &bind_group_layouts,
             None,
         );
@@ -308,28 +313,43 @@ impl ShaderManager for Shader {
         );
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
-                egui::Window::new("Hilbert Curve Settings").show(ctx, |ui| {
-                    ui.collapsing("Curve Parameters", |ui| {
-                        changed |= ui.add(egui::Slider::new(&mut params.iterations, 1..=4)
-                            .text("Iterations")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.num_rays, 1..=120)
-                            .text("Number of Rays")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.scale, 0.1..=1.0)
-                            .text("Curve Scale")).changed();
+                egui::Window::new("Nebula").show(ctx, |ui| {
+                    ui.collapsing("uv", |ui| {
+                        changed |= ui.add(egui::Slider::new(&mut params.zoom_base, -12.0..=12.0)
+                            .text("Base")).changed();
+                        
+                        ui.group(|ui| {
+                            ui.label("uv");
+                            changed |= ui.add(egui::Slider::new(&mut params.space_distort_x, -0.7..=0.0)
+                                .text("X Distortion")).changed();
+                            changed |= ui.add(egui::Slider::new(&mut params.space_distort_y, -0.7..=0.0)
+                                .text("Y Distortion")).changed();
+                            changed |= ui.add(egui::Slider::new(&mut params.space_distort_z, -1.5..=0.1)
+                                .text("Z Distortion")).changed();
+                        });
+                    });
+                    ui.collapsing("Zoom", |ui| {
+                        changed |= ui.add(egui::Slider::new(&mut params.zoom_delay, 0.0..=1000.0)
+                            .text("Zoom Start Delay")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.zoom_speed, 0.01..=1.0)
+                            .text("Haste")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.min_zoom, 0.1..=1.0)
+                            .text("Initial Zoom")).changed();
+                    });
+                    ui.collapsing("Noise", |ui| {
+                        changed |= ui.add(egui::Slider::new(&mut params.noise_scale, 0.0..=200.0)
+                            .text("Noise Scale")).changed();
                     });
         
-                    ui.collapsing("AEffects", |ui| {
-                        changed |= ui.add(egui::Slider::new(&mut params.time_scale, 0.0..=2.0)
-                            .text("Speed")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.vignette_radius, 0.1..=1.0)
-                            .text("Vignette_Radi")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.vignette_softness, 0.0..=1.0)
-                            .text("softnes")).changed();
+                    ui.collapsing("Hole", |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label("Disk Color:");
+                            changed |= ui.color_edit_button_rgba_unmultiplied(&mut params.disk_color).changed();
+                        });
                     });
-        
-                    ui.collapsing("Color Settings", |ui| {
-                        changed |= ui.color_edit_button_rgb(&mut params.color_offset).changed();
-                        ui.label("Color Offset");
+                    ui.collapsing("gamma", |ui| {
+                        changed |= ui.add(egui::Slider::new(&mut params.time_scale, 0.0..=3.0)
+                            .text("gamma")).changed();
                     });
         
                     ui.separator();
