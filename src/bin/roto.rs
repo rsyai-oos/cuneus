@@ -49,7 +49,7 @@ struct Shader {
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
-    let (app, event_loop) = ShaderApp::new("voronoi", 800, 600);
+    let (app, event_loop) = ShaderApp::new("roto", 800, 600);
     let shader = Shader::init(app.core());
     app.run(event_loop, shader)
 }
@@ -259,18 +259,18 @@ impl ShaderManager for Shader {
 
         let fs_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Fragment Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/voronoi.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/roto.wgsl").into()),
         });
 
         let shader_paths = vec![
             PathBuf::from("shaders/vertex.wgsl"),
-            PathBuf::from("shaders/voronoi.wgsl"),
+            PathBuf::from("shaders/roto.wgsl"),
         ];
 
         let base = BaseShader::new(
             core,
             include_str!("../../shaders/vertex.wgsl"),
-            include_str!("../../shaders/voronoi.wgsl"),
+            include_str!("../../shaders/roto.wgsl"),
             &bind_group_layouts,
             None,
         );
@@ -333,7 +333,7 @@ impl ShaderManager for Shader {
         );
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
-                egui::Window::new("Voronoi Settings").show(ctx, |ui| {
+                egui::Window::new("cfg").show(ctx, |ui| {
                     // Colors
                     changed |= ui.color_edit_button_rgb(&mut params.base_color).changed();
                     ui.label("Base Color");
