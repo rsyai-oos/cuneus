@@ -13,6 +13,8 @@ struct TreeParams {
     lights: f32,
     exp:f32,
     frame: f32,
+    col1:f32,
+    col2:f32,
     decay: f32,
 }
 
@@ -388,6 +390,8 @@ impl ShaderManager for Shader {
                 lights: 2.2,
                 exp: 4.0,
                 frame: 1.0,
+                col1:100.0,
+                col2:4.1,
                 decay: 0.98,
             },
             &params_bind_group_layout,
@@ -613,6 +617,8 @@ impl ShaderManager for Shader {
                     changed |= ui.add(egui::Slider::new(&mut params.lights, 0.0..=12.2).text("lights")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.exp, 1.0..=60.0).text("exp")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.frame, 0.0..=2.2).text("frame")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.col1, 0.0..=300.0).text("iter")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.col2, 0.0..=10.0).text("col2")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.decay, 0.0..=1.0).text("Feedback")).changed();
                     ui.separator();
                     ShaderControls::render_controls_widget(ui, &mut controls_request);

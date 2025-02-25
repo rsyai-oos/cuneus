@@ -14,6 +14,8 @@ struct Params {
     lights: f32,
     exp: f32,
     frame: f32,
+    col1:f32,
+    col2:f32,
     decay: f32,
 };
 @group(2) @binding(0)
@@ -69,8 +71,8 @@ fn fs_pass1(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
     let iter_ratio = z_and_i.x / f32(ITER);
     let sharpness = z_and_i.y;
     
-    let col1 = 0.5 + 0.5 * cos(1.0 + vec3<f32>(0.0, 0.5, 1.0) + PI * vec3<f32>(2.0 * sharpness));
-    let col2 = 0.5 + 0.5 * cos(4.1 + PI * vec3<f32>(sharpness));
+    let col1 = 0.5 + 0.5 * cos(params.col1 + vec3<f32>(0.0, 0.5, 1.0) + PI * vec3<f32>(2.0 * sharpness));
+    let col2 = 0.5 + 0.5 * cos(params.col2 + PI * vec3<f32>(sharpness));
     let col = mix(col1, col2, iter_ratio);
     let col_sqrt = sqrt(col);
     
@@ -113,8 +115,8 @@ fn fs_pass3(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
     let h = hash(vec4<f32>(U, f32(time_data.frame), 1.0));
     var d = vec2<f32>(cos(2.0 * PI * h.x), sin(2.0 * PI * h.x));
     let amplitude = min(0.4 * frame_factor, 0.1);
-    
-    for(var i: f32 = 0.0; i < 100.0; i += 1.0) {
+    var iter = params.col1;
+    for(var i: f32 = 0.0; i < iter; i += 1.0) {
         U += d;
         
         let b = textureSample(texBufferB, samplerB, U / R);
