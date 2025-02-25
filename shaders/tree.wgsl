@@ -9,9 +9,11 @@ struct TimeUniform {
 var<uniform> time_data: TimeUniform;
 
 struct Params {
-    min_radius: f32,
-    max_radius: f32,
-    size: f32,
+    pixel_offset: f32,
+    pixel_offset2: f32,
+    lights: f32,
+    exp: f32,
+    frame: f32,
     decay: f32,
 };
 @group(2) @binding(0)
@@ -80,12 +82,12 @@ fn fs_pass1(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
 fn fs_pass2(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
     let R = vec2<f32>(textureDimensions(prev_frame));
     let U = FragCoord.xy;
-    // Sample from BufferA
-
-    let n = textureSample(prev_frame, tex_sampler, (U - vec2<f32>(0.0, 1.0)) / R);
-    let e = textureSample(prev_frame, tex_sampler, (U + vec2<f32>(1.0, 0.0)) / R);
-    let s = textureSample(prev_frame, tex_sampler, (U + vec2<f32>(0.0, 1.0)) / R);
-    let w = textureSample(prev_frame, tex_sampler, (U - vec2<f32>(1.0, 0.0)) / R);
+    let pixel_offset =params.pixel_offset;
+    let pixel_offse_2 =params.pixel_offset2;
+    let n = textureSample(prev_frame, tex_sampler, (U -vec2<f32>(pixel_offse_2, -pixel_offset)) / R);
+    let e = textureSample(prev_frame, tex_sampler, (U - vec2<f32>(pixel_offset, pixel_offse_2)) / R);
+    let s = textureSample(prev_frame, tex_sampler, (U -vec2<f32>(pixel_offse_2, pixel_offset)) / R);
+    let w = textureSample(prev_frame, tex_sampler, (U  -vec2<f32>(-pixel_offset, pixel_offse_2)) / R);
     
     var Q = vec4<f32>(0.0);
     Q.x = 0.5 * (e.x - w.x);
@@ -107,7 +109,7 @@ fn fs_pass3(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
     
     var Q = textureSample(texBufferC, samplerC, U / R) * params.decay;
     //I need to add func to reset for the frame as well in rust side....
-    let frame_factor = 1.0 / max(f32(time_data.frame) * 0.05 + 1.0, 1.0);
+    let frame_factor = params.frame / max(f32(time_data.frame) * 0.05 + 1.0, 1.0);
     let h = hash(vec4<f32>(U, f32(time_data.frame), 1.0));
     var d = vec2<f32>(cos(2.0 * PI * h.x), sin(2.0 * PI * h.x));
     let amplitude = min(0.4 * frame_factor, 0.1);
@@ -120,7 +122,7 @@ fn fs_pass3(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
         d += (1.0 + h.z) * 30.0 * b.xy;
         d = normalize(d);
         
-        Q += amplitude * exp(-122.0 * length(d - vec2<f32>(0.0, 1.0))) * 
+        Q += amplitude * exp(-params.exp * length(d - vec2<f32>(0.0, 1.0))) * 
               max(sin(-2.0 + 6.0 * h.z + vec4<f32>(1.0, 2.0, 3.0, 4.0)), vec4<f32>(0.0));
         
         Q -= vec4<f32>(1.0, 2.0, 3.0, 4.0) * 0.0005 * b.z * frame_factor;
@@ -135,7 +137,7 @@ fn fs_pass4(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
     
     let raw_result = textureSample(prev_frame, tex_sampler, U / R);
     
-    let result = pow(raw_result, vec4<f32>(0.5));
+    let result = pow(raw_result, vec4<f32>(params.lights));
     
     return result;
 }

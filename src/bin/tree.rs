@@ -8,9 +8,11 @@ use std::path::PathBuf;
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct TreeParams {
-    min_radius: f32,
-    max_radius: f32,
-    size: f32,
+    pixel_offset: f32,
+    pixel_offset2: f32,
+    lights: f32,
+    exp:f32,
+    frame: f32,
     decay: f32,
 }
 
@@ -381,9 +383,11 @@ impl ShaderManager for Shader {
             &core.device,
             "Params Uniform",
             TreeParams {
-                min_radius: 4.5,
-                max_radius: 4.5,
-                size: 0.99,
+                pixel_offset: 2.0,
+                pixel_offset2: 4.5,
+                lights: 2.2,
+                exp: 4.0,
+                frame: 1.0,
                 decay: 0.98,
             },
             &params_bind_group_layout,
@@ -604,10 +608,12 @@ impl ShaderManager for Shader {
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
                 egui::Window::new("Tree Fractal Settings").show(ctx, |ui| {
-                    changed |= ui.add(egui::Slider::new(&mut params.min_radius, 1.0..=10.0).text("Min Radius")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.max_radius, 1.0..=10.0).text("Max Radius")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.size, 0.01..=1.2).text("Size")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.decay, 0.0..=1.2).text("Feedback")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.pixel_offset, -3.14..=3.14).text("pixel_offset_y")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.pixel_offset2, -3.14..=3.14).text("pixel_offset_x")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.lights, 0.0..=12.2).text("lights")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.exp, 1.0..=60.0).text("exp")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.frame, 0.0..=2.2).text("frame")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.decay, 0.0..=1.0).text("Feedback")).changed();
                     ui.separator();
                     ShaderControls::render_controls_widget(ui, &mut controls_request);
                     ui.separator();
