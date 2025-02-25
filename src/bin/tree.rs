@@ -776,7 +776,6 @@ impl ShaderManager for Shader {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-            
             render_pass.set_pipeline(&self.renderer_pass3.render_pipeline);
             render_pass.set_vertex_buffer(0, self.renderer_pass3.vertex_buffer.slice(..));
             render_pass.set_bind_group(0, &multi_bind_group, &[]);

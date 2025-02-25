@@ -105,34 +105,29 @@ fn fs_pass3(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
     let R = vec2<f32>(textureDimensions(texBufferC));
     var U = FragCoord.xy;
     
-    // Start with the current buffer value (feedback from itself)
-    // Stronger retention of previous frame for smoother accumulation
     var Q = textureSample(texBufferC, samplerC, U / R) * params.decay;
-    // Use a slowed-down frame counter to make particles build up more gradually
-    // We'll use real frame # divided by 4 to slow down the appearance of new patterns
-  
-    let frame = time_data.frame % 100u;
-    let h = hash(vec4<f32>(U, f32(frame), 1.0));
-    var d = vec2<f32>(cos(25.0 * PI * h.x), sin(2.0 * PI * h.x));
+    //I need to add func to reset for the frame as well in rust side....
+    let frame_factor = 1.0 / max(f32(time_data.frame) * 0.05 + 1.0, 1.0);
+    let h = hash(vec4<f32>(U, f32(time_data.frame), 1.0));
+    var d = vec2<f32>(cos(2.0 * PI * h.x), sin(2.0 * PI * h.x));
+    let amplitude = min(0.4 * frame_factor, 0.1);
     
     for(var i: f32 = 0.0; i < 100.0; i += 1.0) {
         U += d;
         
-        // Sample vector field from BufferB
         let b = textureSample(texBufferB, samplerB, U / R);
         
         d += (1.0 + h.z) * 30.0 * b.xy;
         d = normalize(d);
         
-        Q += 0.4 * exp(-10.0 * length(d - vec2<f32>(0.0, -1.0))) * 
+        Q += amplitude * exp(-122.0 * length(d - vec2<f32>(0.0, 1.0))) * 
               max(sin(-2.0 + 6.0 * h.z + vec4<f32>(1.0, 2.0, 3.0, 4.0)), vec4<f32>(0.0));
         
-        Q -= vec4<f32>(1.0, 2.0, 3.0, 4.0) * 0.0005 * b.z;
+        Q -= vec4<f32>(1.0, 2.0, 3.0, 4.0) * 0.0005 * b.z * frame_factor;
     }
     
     return Q;
 }
-
 @fragment
 fn fs_pass4(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
     let R = vec2<f32>(textureDimensions(prev_frame));
@@ -140,7 +135,7 @@ fn fs_pass4(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
     
     let raw_result = textureSample(prev_frame, tex_sampler, U / R);
     
-    let result = pow(raw_result, vec4<f32>(0.55));
+    let result = pow(raw_result, vec4<f32>(0.5));
     
     return result;
 }
