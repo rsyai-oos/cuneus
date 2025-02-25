@@ -651,6 +651,8 @@ impl ShaderManager for Shader {
             self.texture_pair1 = texture_pair1;
             self.texture_pair2 = texture_pair2;
             self.texture_pair3 = texture_pair3;
+
+            self.frame_count = 0;
         }
 
         self.base.apply_control_request(controls_request);
