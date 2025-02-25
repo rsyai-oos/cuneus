@@ -607,7 +607,7 @@ impl ShaderManager for Shader {
                     changed |= ui.add(egui::Slider::new(&mut params.min_radius, 1.0..=10.0).text("Min Radius")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.max_radius, 1.0..=10.0).text("Max Radius")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.size, 0.01..=1.2).text("Size")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.decay, 0.0..=0.99).text("Feedback")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.decay, 0.0..=1.2).text("Feedback")).changed();
                     ui.separator();
                     ShaderControls::render_controls_widget(ui, &mut controls_request);
                     ui.separator();

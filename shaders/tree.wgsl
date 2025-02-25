@@ -62,7 +62,7 @@ fn fs_pass1(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
     let zoom = 0.3;
     let pan = vec2<f32>(0.8, 1.7);
     
-    let uv = ((U - 0.5 * R) / min(R.y, R.x) + pan) * zoom;
+    let uv = ((vec2<f32>(U.x, R.y - U.y) - 0.5 * R) / min(R.y, R.x) + pan) * zoom;
     let z_and_i = implicit(uv);
     let iter_ratio = z_and_i.x / f32(ITER);
     let sharpness = z_and_i.y;
@@ -74,23 +74,22 @@ fn fs_pass1(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
     
     var Q = vec4<f32>(0.0);
     Q.x = (col_sqrt.r + col_sqrt.g + col_sqrt.b) / 3.0;
-     return Q;
+    return Q;
 }
-
 @fragment
 fn fs_pass2(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
     let R = vec2<f32>(textureDimensions(prev_frame));
     let U = FragCoord.xy;
-    
     // Sample from BufferA
-    let n = textureSample(prev_frame, tex_sampler, (U + vec2<f32>(0.0, 1.0)) / R);
+
+    let n = textureSample(prev_frame, tex_sampler, (U - vec2<f32>(0.0, 1.0)) / R);
     let e = textureSample(prev_frame, tex_sampler, (U + vec2<f32>(1.0, 0.0)) / R);
-    let s = textureSample(prev_frame, tex_sampler, (U - vec2<f32>(0.0, 1.0)) / R);
+    let s = textureSample(prev_frame, tex_sampler, (U + vec2<f32>(0.0, 1.0)) / R);
     let w = textureSample(prev_frame, tex_sampler, (U - vec2<f32>(1.0, 0.0)) / R);
     
     var Q = vec4<f32>(0.0);
     Q.x = 0.5 * (e.x - w.x);
-    Q.y = 0.5 * (n.x - s.x);
+    Q.y = 0.5 * (s.x - n.x);
     Q.z = textureSample(prev_frame, tex_sampler, U / R).x;
     
     return Q;
@@ -108,13 +107,13 @@ fn fs_pass3(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
     
     // Start with the current buffer value (feedback from itself)
     // Stronger retention of previous frame for smoother accumulation
-    var Q = textureSample(texBufferC, samplerC, U / R) * 0.99;
-    
+    var Q = textureSample(texBufferC, samplerC, U / R) * params.decay;
     // Use a slowed-down frame counter to make particles build up more gradually
     // We'll use real frame # divided by 4 to slow down the appearance of new patterns
-    let frame = time_data.frame / 1u;
+  
+    let frame = time_data.frame % 100u;
     let h = hash(vec4<f32>(U, f32(frame), 1.0));
-    var d = vec2<f32>(cos(2.0 * PI * h.x), sin(2.0 * PI * h.x));
+    var d = vec2<f32>(cos(25.0 * PI * h.x), sin(2.0 * PI * h.x));
     
     for(var i: f32 = 0.0; i < 100.0; i += 1.0) {
         U += d;
@@ -125,10 +124,10 @@ fn fs_pass3(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
         d += (1.0 + h.z) * 30.0 * b.xy;
         d = normalize(d);
         
-       Q += 0.02 * exp(-10.0 * length(d - vec2<f32>(0.0, 1.0))) * 
-             max(sin(-2.0 + 6.0 * h.z + vec4<f32>(1.0, 2.0, 3.0, 4.0)), vec4<f32>(0.0));
+        Q += 0.4 * exp(-10.0 * length(d - vec2<f32>(0.0, -1.0))) * 
+              max(sin(-2.0 + 6.0 * h.z + vec4<f32>(1.0, 2.0, 3.0, 4.0)), vec4<f32>(0.0));
         
-        Q -= vec4<f32>(1.0, 2.0, 3.0, 4.0) * 0.0006 * b.z;
+        Q -= vec4<f32>(1.0, 2.0, 3.0, 4.0) * 0.0005 * b.z;
     }
     
     return Q;
