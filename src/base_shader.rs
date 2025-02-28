@@ -1,6 +1,9 @@
 use std::time::Instant;
 use egui_wgpu::ScreenDescriptor;
 use egui::ViewportId;
+use crate::gst::video::VideoTextureManager;
+use std::path::Path;
+use log::{warn, info, error};
 use crate::{Core, Renderer, TextureManager, UniformProvider, UniformBinding,KeyInputHandler,ExportManager,ShaderControls,ControlsRequest,ResolutionUniform};
 #[cfg(target_os = "macos")]
 pub const CAPTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8UnormSrgb;
@@ -20,6 +23,8 @@ impl UniformProvider for TimeUniform {
 }
 pub struct BaseShader {
     pub renderer: Renderer,
+    pub video_texture_manager: Option<VideoTextureManager>,
+    pub using_video_texture: bool,
     pub texture_manager: Option<TextureManager>,
     pub egui_renderer: egui_wgpu::Renderer,
     pub egui_state: egui_winit::State,
@@ -152,6 +157,8 @@ impl BaseShader {
 
         Self {
             renderer,
+            video_texture_manager: None,
+            using_video_texture: false,
             texture_manager: Some(texture_manager),
             egui_renderer,
             egui_state,
@@ -289,7 +296,99 @@ impl BaseShader {
             self.egui_renderer.free_texture(id);
         }
     }
-
+    pub fn load_media<P: AsRef<Path>>(&mut self, core: &Core, path: P) -> anyhow::Result<()> {
+        let path_ref = path.as_ref();
+        let extension = path_ref.extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.to_lowercase());
+        
+        match extension {
+            // Image formats
+            Some(ext) if ["png", "jpg", "jpeg", "bmp", "gif", "tiff", "webp"].contains(&ext.as_str()) => {
+                info!("Loading image: {:?}", path_ref);
+                if let Ok(img) = image::open(path_ref) {
+                    let rgba_image = img.into_rgba8();
+                    let new_texture_manager = TextureManager::new(
+                        &core.device,
+                        &core.queue,
+                        &rgba_image,
+                        &self.texture_bind_group_layout,
+                    );
+                    self.texture_manager = Some(new_texture_manager);
+                    self.using_video_texture = false;
+                    self.video_texture_manager = None;
+                    Ok(())
+                } else {
+                    Err(anyhow::anyhow!("Failed to open image"))
+                }
+            },
+            Some(ext) if ["mp4", "avi", "mkv", "mov", "webm"].contains(&ext.as_str()) => {
+                info!("Loading video: {:?}", path_ref);
+                match VideoTextureManager::new(
+                    &core.device,
+                    &core.queue,
+                    &self.texture_bind_group_layout,
+                    path_ref,
+                ) {
+                    Ok(video_manager) => {
+                        self.video_texture_manager = Some(video_manager);
+                        self.using_video_texture = true;
+                        if let Err(e) = self.play_video() {
+                            warn!("Failed to play video: {}", e);
+                        }
+                        self.set_video_loop(true);
+                        
+                        Ok(())
+                    },
+                    Err(e) => {
+                        error!("Failed to load video: {}", e);
+                        Err(e)
+                    }
+                }
+            },
+            _ => {
+                Err(anyhow::anyhow!("Unsupported media format: {:?}", path_ref))
+            }
+        }
+    }
+    pub fn update_video_texture(&mut self, core: &Core, queue: &wgpu::Queue) -> bool {
+        if self.using_video_texture {
+            if let Some(video_manager) = &mut self.video_texture_manager {
+                if let Ok(updated) = video_manager.update_texture(
+                    &core.device,
+                    queue,
+                    &self.texture_bind_group_layout
+                ) {
+                    return updated;
+                }
+            }
+        }
+        false
+    }
+    pub fn play_video(&mut self) -> anyhow::Result<()> {
+        if let Some(video_manager) = &mut self.video_texture_manager {
+            video_manager.play()?;
+        }
+        Ok(())
+    }
+    pub fn pause_video(&mut self) -> anyhow::Result<()> {
+        if let Some(video_manager) = &mut self.video_texture_manager {
+            video_manager.pause()?;
+        }
+        Ok(())
+    }
+    pub fn seek_video(&mut self, position_seconds: f64) -> anyhow::Result<()> {
+        if let Some(video_manager) = &mut self.video_texture_manager {
+            let position = gstreamer::ClockTime::from_seconds(position_seconds as u64);
+            video_manager.seek(position)?;
+        }
+        Ok(())
+    }
+    pub fn set_video_loop(&mut self, should_loop: bool) {
+        if let Some(video_manager) = &mut self.video_texture_manager {
+            video_manager.set_loop(should_loop);
+        }
+    }
     pub fn load_image(&mut self, core: &Core, path: std::path::PathBuf) {
         if let Ok(img) = image::open(path) {
             let rgba_image = img.into_rgba8();
