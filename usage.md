@@ -18,6 +18,18 @@ if you want 4 passes or more the logic is exactly the same.
 2. Rename and modify the copied file to create your shader
 3. Focus on writing your WGSL shader code :-)
 
+## GStreamer Requirement for Video Textures
+
+Cuneus supports using Videos as textures, which requires GStreamer bins to be installed on your system.
+
+### Installation
+
+Install from the [GStreamer website](https://gstreamer.freedesktop.org/download/#macos), both the runtime and development libraries, and make sure the `gstreamer` and `gstreamer-app` binaries are in your path.
+
+[build.rs](https://github.com/altunenes/cuneus/blob/main/build.rs) contains configuration for macOS frameworks and library paths. Adjust as needed for your system for development :-) 
+
+> **Note**: GStreamer is only required if you need video texture functionality. Image-based textures should work without it.
+
 ## Template Structure
 
 ### Basic Single Pass Shader (No GUI)
