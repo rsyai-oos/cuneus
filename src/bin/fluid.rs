@@ -44,7 +44,6 @@ impl FluidShader {
         let unpadded_bytes_per_row = settings.width * 4;
         let padding = (align - unpadded_bytes_per_row % align) % align;
         let padded_bytes_per_row = unpadded_bytes_per_row + padding;
-
         let capture_view = capture_texture.create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = core.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Capture Encoder"),
@@ -52,7 +51,6 @@ impl FluidShader {
         self.base.time_uniform.data.time = time;
         self.base.time_uniform.data.frame= self.frame_count;
         self.base.time_uniform.update(&core.queue);
-
         {
             let mut render_pass = Renderer::begin_render_pass(
                 &mut encoder,
@@ -62,11 +60,19 @@ impl FluidShader {
             );
             render_pass.set_pipeline(&self.renderer_pass2.render_pipeline);
             render_pass.set_vertex_buffer(0, self.renderer_pass2.vertex_buffer.slice(..));
+            // First binding (feedback texture)
             if let Some(ref texture_a) = self.texture_a {
                 render_pass.set_bind_group(0, &texture_a.bind_group, &[]);
             }
+            // Second binding (input texture) - could be image, video, or default
             if let Some(ref input_texture) = self.input_texture {
                 render_pass.set_bind_group(1, &input_texture.bind_group, &[]);
+            } else if self.base.using_video_texture {
+                if let Some(video_manager) = &self.base.video_texture_manager {
+                    render_pass.set_bind_group(1, &video_manager.texture_manager().bind_group, &[]);
+                } else if let Some(ref default_texture) = self.base.texture_manager {
+                    render_pass.set_bind_group(1, &default_texture.bind_group, &[]);
+                }
             } else if let Some(ref default_texture) = self.base.texture_manager {
                 render_pass.set_bind_group(1, &default_texture.bind_group, &[]);
             }
@@ -95,9 +101,7 @@ impl FluidShader {
                 depth_or_array_layers: 1,
             },
         );
-
         core.queue.submit(Some(encoder.finish()));
-
         let buffer_slice = output_buffer.slice(..);
         let (tx, rx) = std::sync::mpsc::channel();
         
@@ -108,7 +112,6 @@ impl FluidShader {
         
         rx.recv().unwrap().unwrap();
         let padded_data = buffer_slice.get_mapped_range().to_vec();
-
         let mut unpadded_data = Vec::with_capacity((settings.width * settings.height * 4) as usize);
         for chunk in padded_data.chunks(padded_bytes_per_row as usize) {
             unpadded_data.extend_from_slice(&chunk[..unpadded_bytes_per_row as usize]);
@@ -354,8 +357,7 @@ impl ShaderManager for FluidShader {
         let mut encoder = core.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Render Encoder"),
         });
-        let mut reload_image = false;
-        let mut selected_path = None;
+        
         // Local copies of parameters to fight the borrow checker
         let mut params = self.params_uniform.data;
         let mut changed = false;
@@ -365,22 +367,37 @@ impl ShaderManager for FluidShader {
             &core.size
         );
         let mut should_start_export = false;
+        
+        // Extract video info before entering the closure to avoid borrow checker issues
+        let using_video_texture = self.base.using_video_texture;
+        let video_info = self.base.get_video_info();
+        
+        // Update video texture if one is loaded
+        if self.base.using_video_texture {
+            self.base.update_video_texture(core, &core.queue);
+        }
+        
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
                 egui::Window::new("Fluid Settings").show(ctx, |ui| {
-                    if ui.button("Load Image").clicked() {
-                        if let Some(path) = rfd::FileDialog::new()
-                            .add_filter("Image", &["png", "jpg", "jpeg"])
-                            .pick_file() 
-                        {
-                            selected_path = Some(path);
-                            reload_image = true;
-                        }
-                    }
-                    changed |= ui.add(egui::Slider::new(&mut params.rotation_speed, -5.0..=5.0).text("Rotation Speed")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.motor_strength, -0.2..=0.2).text("Motor Strength")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.distortion, 1.0..=20.0).text("Distortion")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.feedback, 0.0..=1.01).text("Feedback")).changed();
+                    // Media controls in collapsible section
+                    ShaderControls::render_media_panel(
+                        ui,
+                        &mut controls_request,
+                        using_video_texture,
+                        video_info
+                    );
+                    
+                    ui.separator();
+                    
+                    // Shader-specific parameters
+                    ui.collapsing("Fluid Parameters", |ui| {
+                        changed |= ui.add(egui::Slider::new(&mut params.rotation_speed, -5.0..=5.0).text("Rotation Speed")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.motor_strength, -0.2..=0.2).text("Motor Strength")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.distortion, 1.0..=20.0).text("Distortion")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.feedback, 0.0..=1.01).text("Feedback")).changed();
+                    });
+                    
                     ui.separator();
                     ShaderControls::render_controls_widget(ui, &mut controls_request);
                     ui.separator();
@@ -390,6 +407,7 @@ impl ShaderManager for FluidShader {
         } else {
             self.base.render_ui(core, |_ctx| {})
         };
+        
         if controls_request.should_clear_buffers {
             let (texture_a, texture_b) = create_feedback_texture_pair(
                 core,
@@ -400,32 +418,36 @@ impl ShaderManager for FluidShader {
             self.texture_a = Some(texture_a);
             self.texture_b = Some(texture_b);
         }
+        
+        // Apply control requests
         self.base.export_manager.apply_ui_request(export_request);
-        self.base.apply_control_request(controls_request);
+        self.base.apply_control_request(controls_request.clone());
+        self.base.handle_video_requests(core, &controls_request);
+        
         let current_time = self.base.controls.get_time(&self.base.start_time);
         let current_frame = self.base.controls.get_frame();
         self.base.time_uniform.data.time = current_time;
         self.base.time_uniform.data.frame = current_frame;
         self.base.time_uniform.update(&core.queue);
+        
         if should_start_export {
             self.base.export_manager.start_export();
         }
+        
         if changed {
             self.params_uniform.data = params;
             self.params_uniform.update(&core.queue);
         }
-
-        if reload_image {
-            if let Some(path) = selected_path {
-                self.base.load_image(core, path);
-            }
-        }
+        
+        // Process feedback textures
         if let (Some(ref texture_a), Some(ref texture_b)) = (&self.texture_a, &self.texture_b) {
             let (source_texture, target_texture) = if current_frame % 2 == 0 {
                 (texture_b, texture_a)
             } else {
                 (texture_a, texture_b)
             };
+            
+            // First render pass - fluid simulation to target texture
             {
                 let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("Fluid Pass 1"),
@@ -443,16 +465,30 @@ impl ShaderManager for FluidShader {
                 });
                 render_pass.set_pipeline(&self.base.renderer.render_pipeline);
                 render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
+                
+                // Source texture from feedback loop
                 render_pass.set_bind_group(0, &source_texture.bind_group, &[]);
+                
+                // Input texture - could be image, video, or default
                 if let Some(ref input_texture) = self.input_texture {
                     render_pass.set_bind_group(1, &input_texture.bind_group, &[]);
+                } else if self.base.using_video_texture {
+                    if let Some(video_manager) = &self.base.video_texture_manager {
+                        render_pass.set_bind_group(1, &video_manager.texture_manager().bind_group, &[]);
+                    } else if let Some(ref default_texture) = self.base.texture_manager {
+                        render_pass.set_bind_group(1, &default_texture.bind_group, &[]);
+                    }
                 } else if let Some(ref default_texture) = self.base.texture_manager {
                     render_pass.set_bind_group(1, &default_texture.bind_group, &[]);
                 }
+                
+                // Time and parameters
                 render_pass.set_bind_group(2, &self.base.time_uniform.bind_group, &[]);
                 render_pass.set_bind_group(3, &self.params_uniform.bind_group, &[]);
                 render_pass.draw(0..4, 0..1);
             }
+            
+            // Second render pass - visualization to screen
             {
                 let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("Fluid Pass 2"),
@@ -470,9 +506,17 @@ impl ShaderManager for FluidShader {
                 });
                 render_pass.set_pipeline(&self.renderer_pass2.render_pipeline);
                 render_pass.set_vertex_buffer(0, self.renderer_pass2.vertex_buffer.slice(..));
+                
                 render_pass.set_bind_group(0, &target_texture.bind_group, &[]);
+                
                 if let Some(ref input_texture) = self.input_texture {
                     render_pass.set_bind_group(1, &input_texture.bind_group, &[]);
+                } else if self.base.using_video_texture {
+                    if let Some(video_manager) = &self.base.video_texture_manager {
+                        render_pass.set_bind_group(1, &video_manager.texture_manager().bind_group, &[]);
+                    } else if let Some(ref default_texture) = self.base.texture_manager {
+                        render_pass.set_bind_group(1, &default_texture.bind_group, &[]);
+                    }
                 } else if let Some(ref default_texture) = self.base.texture_manager {
                     render_pass.set_bind_group(1, &default_texture.bind_group, &[]);
                 }
@@ -480,8 +524,10 @@ impl ShaderManager for FluidShader {
                 render_pass.set_bind_group(3, &self.params_uniform.bind_group, &[]);
                 render_pass.draw(0..4, 0..1);
             }
+            
             self.frame_count = self.frame_count.wrapping_add(1);
         }
+        
         self.base.handle_render_output(core, &view, full_output, &mut encoder);
         core.queue.submit(Some(encoder.finish()));
         output.present();
@@ -499,6 +545,7 @@ impl ShaderManager for FluidShader {
     }
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    cuneus::gst::init()?;
     env_logger::init();
     let (app, event_loop) = ShaderApp::new("Fluid", 800, 600);
     let shader = FluidShader::init(app.core());
