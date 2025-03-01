@@ -60,98 +60,118 @@ impl VideoTextureManager {
         
         let pipeline = gst::Pipeline::new();
         
-        let source = gst::ElementFactory::make("filesrc")
+        // Source element - read from file
+        let filesrc = gst::ElementFactory::make("filesrc")
+            .name("source")
             .property("location", &path_str)
-            .build()?;
+            .build()
+            .map_err(|_| anyhow!("Failed to create filesrc element"))?;
+        // Decoding element
+        let decodebin = gst::ElementFactory::make("decodebin")
+            .name("decoder")
+            .build()
+            .map_err(|_| anyhow!("Failed to create decodebin element"))?;
             
-        let decodebin = gst::ElementFactory::make("decodebin").build()?;
-        let videoconvert = gst::ElementFactory::make("videoconvert").build()?;
-        let videoscale = gst::ElementFactory::make("videoscale").build()?;
-        let queue = gst::ElementFactory::make("queue")
-            .property("max-size-buffers", 2u32)
-            .property("max-size-time", gst::ClockTime::from_seconds(0))
-            .property_from_str("leaky", "downstream") 
-            .build()?;
+        // videorate element to enforce correct frame timing
+        let videorate = gst::ElementFactory::make("videorate")
+            .name("rate")
+            .build()
+            .map_err(|_| anyhow!("Failed to create videorate element"))?;
+        // Convert to proper format
+        let videoconvert = gst::ElementFactory::make("videoconvert")
+            .name("convert")
+            .build()
+            .map_err(|_| anyhow!("Failed to create videoconvert element"))?;
+        //caps filter to force framerate if needed
+        let capsfilter = gst::ElementFactory::make("capsfilter")
+            .name("capsfilter")
+            .build()
+            .map_err(|_| anyhow!("Failed to create capsfilter element"))?;
             
-        // an appsink to receive frames
-        let appsink = gst::ElementFactory::make("appsink").build()?;
+        // Output sink
+        let appsink = gst::ElementFactory::make("appsink")
+            .name("sink")
+            .build()
+            .map_err(|_| anyhow!("Failed to create appsink element"))?;
+        
         let appsink = appsink.dynamic_cast::<gst_app::AppSink>()
             .map_err(|_| anyhow!("Failed to cast to AppSink"))?;
             
-        // Configure appsink for RGBA format (I need to test this on Windows too since this sometimes causes issues related to the format)
+        // Configure appsink
         appsink.set_caps(Some(&gst::Caps::builder("video/x-raw")
             .field("format", gst_video::VideoFormat::Rgba.to_str())
             .build()));
         
-        appsink.set_max_buffers(1);
+        appsink.set_max_buffers(2);
         appsink.set_drop(true);  // Drop old buffers when full
-        appsink.set_sync(false); // Don't sync to clock (we will handle timing)
-        pipeline.add_many(&[
-            &source, 
-            &decodebin, 
-            &videoconvert, 
-            &videoscale, 
-            &queue, 
-            &appsink.upcast_ref()
-        ])?;
-        gst::Element::link_many(&[
-            &videoconvert, 
-            &videoscale, 
-            &queue, 
-            &appsink.upcast_ref()
-        ])?;
+        appsink.set_sync(true);
+        pipeline.add_many(&[&filesrc, &decodebin, &videorate, &videoconvert, &capsfilter, &appsink.upcast_ref()])
+            .map_err(|_| anyhow!("Failed to add elements to pipeline"))?;
+        // Link elements that can be linked statically
+        gst::Element::link_many(&[&videorate, &videoconvert, &capsfilter, &appsink.upcast_ref()])
+            .map_err(|_| anyhow!("Failed to link elements"))?;
             
-        gst::Element::link_many(&[&source, &decodebin])?;
-        
-        // lets create a shared state
-        let current_frame = Arc::new(Mutex::new(None));
-        let current_frame_clone = current_frame.clone();
-        let position = Arc::new(Mutex::new(gst::ClockTime::ZERO));
-        let is_playing = Arc::new(Mutex::new(false));
-        
-        // connection: decodebin <-> videoconvert
-        let videoconvert_weak = videoconvert.downgrade();
+        gst::Element::link_many(&[&filesrc, &decodebin])
+            .map_err(|_| anyhow!("Failed to link filesrc to decodebin"))?;
+            
+        // Set up pad-added signal for dynamic linking from decodebin -> videorate
+        let videorate_weak = videorate.downgrade();
         decodebin.connect_pad_added(move |_, pad| {
+            let videorate = match videorate_weak.upgrade() {
+                Some(element) => element,
+                _none => return,
+            };
+            
+            let sink_pad = match videorate.static_pad("sink") {
+                Some(pad) => pad,
+                _none => return,
+            };
+            
+            if sink_pad.is_linked() {
+                return;
+            }
+            
             let caps = match pad.current_caps() {
                 Some(caps) => caps,
-                None => return,
+                _none => return,
             };
             
             let structure = match caps.structure(0) {
                 Some(s) => s,
-                None => return,
+                _none => return,
             };
             
             if !structure.name().starts_with("video/") {
                 return;
             }
             
-            if let Some(videoconvert) = videoconvert_weak.upgrade() {
-                let sink_pad = videoconvert.static_pad("sink").unwrap();
-                if let Err(e) = pad.link(&sink_pad) {
-                    error!("Failed to link decoder to converter: {}", e);
-                } else {
-                    debug!("Linked decoder to video converter successfully");
-                }
-            }
+            let _ = pad.link(&sink_pad);
+            info!("Linked decoder to videorate successfully");
         });
         
+        // Create shared state
+        let current_frame = Arc::new(Mutex::new(None));
+        let current_frame_clone = current_frame.clone();
+        let position = Arc::new(Mutex::new(gst::ClockTime::ZERO));
+        let is_playing = Arc::new(Mutex::new(false));
+        
+        // Setup callbacks to receive frames
         appsink.set_callbacks(
             gst_app::AppSinkCallbacks::builder()
-                .new_sample(move |appsink| {
-                    let sample = match appsink.pull_sample() {
+                .new_sample(move |sink| {
+                    let sample = match sink.pull_sample() {
                         Ok(sample) => sample,
                         Err(_) => return Err(gst::FlowError::Eos),
                     };
                     
                     let buffer = match sample.buffer() {
                         Some(buffer) => buffer,
-                        None => return Err(gst::FlowError::Error),
+                        _none => return Err(gst::FlowError::Error),
                     };
                     
                     let caps = match sample.caps() {
                         Some(caps) => caps,
-                        None => return Err(gst::FlowError::Error),
+                        _none => return Err(gst::FlowError::Error),
                     };
                     
                     let video_info = match gst_video::VideoInfo::from_caps(caps) {
@@ -218,22 +238,42 @@ impl VideoTextureManager {
             frame_count: 0,
         };
         // Start pipeline in paused state to get video info
-        video_texture.pipeline.set_state(gst::State::Paused)?;
+        if video_texture.pipeline.set_state(gst::State::Paused).is_err() {
+            return Err(anyhow!("Failed to set pipeline to PAUSED state"));
+        }
         
         // Wait a bit for pipeline to settle
         std::thread::sleep(Duration::from_millis(500));
         
-        video_texture.query_video_info()?;
-        
-        video_texture.pipeline.set_state(gst::State::Paused)?;
+        let state_result = video_texture.pipeline.state(gst::ClockTime::from_seconds(5));
+        if let (_, gst::State::Paused, _) = state_result {
+            video_texture.query_video_info()?;
+        } else {
+            warn!("Pipeline not in PAUSED state, may not be able to query info");
+        }
+        // Set specific framerate in the caps filter if we detected one
+        if let Some(framerate) = video_texture.framerate {
+            if let Some(capsfilter_elem) = video_texture.pipeline.by_name("capsfilter") {
+                let caps = gst::Caps::builder("video/x-raw")
+                    .field("framerate", framerate)
+                    .build();
+                capsfilter_elem.set_property("caps", &caps);
+                info!("Set capsfilter to force framerate {}/{}", framerate.numer(), framerate.denom());
+            }
+        }
         
         info!("Video texture manager created successfully");
         Ok(video_texture)
     }
     
-    /// Query video information (dimensions, duration, framerate), actually I might use GstDiscoverer later...
+    /// Query video information (dimensions, duration, framerate)
     fn query_video_info(&mut self) -> Result<()> {
-        let _ = self.pipeline.state(gst::ClockTime::from_seconds(1));
+        // Query duration
+        if let Some(duration) = self.pipeline.query_duration::<gst::ClockTime>() {
+            self.duration = Some(duration);
+            info!("Video duration: {:?} ({:.2} seconds)", 
+                 duration, duration.seconds() as f64);
+        }
         
         // Now try to get video info
         if let Some(pad) = self.appsink.static_pad("sink") {
@@ -248,16 +288,12 @@ impl VideoTextureManager {
                     // framerate 
                     if let Ok(framerate) = s.get::<gst::Fraction>("framerate") {
                         self.framerate = Some(framerate);
-                        info!("Video framerate: {}/{}", framerate.numer(), framerate.denom());
+                        info!("Video framerate: {}/{} (approx. {:.2} fps)", 
+                             framerate.numer(), framerate.denom(),
+                             framerate.numer() as f64 / framerate.denom() as f64);
                     }
                 }
             }
-        }
-        
-        // Query duration
-        if let Some(duration) = self.pipeline.query_duration::<gst::ClockTime>() {
-            self.duration = Some(duration);
-            info!("Video duration: {:?}", duration);
         }
         
         Ok(())
@@ -290,22 +326,25 @@ impl VideoTextureManager {
         if let Some(frame) = frame_to_process {
             self.frame_count += 1;
             
-            // Get frame dimensions and log them
+            // Get frame dimensions
             let width = frame.width();
             let height = frame.height();
             
-            info!("Processing video frame #{}: dimensions={}x{}, current texture={}x{}, initialized={}",
-                 self.frame_count, width, height, self.dimensions.0, self.dimensions.1, self.texture_initialized);
+            // Log less frequently to reduce spam
+            if self.frame_count % 30 == 0 {
+                debug!("Processing video frame #{} (dimensions: {}x{})", 
+                     self.frame_count, width, height);
+            }
             
             // ALWAYS recreate the texture for the first frame or if dimensions don't match
             let should_recreate = !self.texture_initialized || 
                                  self.dimensions != (width, height) ||
                                  self.dimensions.0 <= 1 || 
                                  self.dimensions.1 <= 1 ||
-                                 self.frame_count <= 3;  // Force recreation for first few frames
+                                 self.frame_count <= 3;
             
             if should_recreate {
-                info!("Recreating texture with dimensions: {}x{}", width, height);
+                info!("Creating new texture with dimensions: {}x{}", width, height);
                 
                 // Create a completely new texture with the frame's dimensions
                 let new_texture_manager = TextureManager::new(
@@ -315,15 +354,10 @@ impl VideoTextureManager {
                     bind_group_layout
                 );
                 
-                // Replace the old texture manager with the new one
                 self.texture_manager = new_texture_manager;
                 self.dimensions = (width, height);
                 self.texture_initialized = true;
-                
-                info!("Texture recreation complete. New dimensions: {}x{}", width, height);
             } else {
-                debug!("Updating existing texture");
-                // Same dimensions, just update the existing texture
                 self.texture_manager.update(queue, &frame);
             }
             
@@ -333,21 +367,18 @@ impl VideoTextureManager {
                 
                 // Check if we reached the end of the video
                 if let Some(duration) = self.duration {
-                    // Consider "end" when we're close to the duration
-                    // (within 1/10 of a second of the end)
                     let near_end_threshold = duration.saturating_sub(
                         gst::ClockTime::from_mseconds(100)
                     );
                     
                     if position >= near_end_threshold {
-                        debug!("Reached end of video");
+                        debug!("Near end of video (position: {:?}, duration: {:?})", position, duration);
                         
-                        // If looping is enabled, seek back to start
                         if *self.loop_playback.lock().unwrap() {
                             debug!("Looping video");
                             self.seek(gst::ClockTime::ZERO)?;
                         } else {
-                            // Pause at the end if not looping
+                            debug!("Pausing at end of video");
                             self.pause()?;
                         }
                     }
@@ -366,17 +397,25 @@ impl VideoTextureManager {
     /// Start playing the video
     pub fn play(&mut self) -> Result<()> {
         info!("Playing video");
-        self.pipeline.set_state(gst::State::Playing)?;
-        *self.is_playing.lock().unwrap() = true;
-        Ok(())
+        match self.pipeline.set_state(gst::State::Playing) {
+            Ok(_) => {
+                *self.is_playing.lock().unwrap() = true;
+                Ok(())
+            },
+            Err(e) => Err(anyhow!("Failed to start playback: {:?}", e))
+        }
     }
     
     /// Pause the video
     pub fn pause(&mut self) -> Result<()> {
         info!("Pausing video");
-        self.pipeline.set_state(gst::State::Paused)?;
-        *self.is_playing.lock().unwrap() = false;
-        Ok(())
+        match self.pipeline.set_state(gst::State::Paused) {
+            Ok(_) => {
+                *self.is_playing.lock().unwrap() = false;
+                Ok(())
+            },
+            Err(e) => Err(anyhow!("Failed to pause playback: {:?}", e))
+        }
     }
     
     /// Seek to a specific position in the video
@@ -391,21 +430,15 @@ impl VideoTextureManager {
         }
         
         // exec the seek operation
-        let seek_result = self.pipeline.seek_simple(
-            gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT,
-            position,
-        );
-        
-        match seek_result {
-            Ok(_) => {
-                debug!("Seek successful");
-                *self.position.lock().unwrap() = position;
-                Ok(())
-            },
-            Err(e) => {
-                error!("Seek failed: {}", e);
-                Err(anyhow!("Failed to seek: {}", e))
-            }
+        let seek_flags = gst::SeekFlags::FLUSH | gst::SeekFlags::KEY_UNIT;
+        if self.pipeline.seek_simple(seek_flags, position).is_ok() {
+            debug!("Seek successful");
+            *self.position.lock().unwrap() = position;
+            Ok(())
+        } else {
+            let err = anyhow!("Failed to seek to {:?}", position);
+            error!("{}", err);
+            Err(err)
         }
     }
     
@@ -426,7 +459,6 @@ impl VideoTextureManager {
         self.dimensions
     }
     
-    ///  video framerate as a tuple (numerator, denominator)
     pub fn framerate(&self) -> Option<(i32, i32)> {
         self.framerate.map(|f| (f.numer(), f.denom()))
     }
