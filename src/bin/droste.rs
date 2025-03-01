@@ -2,7 +2,6 @@ use cuneus::{Core,Renderer,ShaderApp, ShaderManager, UniformProvider, UniformBin
 use winit::event::*;
 use image::ImageError;
 use std::path::PathBuf;
-use log::error;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -345,84 +344,18 @@ impl ShaderManager for SpiralShader {
         // Extract all necessary state BEFORE rendering the UI.
         // also store actions to be performed after UI rendering. these are mostly due to fighting borrow checker :-(
         let using_video_texture = self.base.using_video_texture;
-        let mut load_media_path: Option<PathBuf> = None;
-        let mut play_video = false;
-        let mut pause_video = false;
-        let mut restart_video = false;
-        let mut seek_position: Option<f64> = None;
-        let mut set_loop: Option<bool> = None;
-        let video_info = if using_video_texture {
-            if let Some(vm) = &self.base.video_texture_manager {
-                Some((
-                    vm.duration().map(|d| d.seconds() as f32),
-                    vm.position().seconds() as f32,
-                    vm.dimensions(),
-                    vm.framerate().map(|(num, den)| num as f32 / den as f32),
-                    vm.is_looping()
-                ))
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+        let video_info = self.base.get_video_info();
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
                 egui::Window::new("Shader Settings").show(ctx, |ui| {
-                    ui.group(|ui| {
-                        ui.label("Media Import");
-                        
-                        if ui.button("Load Media").clicked() {
-                            if let Some(path) = rfd::FileDialog::new()
-                                .add_filter("Media Files", &["png", "jpg", "jpeg", "mp4", "avi", "mkv", "webm", "mov"])
-                                .add_filter("Images", &["png", "jpg", "jpeg", "webp", "bmp", "tiff"])
-                                .add_filter("Videos", &["mp4", "avi", "mkv", "webm", "mov"])
-                                .pick_file() 
-                            {
-                                load_media_path = Some(path);
-                            }
-                        }
-                        if using_video_texture {
+                    ShaderControls::render_media_panel(
+                        ui,
+                        &mut controls_request,
+                        using_video_texture,
+                        video_info
+                    );
                             ui.separator();
-                            ui.label("Video Controls");
-                            
-                            ui.horizontal(|ui| {
-                                if ui.button("Play").clicked() {
-                                    play_video = true;
-                                }
-                                
-                                if ui.button("Pause").clicked() {
-                                    pause_video = true;
-                                }
-                                
-                                if ui.button("Restart").clicked() {
-                                    restart_video = true;
-                                }
-                            });
-                            if let Some((duration_opt, position_secs, dimensions, framerate_opt, is_looping)) = video_info {
-                                if let Some(duration_secs) = duration_opt {
-                                    ui.label(format!("Position: {:.1}s / {:.1}s", position_secs, duration_secs));
-                                    
-                                    // Seek slider
-                                    let mut pos = position_secs;
-                                    if ui.add(egui::Slider::new(&mut pos, 0.0..=duration_secs).text("Seek")).changed() {
-                                        seek_position = Some(pos as f64);
-                                    }
-                                }
-                                let mut looping = is_looping;
-                                if ui.checkbox(&mut looping, "Loop Video").changed() {
-                                    set_loop = Some(looping);
-                                }
-                                
-                                ui.label(format!("Dimensions: {}x{}", dimensions.0, dimensions.1));
-                                
-                                if let Some(fps) = framerate_opt {
-                                    ui.label(format!("Framerate: {:.2} fps", fps));
-                                }
-                            }
-                        }
-                    });
-                    
+
                     ui.group(|ui| {
                         ui.label("Basic Parameters");
                         changed |= ui.add(egui::Slider::new(&mut params.branches, -20.0..=20.0).text("Branches")).changed();
@@ -465,35 +398,9 @@ impl ShaderManager for SpiralShader {
             self.base.render_ui(core, |_ctx| {})
         };
         
-        if let Some(path) = load_media_path {
-            if let Err(e) = self.base.load_media(core, &path) {
-                error!("Failed to load media: {}", e);
-            }
-        }
-        
-        if play_video {
-            let _ = self.base.play_video();
-        }
-        
-        if pause_video {
-            let _ = self.base.pause_video();
-        }
-        
-        if restart_video {
-            let _ = self.base.seek_video(0.0);
-            let _ = self.base.play_video();
-        }
-        
-        if let Some(position) = seek_position {
-            let _ = self.base.seek_video(position);
-        }
-        
-        if let Some(should_loop) = set_loop {
-            self.base.set_video_loop(should_loop);
-        }
-        
         self.base.export_manager.apply_ui_request(export_request);
-        self.base.apply_control_request(controls_request);
+        self.base.apply_control_request(controls_request.clone());
+        self.base.handle_video_requests(core, &controls_request);
         let current_time = self.base.controls.get_time(&self.base.start_time);
         self.base.time_uniform.data.time = current_time;
         self.base.time_uniform.update(&core.queue);
