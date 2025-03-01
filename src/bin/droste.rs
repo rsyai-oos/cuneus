@@ -2,6 +2,7 @@ use cuneus::{Core,Renderer,ShaderApp, ShaderManager, UniformProvider, UniformBin
 use winit::event::*;
 use image::ImageError;
 use std::path::PathBuf;
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct ShaderParams {
@@ -16,17 +17,21 @@ struct ShaderParams {
     smoothing: f32,
     use_animation: f32,
 }
+
 impl UniformProvider for ShaderParams {
     fn as_bytes(&self) -> &[u8] {
         bytemuck::bytes_of(self)
     }
 }
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    cuneus::gst::init()?;
     env_logger::init();
     let (app, event_loop) = ShaderApp::new("Droste", 800, 600);
     let shader = SpiralShader::init(app.core());
     app.run(event_loop, shader)
 }
+
 struct SpiralShader {
     base: BaseShader,
     params_uniform: UniformBinding<ShaderParams>,
@@ -36,6 +41,7 @@ struct SpiralShader {
     resolution_bind_group_layout: wgpu::BindGroupLayout,
     params_bind_group_layout: wgpu::BindGroupLayout,
 }
+
 impl SpiralShader {
     fn capture_frame(&mut self, core: &Core, time: f32) -> Result<Vec<u8>, wgpu::SurfaceError> {
         let settings = self.base.export_manager.settings();
@@ -73,7 +79,11 @@ impl SpiralShader {
             });
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-            if let Some(texture_manager) = &self.base.texture_manager {
+            if self.base.using_video_texture {
+                if let Some(video_manager) = &self.base.video_texture_manager {
+                    render_pass.set_bind_group(0, &video_manager.texture_manager().bind_group, &[]);
+                }
+            } else if let Some(texture_manager) = &self.base.texture_manager {
                 render_pass.set_bind_group(0, &texture_manager.bind_group, &[]);
             }
             // Time (group 1)
@@ -315,12 +325,14 @@ impl ShaderManager for SpiralShader {
             self.handle_export(core);
         }
     }
+    
     fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {
         let output = core.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let mut reload_image = false;
-        let mut selected_path = None;
-        
+        // Update video texture if one is loaded
+        if self.base.using_video_texture {
+            self.base.update_video_texture(core, &core.queue);
+        }
         let mut params = self.params_uniform.data;
         let mut changed = false;
         let mut should_start_export = false;
@@ -329,49 +341,53 @@ impl ShaderManager for SpiralShader {
             &self.base.start_time,
             &core.size
         );
-
+        // Extract all necessary state BEFORE rendering the UI.
+        // also store actions to be performed after UI rendering. these are mostly due to fighting borrow checker :-(
+        let using_video_texture = self.base.using_video_texture;
+        let video_info = self.base.get_video_info();
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
                 egui::Window::new("Shader Settings").show(ctx, |ui| {
-                    if ui.button("Load Image").clicked() {
-                        if let Some(path) = rfd::FileDialog::new()
-                            .add_filter("Image", &["png", "jpg", "jpeg"])
-                            .pick_file() 
-                        {
-                            selected_path = Some(path);
-                            reload_image = true;
+                    ShaderControls::render_media_panel(
+                        ui,
+                        &mut controls_request,
+                        using_video_texture,
+                        video_info
+                    );
+                            ui.separator();
+
+                    ui.group(|ui| {
+                        ui.label("Basic Parameters");
+                        changed |= ui.add(egui::Slider::new(&mut params.branches, -20.0..=20.0).text("Branches")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.scale, 0.0..=2.0).text("Scale")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.zoom, 0.1..=5.0).text("Zoom")).changed();
+                    });
+                    
+                    ui.group(|ui| {
+                        ui.label("Animation");
+                        let mut use_anim = params.use_animation > 0.5;
+                        if ui.checkbox(&mut use_anim, "Enable Animation").changed() {
+                            changed = true;
+                            params.use_animation = if use_anim { 1.0 } else { 0.0 };
                         }
-                    }
-        ui.group(|ui| {
-            ui.label("Basic Parameters");
-            changed |= ui.add(egui::Slider::new(&mut params.branches, -20.0..=20.0).text("Branches")).changed();
-            changed |= ui.add(egui::Slider::new(&mut params.scale, 0.0..=2.0).text("Scale")).changed();
-            changed |= ui.add(egui::Slider::new(&mut params.zoom, 0.1..=5.0).text("uv")).changed();
-        });
-        ui.group(|ui| {
-            ui.label("Animation");
-            let mut use_anim = params.use_animation > 0.5;
-            if ui.checkbox(&mut use_anim, "Enable Animation").changed() {
-                changed = true;
-                params.use_animation = if use_anim { 1.0 } else { 0.0 };
-            }
-            if use_anim {
-                changed |= ui.add(egui::Slider::new(&mut params.time_scale, -5.0..=5.0).text("Animation Speed")).changed();
-            }
-            changed |= ui.add(egui::Slider::new(&mut params.rotation, -6.28..=6.28).text("Rotation")).changed();
-        });
-
-        ui.group(|ui| {
-            ui.label("Advanced Parameters");
-            changed |= ui.add(egui::Slider::new(&mut params.iterations, -10.0..=10.0).text("Iterations")).changed();
-            changed |= ui.add(egui::Slider::new(&mut params.smoothing, -1.0..=1.0).text("Smoothing")).changed();
-        });
-        ui.group(|ui| {
-            ui.label("Texture Offset");
-            changed |= ui.add(egui::Slider::new(&mut params.offset_x, -1.0..=1.0).text("X Offset")).changed();
-            changed |= ui.add(egui::Slider::new(&mut params.offset_y, -1.0..=1.0).text("Y Offset")).changed();
-        });
-
+                        if use_anim {
+                            changed |= ui.add(egui::Slider::new(&mut params.time_scale, -5.0..=5.0).text("Animation Speed")).changed();
+                        }
+                        changed |= ui.add(egui::Slider::new(&mut params.rotation, -6.28..=6.28).text("Rotation")).changed();
+                    });
+    
+                    ui.group(|ui| {
+                        ui.label("Advanced Parameters");
+                        changed |= ui.add(egui::Slider::new(&mut params.iterations, -10.0..=10.0).text("Iterations")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.smoothing, -1.0..=1.0).text("Smoothing")).changed();
+                    });
+                    
+                    ui.group(|ui| {
+                        ui.label("Texture Offset");
+                        changed |= ui.add(egui::Slider::new(&mut params.offset_x, -1.0..=1.0).text("X Offset")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.offset_y, -1.0..=1.0).text("Y Offset")).changed();
+                    });
+    
                     ui.separator();
                     ShaderControls::render_controls_widget(ui, &mut controls_request);
                     ui.separator();
@@ -381,8 +397,10 @@ impl ShaderManager for SpiralShader {
         } else {
             self.base.render_ui(core, |_ctx| {})
         };
+        
         self.base.export_manager.apply_ui_request(export_request);
-        self.base.apply_control_request(controls_request);
+        self.base.apply_control_request(controls_request.clone());
+        self.base.handle_video_requests(core, &controls_request);
         let current_time = self.base.controls.get_time(&self.base.start_time);
         self.base.time_uniform.data.time = current_time;
         self.base.time_uniform.update(&core.queue);
@@ -390,14 +408,8 @@ impl ShaderManager for SpiralShader {
             self.params_uniform.data = params;
             self.params_uniform.update(&core.queue);
         }
-
         if should_start_export {
             self.base.export_manager.start_export();
-        }
-        if reload_image {
-            if let Some(path) = selected_path {
-                self.base.load_image(core, path);
-            }
         }
         let mut encoder = core.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Render Encoder"),
@@ -420,8 +432,12 @@ impl ShaderManager for SpiralShader {
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
             
-            // Texture (group 0)
-            if let Some(texture_manager) = &self.base.texture_manager {
+            // Set the appropriate texture bind group based on whether we're using video or image
+            if self.base.using_video_texture {
+                if let Some(video_manager) = &self.base.video_texture_manager {
+                    render_pass.set_bind_group(0, &video_manager.texture_manager().bind_group, &[]);
+                }
+            } else if let Some(texture_manager) = &self.base.texture_manager {
                 render_pass.set_bind_group(0, &texture_manager.bind_group, &[]);
             }
             // Time (group 1)
