@@ -440,4 +440,52 @@ impl BaseShader {
         }
         self.controls.apply_ui_request(request);
     }
+    
+    pub fn handle_video_requests(&mut self, core: &Core, request: &ControlsRequest) {
+        if let Some(path) = &request.load_media_path {
+            if let Err(e) = self.load_media(core, path) {
+                error!("Failed to load media: {}", e);
+            }
+        }
+        
+        if request.play_video {
+            let _ = self.play_video();
+        }
+        
+        if request.pause_video {
+            let _ = self.pause_video();
+        }
+        
+        if request.restart_video {
+            let _ = self.seek_video(0.0);
+            let _ = self.play_video();
+        }
+        
+        if let Some(position) = request.seek_position {
+            let _ = self.seek_video(position);
+        }
+        
+        if let Some(should_loop) = request.set_loop {
+            self.set_video_loop(should_loop);
+        }
+    }
+    
+    /// Get video information if a video texture is loaded
+    pub fn get_video_info(&self) -> Option<(Option<f32>, f32, (u32, u32), Option<f32>, bool)> {
+        if self.using_video_texture {
+            if let Some(vm) = &self.video_texture_manager {
+                Some((
+                    vm.duration().map(|d| d.seconds() as f32),
+                    vm.position().seconds() as f32,
+                    vm.dimensions(),
+                    vm.framerate().map(|(num, den)| num as f32 / den as f32),
+                    vm.is_looping()
+                ))
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
 }
