@@ -11,6 +11,7 @@ A tool for experimenting with WGSL shaders, it uses `wgpu` for rendering, `egui`
 - Interactive parameter adjustment, ez Texture loading through egui
 - Easily use your own videos as textures (thanks to the `gstreamer`)
 - Export HQ frames via egui
+- tui browser via ratatui (thanks to `davehorner`)
 
 ## Current look
 
@@ -24,12 +25,14 @@ A tool for experimenting with WGSL shaders, it uses `wgpu` for rendering, `egui`
 
 #### Usage
 
+- `cargo run --example tui_browser` to see the list of shaders.  use your mouse/keyboard to navigate.
 - If you want to try your own shaders, check out the [usage.md](usage.md).
 
 #### Open my shaders
 
-- cargo run --release --bin *file*
+- `cargo run --release --bin *file*`
 - Or download on the [releases](https://github.com/altunenes/cuneus/releases)
+
 
 # Gallery
 
