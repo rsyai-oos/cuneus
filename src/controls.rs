@@ -16,6 +16,11 @@ pub struct ControlsRequest {
     pub restart_video: bool,
     pub seek_position: Option<f64>,
     pub set_loop: Option<bool>,
+    
+    // Audio reqs
+    pub set_volume: Option<f64>,
+    pub mute_audio: Option<bool>,
+    pub toggle_mute: bool,
 }
 
 impl Default for ControlsRequest {
@@ -34,12 +39,18 @@ impl Default for ControlsRequest {
             restart_video: false,
             seek_position: None,
             set_loop: None,
+            
+            // Audio-related stuff
+            set_volume: None,
+            mute_audio: None,
+            toggle_mute: false,
         }
     }
 }
 
 /// VideoInfo type alias
-pub type VideoInfo = (Option<f32>, f32, (u32, u32), Option<f32>, bool);
+/// (duration, position, dimensions, framerate, is_looping, has_audio, volume, is_muted)
+pub type VideoInfo = (Option<f32>, f32, (u32, u32), Option<f32>, bool, bool, f64, bool);
 
 pub struct ShaderControls {
     is_paused: bool,
@@ -98,6 +109,10 @@ impl ShaderControls {
             restart_video: false,
             seek_position: None,
             set_loop: None,
+            
+            set_volume: None,
+            mute_audio: None,
+            toggle_mute: false,
         }
     }
     
@@ -130,7 +145,10 @@ impl ShaderControls {
                     vm.position().seconds() as f32,
                     vm.dimensions(),
                     vm.framerate().map(|(num, den)| num as f32 / den as f32),
-                    vm.is_looping()
+                    vm.is_looping(),
+                    vm.has_audio(),
+                    vm.volume(),
+                    vm.is_muted()
                 ))
             } else {
                 None
@@ -181,7 +199,7 @@ impl ShaderControls {
                         }
                     });
                     
-                    if let Some((duration_opt, position_secs, dimensions, framerate_opt, is_looping)) = video_info {
+                    if let Some((duration_opt, position_secs, dimensions, framerate_opt, is_looping, has_audio, volume, is_muted)) = video_info {
                         ui.separator();
                         
                         if let Some(duration_secs) = duration_opt {
@@ -196,6 +214,28 @@ impl ShaderControls {
                             }
                         }
                         
+                        // only show if video has audio
+                        if has_audio {
+                            ui.separator();
+                            ui.heading("Audio");
+                            
+                            let mut vol = volume;
+                            if ui.add(egui::Slider::new(&mut vol, 0.0..=1.0)
+                                .text("Volume")
+                                .show_value(true))
+                                .changed()
+                            {
+                                request.set_volume = Some(vol);
+                            }
+                            
+                            ui.horizontal(|ui| {
+                                let mut muted = is_muted;
+                                if ui.checkbox(&mut muted, "Mute").changed() {
+                                    request.mute_audio = Some(muted);
+                                }
+                            });
+                        }
+                        
                         ui.separator();
                         
                         ui.collapsing("Properties", |ui| {
@@ -208,6 +248,11 @@ impl ShaderControls {
                             let mut looping = is_looping;
                             if ui.checkbox(&mut looping, "Loop").changed() {
                                 request.set_loop = Some(looping);
+                            }
+                            if has_audio {
+                                ui.label("Audio: Yes");
+                            } else {
+                                ui.label("Audio: No");
                             }
                         });
                     }
