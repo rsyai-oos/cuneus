@@ -468,10 +468,29 @@ impl BaseShader {
         if let Some(should_loop) = request.set_loop {
             self.set_video_loop(should_loop);
         }
+        
+        // Handle audio control requests
+        if let Some(volume) = request.set_volume {
+            if let Some(vm) = &mut self.video_texture_manager {
+                let _ = vm.set_volume(volume);
+            }
+        }
+        
+        if let Some(muted) = request.mute_audio {
+            if let Some(vm) = &mut self.video_texture_manager {
+                let _ = vm.set_mute(muted);
+            }
+        }
+        
+        if request.toggle_mute {
+            if let Some(vm) = &mut self.video_texture_manager {
+                let _ = vm.toggle_mute();
+            }
+        }
     }
     
     /// Get video information if a video texture is loaded
-    pub fn get_video_info(&self) -> Option<(Option<f32>, f32, (u32, u32), Option<f32>, bool)> {
+    pub fn get_video_info(&self) -> Option<(Option<f32>, f32, (u32, u32), Option<f32>, bool, bool, f64, bool)> {
         if self.using_video_texture {
             if let Some(vm) = &self.video_texture_manager {
                 Some((
@@ -479,7 +498,10 @@ impl BaseShader {
                     vm.position().seconds() as f32,
                     vm.dimensions(),
                     vm.framerate().map(|(num, den)| num as f32 / den as f32),
-                    vm.is_looping()
+                    vm.is_looping(),
+                    vm.has_audio(),
+                    vm.volume(),
+                    vm.is_muted()
                 ))
             } else {
                 None
