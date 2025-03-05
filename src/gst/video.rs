@@ -164,7 +164,6 @@ impl VideoTextureManager {
             let media_type = structure.name();
             
             if media_type.starts_with("video/") {
-                // Connect video pad
                 if let Some(videorate) = videorate_weak.upgrade() {
                     let sink_pad = match videorate.static_pad("sink") {
                         Some(pad) => pad,
