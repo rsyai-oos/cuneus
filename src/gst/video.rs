@@ -39,10 +39,6 @@ pub struct VideoTextureManager {
     texture_initialized: bool,
     /// Frame counter for debugging
     frame_count: usize,
-    /// auido related
-    has_audio: bool,
-    audio_volume: Arc<Mutex<f64>>,
-    audio_muted: Arc<Mutex<bool>>,
 }
 impl VideoTextureManager {
     pub fn new(
@@ -109,102 +105,55 @@ impl VideoTextureManager {
         appsink.set_max_buffers(2);
         appsink.set_drop(true);  // Drop old buffers when full
         appsink.set_sync(true);
-        //  audio elements
-        let audioconvert = gst::ElementFactory::make("audioconvert")
-            .name("audioconvert")
-            .build()
-            .map_err(|_| anyhow!("Failed to create audioconvert element"))?;
-        let audioresample = gst::ElementFactory::make("audioresample")
-            .name("audioresample")
-            .build()
-            .map_err(|_| anyhow!("Failed to create audioresample element"))?;
-        let volume = gst::ElementFactory::make("volume")
-            .name("volume")
-            .build()
-            .map_err(|_| anyhow!("Failed to create volume element"))?;
-        let autoaudiosink = gst::ElementFactory::make("autoaudiosink")
-            .name("audiosink")
-            .build()
-            .map_err(|_| anyhow!("Failed to create autoaudiosink element"))?;
-        pipeline.add_many(&[
-            &filesrc, &decodebin, 
-            // Video elements
-            &videorate, &videoconvert, &capsfilter, &appsink.upcast_ref(),
-            // Audio elements
-            &audioconvert, &audioresample, &volume, &autoaudiosink
-        ])
-        .map_err(|_| anyhow!("Failed to add elements to pipeline"))?;
-        
+        pipeline.add_many(&[&filesrc, &decodebin, &videorate, &videoconvert, &capsfilter, &appsink.upcast_ref()])
+            .map_err(|_| anyhow!("Failed to add elements to pipeline"))?;
         // Link elements that can be linked statically
         gst::Element::link_many(&[&videorate, &videoconvert, &capsfilter, &appsink.upcast_ref()])
-            .map_err(|_| anyhow!("Failed to link video elements"))?;
-        gst::Element::link_many(&[&audioconvert, &audioresample, &volume, &autoaudiosink])
-            .map_err(|_| anyhow!("Failed to link audio elements"))?;
+            .map_err(|_| anyhow!("Failed to link elements"))?;
             
         gst::Element::link_many(&[&filesrc, &decodebin])
             .map_err(|_| anyhow!("Failed to link filesrc to decodebin"))?;
             
         // Set up pad-added signal for dynamic linking from decodebin -> videorate
         let videorate_weak = videorate.downgrade();
-        let audioconvert_weak = audioconvert.downgrade();
-        let has_audio = Arc::new(Mutex::new(false));
-        let has_audio_clone = has_audio.clone();
-        
         decodebin.connect_pad_added(move |_, pad| {
-            let pad_caps = match pad.current_caps() {
+            let videorate = match videorate_weak.upgrade() {
+                Some(element) => element,
+                _none => return,
+            };
+            
+            let sink_pad = match videorate.static_pad("sink") {
+                Some(pad) => pad,
+                _none => return,
+            };
+            
+            if sink_pad.is_linked() {
+                return;
+            }
+            
+            let caps = match pad.current_caps() {
                 Some(caps) => caps,
                 _none => return,
             };
             
-            let structure = match pad_caps.structure(0) {
+            let structure = match caps.structure(0) {
                 Some(s) => s,
                 _none => return,
             };
             
-            let media_type = structure.name();
-            
-            if media_type.starts_with("video/") {
-                if let Some(videorate) = videorate_weak.upgrade() {
-                    let sink_pad = match videorate.static_pad("sink") {
-                        Some(pad) => pad,
-                        _none => return,
-                    };
-                    
-                    if !sink_pad.is_linked() {
-                        if pad.link(&sink_pad).is_ok() {
-                            info!("Linked decoder video pad to videorate");
-                        }
-                    }
-                }
-            } else if media_type.starts_with("audio/") {
-                // Mark that we have audio
-                if let Ok(mut audio_flag) = has_audio_clone.lock() {
-                    *audio_flag = true;
-                }
-                
-                // Connect audio pad
-                if let Some(audioconvert) = audioconvert_weak.upgrade() {
-                    let sink_pad = match audioconvert.static_pad("sink") {
-                        Some(pad) => pad,
-                        _none => return,
-                    };
-                    
-                    if !sink_pad.is_linked() {
-                        if pad.link(&sink_pad).is_ok() {
-                            info!("Linked decoder audio pad to audioconvert");
-                        }
-                    }
-                }
+            if !structure.name().starts_with("video/") {
+                return;
             }
+            
+            let _ = pad.link(&sink_pad);
+            info!("Linked decoder to videorate successfully");
         });
         
-        // Set up frame handling (same as before, using current_frame)
+        // Create shared state
         let current_frame = Arc::new(Mutex::new(None));
         let current_frame_clone = current_frame.clone();
         let position = Arc::new(Mutex::new(gst::ClockTime::ZERO));
         let is_playing = Arc::new(Mutex::new(false));
-        let audio_volume = Arc::new(Mutex::new(1.0));
-        let audio_muted = Arc::new(Mutex::new(false));
         
         // Setup callbacks to receive frames
         appsink.set_callbacks(
@@ -287,15 +236,13 @@ impl VideoTextureManager {
             video_path: path_str,
             texture_initialized: false,
             frame_count: 0,
-            has_audio: *has_audio.lock().unwrap(),
-            audio_volume,
-            audio_muted,
         };
         // Start pipeline in paused state to get video info
         if video_texture.pipeline.set_state(gst::State::Paused).is_err() {
             return Err(anyhow!("Failed to set pipeline to PAUSED state"));
         }
         
+        // Wait a bit for pipeline to settle
         std::thread::sleep(Duration::from_millis(500));
         
         let state_result = video_texture.pipeline.state(gst::ClockTime::from_seconds(5));
@@ -315,15 +262,7 @@ impl VideoTextureManager {
             }
         }
         
-        // Update has_audio status after waiting for pipeline to settle
-        video_texture.has_audio = *has_audio.lock().unwrap();
-        if video_texture.has_audio {
-            info!("Media file contains audio");
-        } else {
-            info!("Media file does not contain audio");
-        }
-        
-        info!("Media manager created successfully");
+        info!("Video texture manager created successfully");
         Ok(video_texture)
     }
     
@@ -467,41 +406,6 @@ impl VideoTextureManager {
         }
     }
     
-    pub fn set_volume(&mut self, volume: f64) -> Result<()> {
-        let volume_value = volume.max(0.0).min(1.0);
-        
-        if let Some(volume_element) = self.pipeline.by_name("volume") {
-            volume_element.set_property("volume", volume_value);
-            *self.audio_volume.lock().unwrap() = volume_value;
-            info!("Audio volume set to {:.2}", volume_value);
-            Ok(())
-        } else {
-            Err(anyhow!("Volume element not found in pipeline"))
-        }
-    }
-    /// Mute or unmute audio
-    pub fn set_mute(&mut self, muted: bool) -> Result<()> {
-        if let Some(volume_element) = self.pipeline.by_name("volume") {
-            volume_element.set_property("mute", muted);
-            *self.audio_muted.lock().unwrap() = muted;
-            info!("Audio mute set to {}", muted);
-            Ok(())
-        } else {
-            Err(anyhow!("Volume element not found in pipeline"))
-        }
-    }
-    /// Get current volume
-    pub fn volume(&self) -> f64 {
-        *self.audio_volume.lock().unwrap()
-    }
-    /// Check if audio is muted
-    pub fn is_muted(&self) -> bool {
-        *self.audio_muted.lock().unwrap()
-    }
-    /// Check if media has audio
-    pub fn has_audio(&self) -> bool {
-        self.has_audio
-    }
     /// Pause the video
     pub fn pause(&mut self) -> Result<()> {
         info!("Pausing video");
