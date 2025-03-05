@@ -26,14 +26,13 @@ A tool for experimenting with WGSL shaders, it uses `wgpu` for rendering, `egui`
 
 #### Usage
 
-- `cargo run --example tui_browser` to see the list of shaders.  use your mouse/keyboard to navigate.
 - If you want to try your own shaders, check out the [usage.md](usage.md).
 
-#### Open my shaders
+#### Run examples
 
 - `cargo run --release --bin *file*`
 - Or download on the [releases](https://github.com/altunenes/cuneus/releases)
-- Or use tui browser via ratatui (thanks to `davehorner`): 
+- Or, as the best method, use tui browser via ratatui (thanks to `davehorner`): 
     
      `cargo run --example tui_browser`
 
