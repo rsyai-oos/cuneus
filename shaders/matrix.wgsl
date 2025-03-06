@@ -15,12 +15,13 @@ struct TimeUniform {
 };
 
 struct Params {
-    red_power: f32,     // Default: 3/2
-    green_power: f32,   // Default: 4/5
-    blue_power: f32,    // Default: 3/2
-    green_boost: f32,   // Default: 1.2
-    contrast: f32,      // Default: 1.1
-    gamma: f32,         // Default: 1.0
+    red_power: f32,
+    green_power: f32,
+    blue_power: f32,
+    green_boost: f32,
+    contrast: f32, 
+    gamma: f32,
+    glow:f32,
 }
 //matrix transformation
 fn mt(color: vec3<f32>, params: Params) -> vec3<f32> {
@@ -49,7 +50,7 @@ fn fs_main(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec
     let scanline_mask = 1.0 - scanline_intensity * (1.0 - scanline);
     matrix_color *= scanline_mask;
     let luminance = dot(matrix_color, vec3<f32>(0.299, 0.587, 0.114));
-    let glow_intensity = 0.3;
+    let glow_intensity = params.glow;
     let green_glow = vec3<f32>(0.0, luminance * glow_intensity, 0.0);
     matrix_color += green_glow;
     let alpha = textureSample(tex, tex_sampler, uv).a;

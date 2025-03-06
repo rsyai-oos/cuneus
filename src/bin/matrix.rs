@@ -11,6 +11,7 @@ struct ShaderParams {
     green_boost: f32,
     contrast: f32,
     gamma: f32,
+    glow:f32,
 }
 
 impl UniformProvider for ShaderParams {
@@ -210,12 +211,13 @@ impl ShaderManager for MatrixShader {
             &core.device,
             "Params Uniform",
             ShaderParams {
-                red_power: 1.5,
-                green_power: 0.8,
-                blue_power: 1.5,
-                green_boost: 1.2,
-                contrast: 1.1,
+                red_power: 0.98,
+                green_power: 0.85,
+                blue_power: 0.90,
+                green_boost: 1.62,
+                contrast: 1.0,
                 gamma: 1.0,
+                glow: 0.05,
             },
             &params_bind_group_layout,
             0,
@@ -350,17 +352,17 @@ impl ShaderManager for MatrixShader {
                         ui.collapsing("Matrix Color Settings", |ui| {
                             changed |= ui.add(
                                 egui::Slider::new(&mut params.red_power, 0.5..=3.0)
-                                    .text("Red Power (3/2 = 1.5)")
+                                    .text("Red Power")
                             ).changed();
                             
                             changed |= ui.add(
                                 egui::Slider::new(&mut params.green_power, 0.5..=3.0)
-                                    .text("Green Power (4/5 = 0.8)")
+                                    .text("Green Power")
                             ).changed();
                             
                             changed |= ui.add(
                                 egui::Slider::new(&mut params.blue_power, 0.5..=3.0)
-                                    .text("Blue Power (3/2 = 1.5)")
+                                    .text("Blue Power)")
                             ).changed();
                             
                             changed |= ui.add(
@@ -376,6 +378,10 @@ impl ShaderManager for MatrixShader {
                             changed |= ui.add(
                                 egui::Slider::new(&mut params.gamma, 0.2..=2.0)
                                     .text("Gamma")
+                            ).changed();
+                            changed |= ui.add(
+                                egui::Slider::new(&mut params.glow, -1.0..=1.0)
+                                    .text("Glow")
                             ).changed();
                         });
     
