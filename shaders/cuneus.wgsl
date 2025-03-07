@@ -312,7 +312,7 @@ fn fs_main(@builtin(position) fragCoord: vec4<f32>) -> @location(0) vec4<f32> {
         let litColor = hue * (lightIntensity * params.global_light + envLight);
         
         // Iridescence 
-        let depthFactor = 1.0 - (i - 0.1) / (3.0 - 0.1);
+        let depthFactor = 0.0 - (i - 0.1) / (3.0 - 0.1);
         let iridescence = sin(dot(offsetUV, offsetUV) * 3.0 + t) * params.iridescence_power * depthFactor + 0.9;
         let litColorIrid = litColor * vec4<f32>(iridescence, iridescence * 0.95, iridescence * 1.05, 1.0);
         
@@ -321,7 +321,7 @@ fn fs_main(@builtin(position) fragCoord: vec4<f32>) -> @location(0) vec4<f32> {
         
         // Combine with prev layers
         fragColor = mix(litColorIrid, fragColor, alpha) * 
-                   mix(vec4<f32>(1.0), hue + 0.3 * (0.1 - alpha) * (offsetUV.y / (abs(textDist) + 0.1) + lightIntensity), mixFactor);
+                   mix(vec4<f32>(1.0), hue + 0.3 * (0.2 - alpha) * (offsetUV.y / (abs(textDist) + 0.1) + lightIntensity), mixFactor);
     }
     fragColor = vec4<f32>(fragColor.rgb * params.global_light, 1.0);
     fragColor = vec4<f32>(gamma(fragColor.rgb, 0.45), fragColor.a);
