@@ -21,7 +21,9 @@ impl UniformProvider for ShaderParams {
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     cuneus::gst::init()?;
+    //std::env::set_var("RUST_LOG", "info,gstreamer=debug,cuneus=debug");
     env_logger::init();
+    //std::env::set_var("GST_DEBUG", "spectrum:5");
     let (app, event_loop) = ShaderApp::new("matrix", 800, 600);
     let shader = MatrixShader::init(app.core());
     app.run(event_loop, shader)
