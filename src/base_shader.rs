@@ -86,7 +86,8 @@ impl BaseShader {
             "Resolution Uniform",
             ResolutionUniform {
                 dimensions: [core.size.width as f32, core.size.height as f32],
-                _padding: [0.0; 2],
+                _padding: [0.0, 0.0],
+                audio_data: [[0.0; 4]; 8],
             },
             &resolution_bind_group_layout,
             0,
@@ -440,7 +441,74 @@ impl BaseShader {
         }
         self.controls.apply_ui_request(request);
     }
-    
+    pub fn update_audio_spectrum(&mut self, queue: &wgpu::Queue) {
+        // Default to no audio - initialize all bands to zero
+        for i in 0..8 {
+            for j in 0..4 {
+                self.resolution_uniform.data.audio_data[i][j] = 0.0;
+            }
+        }
+        
+        if self.using_video_texture {
+            if let Some(video_manager) = &self.video_texture_manager {
+                if video_manager.has_audio() {
+                    // Get spectrum data
+                    let spectrum_data = video_manager.spectrum_data();
+                    
+                    if !spectrum_data.magnitudes.is_empty() {
+                        let bands = spectrum_data.bands;
+                        
+                        // Normalize with a different threshold
+                        let threshold = -80.0;
+                        
+                        // Map the 128 frequency bands to our 32 visualizer bands
+                        // Each of our bands will represent 4 frequency bands from the spectrum
+                        for i in 0..32 {
+                            if i * 4 + 3 < bands {
+                                // Get 4 adjacent frequency bands from the spectrum
+                                let start_idx = i * 4;
+                                let end_idx = start_idx + 4;
+                                
+                                // Find the maximum value in these bands
+                                let max_value = spectrum_data.magnitudes[start_idx..end_idx]
+                                    .iter()
+                                    .fold(-120.0f32, |max, &val| max.max(val));
+                                
+                                // Map from dB scale to 0-1
+                                let normalized = ((max_value - threshold) / -threshold)
+                                    .max(0.0).min(1.0);
+                                
+                                // Apply non-linear curve to enhance visibility
+                                // Lower frequencies get square root (0.5 power)
+                                // Higher frequencies get more enhancement (0.33 power)
+                                let enhanced = if i < 8 {
+                                    // Bass frequencies (0-25%)
+                                    normalized.powf(0.5) // Square root for bass
+                                } else if i < 16 {
+                                    // Lower-mid frequencies (25-50%)
+                                    normalized.powf(0.45) * 1.1
+                                } else if i < 24 {
+                                    // Upper-mid frequencies (50-75%)
+                                    normalized.powf(0.4) * 1.2
+                                } else {
+                                    // High frequencies (75-100%)
+                                    normalized.powf(0.33) * 1.3 // Cube root for treble
+                                };
+                                
+                                // Store in our packed vec4 array
+                                let vec_idx = i / 4;     // Which vec4 (0-7)
+                                let vec_component = i % 4; // Which component (0-3)
+                                
+                                self.resolution_uniform.data.audio_data[vec_idx][vec_component] = enhanced;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        self.resolution_uniform.update(queue);
+    }
     pub fn handle_video_requests(&mut self, core: &Core, request: &ControlsRequest) {
         if let Some(path) = &request.load_media_path {
             if let Err(e) = self.load_media(core, path) {
@@ -481,7 +549,6 @@ impl BaseShader {
                 let _ = vm.set_mute(muted);
             }
         }
-        
         if request.toggle_mute {
             if let Some(vm) = &mut self.video_texture_manager {
                 let _ = vm.toggle_mute();
