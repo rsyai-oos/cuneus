@@ -5,7 +5,13 @@ use std::path::PathBuf;
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct ShaderParams {
- _padding:f32
+    red_power: f32,
+    green_power: f32,
+    blue_power: f32,
+    green_boost: f32,
+    contrast: f32,
+    gamma: f32,
+    glow:f32,
 }
 
 impl UniformProvider for ShaderParams {
@@ -207,7 +213,13 @@ impl ShaderManager for AudioVis {
             &core.device,
             "Params Uniform",
             ShaderParams {
-                _padding: 0.0
+                red_power: 0.98,
+                green_power: 0.85,
+                blue_power: 0.90,
+                green_boost: 1.62,
+                contrast: 1.0,
+                gamma: 1.0,
+                glow: 0.05,
 
             },
             &params_bind_group_layout,
@@ -253,7 +265,7 @@ impl ShaderManager for AudioVis {
 
         let shader_paths = vec![
             PathBuf::from("shaders/vertex.wgsl"),
-            PathBuf::from("shaders/matrix.wgsl"),
+            PathBuf::from("shaders/audiovis.wgsl"),
         ];
 
         let hot_reload = ShaderHotReload::new(
@@ -265,7 +277,7 @@ impl ShaderManager for AudioVis {
         let base = BaseShader::new(
             core,
             include_str!("../../shaders/vertex.wgsl"),
-            include_str!("../../shaders/matrix.wgsl"),
+            include_str!("../../shaders/audiovis.wgsl"),
             &bind_group_layouts,
             None,
         );

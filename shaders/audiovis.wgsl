@@ -18,7 +18,13 @@ struct TimeUniform {
 };
 
 struct Params { 
-    _padding: f32,
+    red_power: f32,
+    green_power: f32,
+    blue_power: f32,
+    green_boost: f32,
+    contrast: f32, 
+    gamma: f32,
+    glow:f32,
 
 }
 
