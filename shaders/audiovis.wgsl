@@ -10,7 +10,8 @@
 struct ResolutionUniform {
     dimensions: vec2<f32>,
     _padding: vec2<f32>,
-    audio_data: array<vec4<f32>, 8>, 
+    audio_data: array<vec4<f32>, 32>,  // 128 processed bands
+    audio_raw: array<vec4<f32>, 32>,   // 128 raw bands
 };
 
 struct TimeUniform {
@@ -24,65 +25,150 @@ struct Params {
     green_boost: f32,
     contrast: f32, 
     gamma: f32,
-    glow:f32,
+    glow: f32,
+}
+// Get processed audio value at any frequency (0-1 range)
+fn getAudioValue(freq: f32) -> f32 {
+    let idx = freq * 128.0;
+    let i = u32(idx);
+    let fract_part = idx - f32(i);
+    
+    // Safety bounds check
+    if (i >= 128u) {
+        return 0.0;
+    }
+    
+    // Calculate which vec4 and component
+    let vec_idx = i / 4u;
+    let vec_component = i % 4u;
+    
+    var val1 = 0.0;
+    if (vec_component == 0u) {
+        val1 = u_resolution.audio_data[vec_idx].x;
+    } else if (vec_component == 1u) {
+        val1 = u_resolution.audio_data[vec_idx].y;
+    } else if (vec_component == 2u) {
+        val1 = u_resolution.audio_data[vec_idx].z;
+    } else {
+        val1 = u_resolution.audio_data[vec_idx].w;
+    }
+    
+    // If at the last band, no interpolation needed
+    if (i >= 127u) {
+        return val1;
+    }
+    
+    // Get next value for interpolation
+    let next_i = i + 1u;
+    let next_vec_idx = next_i / 4u;
+    let next_vec_component = next_i % 4u;
+    
+    var val2 = 0.0;
+    if (next_vec_component == 0u) {
+        val2 = u_resolution.audio_data[next_vec_idx].x;
+    } else if (next_vec_component == 1u) {
+        val2 = u_resolution.audio_data[next_vec_idx].y;
+    } else if (next_vec_component == 2u) {
+        val2 = u_resolution.audio_data[next_vec_idx].z;
+    } else {
+        val2 = u_resolution.audio_data[next_vec_idx].w;
+    }
+    
+    // Linear interpolation between bands
+    return mix(val1, val2, fract_part);
+}
 
+// Get raw audio value at any frequency (0-1 range)
+fn getRawAudioValue(freq: f32) -> f32 {
+    let idx = freq * 128.0;
+    let i = u32(idx);
+    let fract_part = idx - f32(i);
+    
+    // Safety bounds check
+    if (i >= 128u) {
+        return 0.0;
+    }
+    
+    // Calculate which vec4 and component
+    let vec_idx = i / 4u;
+    let vec_component = i % 4u;
+    
+    var val1 = 0.0;
+    if (vec_component == 0u) {
+        val1 = u_resolution.audio_raw[vec_idx].x;
+    } else if (vec_component == 1u) {
+        val1 = u_resolution.audio_raw[vec_idx].y;
+    } else if (vec_component == 2u) {
+        val1 = u_resolution.audio_raw[vec_idx].z;
+    } else {
+        val1 = u_resolution.audio_raw[vec_idx].w;
+    }
+    
+    // If at the last band, no interpolation needed
+    if (i >= 127u) {
+        return val1;
+    }
+    
+    // Get next value for interpolation
+    let next_i = i + 1u;
+    let next_vec_idx = next_i / 4u;
+    let next_vec_component = next_i % 4u;
+    
+    var val2 = 0.0;
+    if (next_vec_component == 0u) {
+        val2 = u_resolution.audio_raw[next_vec_idx].x;
+    } else if (next_vec_component == 1u) {
+        val2 = u_resolution.audio_raw[next_vec_idx].y;
+    } else if (next_vec_component == 2u) {
+        val2 = u_resolution.audio_raw[next_vec_idx].z;
+    } else {
+        val2 = u_resolution.audio_raw[next_vec_idx].w;
+    }
+    
+    // Linear interpolation between bands
+    return mix(val1, val2, fract_part);
 }
 
 @fragment
 fn fs_main(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
     let resolution = u_resolution.dimensions;
-    // Normalized coordinates
     let uv = tex_coords;
-    // vis colors
-    let backgroundColor = vec3<f32>(0.05, 0.05, 0.1);
-    // Start with background color
-    var finalColor = backgroundColor;
-    // a subtle grid pattern
+    var finalColor = vec3<f32>(0.05, 0.05, 0.1);
     if (fract(uv.x * 20.0) < 0.05 || fract(uv.y * 20.0) < 0.05) {
         finalColor = mix(finalColor, vec3<f32>(0.2, 0.2, 0.25), 0.2);
     }
-    //  total audio energy for effects
+    
+    // Calculate total energy for effects
     var totalEnergy = 0.0;
-    // We need to access each value in the vec4 array
-    for (var i = 0; i < 8; i++) {
+    for (var i = 0; i < 32; i++) {
         totalEnergy += (u_resolution.audio_data[i].x + 
-                        u_resolution.audio_data[i].y + 
-                        u_resolution.audio_data[i].z + 
-                        u_resolution.audio_data[i].w) / 32.0;
+                       u_resolution.audio_data[i].y + 
+                       u_resolution.audio_data[i].z + 
+                       u_resolution.audio_data[i].w) / 128.0;
     }
-    // a background pulse based on total energy
     finalColor *= 1.0 + totalEnergy * 0.5;
     // ==================
     // Draw multi-band equalizer
     // ==================
     let eqBottom = 0.15;
     let eqHeight = 0.7;
-    let bandWidth = 1.0 / 34.0;  // 32 bands + small margins
+    let bandWidth = 1.0 / 130.0;  // 128 bands + small margins
     let bandSpacing = bandWidth * 0.1;
-    for (var i = 0; i < 32; i++) {
+    for (var i = 0; i < 128; i++) {
         // Calculate position for this frequency band
         let bandX = (f32(i) + 1.0) * bandWidth;
-        // Get the band energy from our packed vec4 array
-        let vecIndex = i / 4;
-        let vecComponent = i % 4;
-        var bandEnergy = 0.0;
-        if (vecComponent == 0) {
-            bandEnergy = u_resolution.audio_data[vecIndex].x;
-        } else if (vecComponent == 1) {
-            bandEnergy = u_resolution.audio_data[vecIndex].y;
-        } else if (vecComponent == 2) {
-            bandEnergy = u_resolution.audio_data[vecIndex].z;
-        } else {
-            bandEnergy = u_resolution.audio_data[vecIndex].w;
-        }
+        // Get band energy (processed audio)
+        let bandEnergy = getAudioValue(f32(i) / 128.0);
         
         let barHeight = bandEnergy * eqHeight;
-        // Draw frequency band bar if we're within its boundaries
+        let barBottom = 1.0 - eqBottom - barHeight; // Invert Y
+        let barTop = 1.0 - eqBottom; // Invert Y
+        // Draw bar if we're within its boundaries
         if (uv.x >= bandX && uv.x < bandX + bandWidth - bandSpacing) {
-            if (uv.y >= eqBottom && uv.y < eqBottom + barHeight) {
+            if (uv.y <= barTop && uv.y >= barBottom) {
                 // Color gradient based on frequency and height
-                let freqT = f32(i) / 32.0;  // 0-1 range for frequency
-                let heightT = (uv.y - eqBottom) / max(barHeight, 0.001);  // 0-1 range for height within bar
+                let freqT = f32(i) / 128.0;  // 0-1 range for frequency
+                let heightT = (barTop - uv.y) / max(barHeight, 0.001);  // 0-1 range for height within bar
                 // Create a color spectrum from red (low) to blue (high) frequencies
                 let baseColor = mix(
                     mix(
@@ -102,20 +188,20 @@ fn fs_main(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec
                 let color = mix(
                     baseColor * 0.7,             // Darker at bottom
                     baseColor * 1.3,             // Brighter at top
-                    heightT
+                    1.0 - heightT
                 );
                 
                 // Add animated stripes based on frequency
                 let stripeSpeed = 1.0 + freqT * 3.0;
                 let stripeWidth = 0.1 + bandEnergy * 0.2;
-                if (fract(uv.y * 15.0 - u_time.time * stripeSpeed) < stripeWidth) {
+                if (fract(uv.y * 15.0 + u_time.time * stripeSpeed) < stripeWidth) {
                     finalColor = color * 1.3;
                 } else {
                     finalColor = color;
                 }
                 
                 // Add highlight at top of bar
-                if (uv.y > eqBottom + barHeight - 0.01) {
+                if (abs(uv.y - barBottom) < 0.01) {
                     finalColor = mix(finalColor, vec3<f32>(1.0), 0.5);
                 }
             }
@@ -125,43 +211,30 @@ fn fs_main(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec
     // ==================
     // Draw baseline
     // ==================
-    if (abs(uv.y - eqBottom) < 0.002) {
+    if (abs(uv.y - (1.0 - eqBottom)) < 0.002) {
         finalColor = vec3<f32>(0.4, 0.4, 0.5);
     }
     
     // ==================
-    // Draw spectrum analyzer at bottom
+    // RAW audio data
     // ==================
-    if (uv.y < 0.08 && uv.y > 0.02) {
-        let specY = 0.05;
-        let specHeight = 0.03;
-        
-        for (var i = 0; i < 32; i++) {
-            let bandX = (f32(i) + 1.0) * bandWidth;
-            let freqT = f32(i) / 32.0;
+    let specY = 0.95;
+    let specHeight = 0.03;
+    
+    if (uv.y > specY - specHeight && uv.y < specY) {
+        for (var i = 0; i < 128; i++) {
+            let specBandWidth = 1.0 / 130.0;
+            let specBandX = (f32(i) + 1.0) * specBandWidth;
+            let freqT = f32(i) / 128.0;
             
-            // Get band energy from our packed array
-            let vecIndex = i / 4;
-            let vecComponent = i % 4;
-            
-            var bandEnergy = 0.0;
-            if (vecComponent == 0) {
-                bandEnergy = u_resolution.audio_data[vecIndex].x;
-            } else if (vecComponent == 1) {
-                bandEnergy = u_resolution.audio_data[vecIndex].y;
-            } else if (vecComponent == 2) {
-                bandEnergy = u_resolution.audio_data[vecIndex].z;
-            } else {
-                bandEnergy = u_resolution.audio_data[vecIndex].w;
-            }
-            
-            // Calculate peak height
-            let peakHeight = bandEnergy * specHeight;
+            // Use RAW audio data for this display
+            let rawValue = getRawAudioValue(freqT);
+            let peakHeight = rawValue * specHeight;
             
             // Draw peak line
-            if (uv.x >= bandX && uv.x < bandX + bandWidth - bandSpacing) {
-                // Draw frequency band
-                if (uv.y >= specY - peakHeight && uv.y <= specY) {
+            if (uv.x >= specBandX && uv.x < specBandX + specBandWidth - (specBandWidth * 0.1)) {
+                // Draw frequency band (grows DOWN from specY)
+                if (uv.y <= specY && uv.y >= specY - peakHeight) {
                     // Color based on frequency
                     let color = mix(
                         vec3<f32>(1.0, 0.2, 0.1),  // Low/bass (red)

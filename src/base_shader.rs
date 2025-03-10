@@ -9,7 +9,6 @@ use crate::{Core, Renderer, TextureManager, UniformProvider, UniformBinding,KeyI
 pub const CAPTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8UnormSrgb;
 #[cfg(not(target_os = "macos"))]
 pub const CAPTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
-
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct TimeUniform {
@@ -36,7 +35,7 @@ pub struct BaseShader {
     pub key_handler: KeyInputHandler,
     pub export_manager: ExportManager,
     pub controls: ShaderControls,
-    pub prev_audio_data: [[f32; 4]; 8],
+    pub prev_audio_data: [[f32; 4]; 32],
 }
 impl BaseShader {
     pub fn new(
@@ -88,7 +87,8 @@ impl BaseShader {
             ResolutionUniform {
                 dimensions: [core.size.width as f32, core.size.height as f32],
                 _padding: [0.0, 0.0],
-                audio_data: [[0.0; 4]; 8],
+                audio_data: [[0.0; 4]; 32],
+                audio_raw: [[0.0; 4]; 32],
             },
             &resolution_bind_group_layout,
             0,
@@ -172,7 +172,7 @@ impl BaseShader {
             key_handler: KeyInputHandler::new(),
             export_manager: ExportManager::new(),
             controls: ShaderControls::new(),
-            prev_audio_data: [[0.0; 4]; 8],
+            prev_audio_data: [[0.0; 4]; 32],
         }
     }
 
@@ -444,10 +444,11 @@ impl BaseShader {
         self.controls.apply_ui_request(request);
     }
     pub fn update_audio_spectrum(&mut self, queue: &wgpu::Queue) {
-        // init bands to zero
-        for i in 0..8 {
+        // Initialize audio data arrays to zero
+        for i in 0..32 {
             for j in 0..4 {
                 self.resolution_uniform.data.audio_data[i][j] = 0.0;
+                self.resolution_uniform.data.audio_raw[i][j] = 0.0;
             }
         }
         
@@ -458,37 +459,42 @@ impl BaseShader {
                     
                     if !spectrum_data.magnitudes.is_empty() {
                         let bands = spectrum_data.bands;
+                        let threshold: f32 = -75.0;
+                        // First, store raw audio data with minimal processing
+                        for i in 0..128.min(bands) {
+                            // Simple linear mapping
+                            let src_idx = (i as f32 / 128.0 * bands as f32) as usize;
+                            if src_idx < bands {
+                                // Get value
+                                let val = spectrum_data.magnitudes[src_idx];
+                                
+                                // Simple normalization from dB to 0-1
+                                let normalized = ((val - threshold) / -threshold)
+                                    .max(0.0).min(1.0);
+                                
+                                // Store in raw audio array
+                                let vec_idx = i / 4;
+                                let vec_component = i % 4;
+                                
+                                if vec_idx < 32 {
+                                    self.resolution_uniform.data.audio_raw[vec_idx][vec_component] = normalized;
+                                }
+                            }
+                        }
                         
-                        //  pick up only stronger signals
-                        let threshold: f32 = -70.0;
-                        
-                        // more focus on lower frequencies
-                        for i in 0..32 {
-                            // This further concentrates our visualization on lower frequencies
-                            let exp_idx = (i as f32 / 32.0).powf(2.2) * bands as f32;
-                            let start_idx = exp_idx as usize;
+                        // process audio with enhancements (audio_data)
+                        for i in 0..128.min(bands) {
+                            // linear mapping
+                            let source_idx = (i as f32 / 128.0 * bands as f32) as usize;
+                            // Narrower widths for all bands
+                            let width = 1;
                             
-                            // Calculate width for this band - wider for higher frequencies
-                            let width = if i < 12 {
-                                // Narrower bands for low frequencies (more detail)
-                                2
-                            } else if i < 20 {
-                                // Medium bands for mid frequencies
-                                4
-                            } else if i < 28 {
-                                // Wider bands for high-mid frequencies
-                                6
-                            } else {
-                                // Even wider for highest frequencies (minimize detail)
-                                8
-                            };
-                            
-                            let end_idx = (start_idx + width).min(bands);
-                            if start_idx < bands {
-                                // Get peak value in these bands
+                            let end_idx = (source_idx + width).min(bands);
+                            if source_idx < bands {
+                                // Get peak value in this small range
                                 let mut peak: f32 = -120.0;
                                 
-                                for j in start_idx..end_idx {
+                                for j in source_idx..end_idx {
                                     if j < bands {
                                         let val = spectrum_data.magnitudes[j];
                                         peak = peak.max(val);
@@ -500,74 +506,84 @@ impl BaseShader {
                                     .max(0.0).min(1.0);
                                 
                                 // Apply frequency-specific enhancements with stronger reductions for highs
-                                let enhanced = if i < 4 {
-                                    // Sub-bass (< 80Hz)
-                                    (normalized.powf(0.4) * 1.6).min(1.0)  // Stronger boost for kick drum
-                                } else if i < 8 {
-                                    // Bass (80-250Hz)
-                                    (normalized.powf(0.45) * 1.5).min(1.0) // Stronger boost for bass 
-                                } else if i < 16 {
-                                    // Lower-mids (250-800Hz)
+                                let band_percent = i as f32 / 128.0;
+                                let enhanced = if band_percent < 0.125 {
                                     (normalized.powf(0.5) * 1.3).min(1.0)
-                                } else if i < 24 {
-                                    // Upper-mids (800-2.5kHz)
-                                    (normalized.powf(0.6) * 0.9).min(1.0)
+                                } else if band_percent < 0.25 {
+                                    // Bass
+                                    (normalized.powf(0.55) * 1.2).min(1.0)
+                                } else if band_percent < 0.5 {
+                                    // Lower-mids
+                                    (normalized.powf(0.6) * 1.1).min(1.0)
+                                } else if band_percent < 0.75 {
+                                    // Upper-mids
+                                    (normalized.powf(0.65) * 0.9).min(1.0)
                                 } else {
-                                    // Highs (>2.5kHz)
-                                    (normalized.powf(0.7) * 0.5).min(1.0)
+                                    // Highs
+                                    (normalized.powf(0.7) * 0.7).min(1.0)
                                 };
                                 // minimal hf
-                                let thresholded = if i >= 24 && enhanced < 0.3 {
+                                let thresholded = if band_percent >= 0.8 && enhanced < 0.2 {
                                     0.0 
                                 } else {
                                     enhanced
                                 };
                                 
-                                // temporal smoothing
+                                // Temporal smoothing
                                 let vec_idx = i / 4;
                                 let vec_component = i % 4;
-                                let prev_value = self.prev_audio_data[vec_idx][vec_component];
-                                
-                                // Adaptive smoothing - fast attack, slow decay
-                                let smoothing_factor = if thresholded > prev_value {
-                                    // Fast attack (quick rise) - 70% new value
-                                    0.7
-                                } else {
-                                    // Slow decay (gradual fall) - 30% new value
-                                    0.3
-                                };
-                                
-                                // Apply smoothing
-                                let smoothed = prev_value * (1.0 - smoothing_factor) + 
-                                              thresholded * smoothing_factor;
-                                
-                                // Store the result
-                                self.resolution_uniform.data.audio_data[vec_idx][vec_component] = smoothed;
-                                
-                                // Store current value for next frame
-                                self.prev_audio_data[vec_idx][vec_component] = smoothed;
+                                if vec_idx < 32 {
+                                    let prev_value = self.prev_audio_data[vec_idx][vec_component];
+                                    
+                                    // Adaptive smoothing - fast attack, slow decay
+                                    let smoothing_factor = if thresholded > prev_value {
+                                        // Fast attack (quick rise)
+                                        0.6
+                                    } else {
+                                        // Slow decay (gradual fall) 
+                                        0.3
+                                    };
+                                    
+                                    // Apply smoothing
+                                    let smoothed = prev_value * (1.0 - smoothing_factor) + 
+                                                  thresholded * smoothing_factor;
+                                    
+                                    // Store the result
+                                    self.resolution_uniform.data.audio_data[vec_idx][vec_component] = smoothed;
+                                    
+                                    // Store current value for next frame
+                                    self.prev_audio_data[vec_idx][vec_component] = smoothed;
+                                }
                             }
                         }
                         
                         // Apply beat detection boost
-                        // Average the energy in bass bands (0-7)
                         let mut bass_energy: f32 = 0.0;
-                        for i in 0..2 {
+                        let bass_bands = 128 / 16;
+                        for i in 0..(bass_bands / 4) {
                             for j in 0..4 {
                                 bass_energy += self.resolution_uniform.data.audio_data[i][j];
                             }
                         }
-                        bass_energy /= 8.0;
+                        bass_energy /= bass_bands as f32;
                         
-                        // If we detect a beat (high bass energy), boost all bands briefly
+                        // If we detect a beat, boost all bands
                         if bass_energy > 0.6 {
-                            for i in 0..8 {
+                            // First quarter - strongest boost (bass)
+                            let q1 = 32 / 4;
+                            // Second quarter - medium boost (low-mids)
+                            let q2 = 32 / 2;
+                            for i in 0..32 {
                                 for j in 0..4 {
-                                    // Boost mainly the low/mid frequencies
-                                    if i < 4 {
-                                        self.resolution_uniform.data.audio_data[i][j] *= 1.3;
+                                    if i < q1 {
+                                        // Strong boost for bass
+                                        self.resolution_uniform.data.audio_data[i][j] *= 1.2;
+                                    } else if i < q2 {
+                                        // Medium boost for low-mids
+                                        self.resolution_uniform.data.audio_data[i][j] *= 1.2;
                                     } else {
-                                        self.resolution_uniform.data.audio_data[i][j] *= 1.1;
+                                        // Slight boost for highs
+                                        self.resolution_uniform.data.audio_data[i][j] *= 1.15;
                                     }
                                 }
                             }
@@ -575,9 +591,9 @@ impl BaseShader {
                     }
                 }
             }
+            
+            self.resolution_uniform.update(queue);
         }
-        
-        self.resolution_uniform.update(queue);
     }
     pub fn handle_video_requests(&mut self, core: &Core, request: &ControlsRequest) {
         if let Some(path) = &request.load_media_path {
