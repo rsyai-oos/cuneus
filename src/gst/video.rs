@@ -347,7 +347,7 @@ impl VideoTextureManager {
                             .property("post-messages", true)
                             .property("message-magnitude", true)
                             .property("message-phase", false)
-                            .property("interval", 10000000u64) 
+                            .property("interval", 50000000u64) 
                             .build() {
                                 Ok(e) => {
                                     info!("Created spectrum analyzer with {} bands and threshold {}dB", 

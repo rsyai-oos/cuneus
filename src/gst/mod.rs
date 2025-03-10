@@ -3,9 +3,8 @@ pub mod video;
 use log::info;
 
 pub fn init() -> anyhow::Result<()> {
-    // Set very verbose logging for spectrum and element messages
-    std::env::set_var("RUST_LOG", "info,warn,debug,gstreamer=debug,cuneus=debug,spectrum=trace");
-    std::env::set_var("GST_DEBUG", "spectrum:5,bus:5,message:5");
+    // These are active untill I merge the PR
+    std::env::set_var("GST_DEBUG", "bpmdetect:5,pitch:5,soundtouch:5,bus:4,element:4");
     info!("Setting up GStreamer with enhanced logging");
     gstreamer::init()?;
     info!("GStreamer initialized successfully");
