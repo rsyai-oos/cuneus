@@ -89,6 +89,8 @@ impl BaseShader {
                 _padding: [0.0, 0.0],
                 audio_data: [[0.0; 4]; 32],
                 audio_raw: [[0.0; 4]; 32],
+                bpm: 0.0,
+                _bpm_padding: [0.0, 0.0, 0.0],
             },
             &resolution_bind_group_layout,
             0,
@@ -456,7 +458,8 @@ impl BaseShader {
             if let Some(video_manager) = &self.video_texture_manager {
                 if video_manager.has_audio() {
                     let spectrum_data = video_manager.spectrum_data();
-                    
+                    self.resolution_uniform.data.bpm = video_manager.get_bpm();
+                    print!("BPM: {}", self.resolution_uniform.data.bpm);
                     if !spectrum_data.magnitudes.is_empty() {
                         let bands = spectrum_data.bands;
                         // Highly sensitive threshold for detecting subtle high frequencies

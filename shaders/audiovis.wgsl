@@ -12,6 +12,7 @@ struct ResolutionUniform {
     _padding: vec2<f32>,
     audio_data: array<vec4<f32>, 32>,  // 128 processed bands
     audio_raw: array<vec4<f32>, 32>,   // 128 raw bands
+    bpm: f32,
 };
 
 struct TimeUniform {
@@ -256,7 +257,20 @@ fn fs_main(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec
             finalColor = vec3<f32>(0.3, 0.3, 0.3);
         }
     }
-    
+    // ==================
+    // BPM: TODO
+    // ==================
+    if (u_resolution.bpm > 0.0) {
+        // Calculate beat phase (0-1 for each beat)
+        let beat_duration = 60.0 / max(u_resolution.bpm, 1.0);
+        let beat_phase = fract(u_time.time / beat_duration);
+        let beat_pulse = smoothstep(0.0, 0.1, beat_phase) * smoothstep(1.0, 0.8, beat_phase);
+        finalColor = mix(finalColor, vec3<f32>(1.0, 1.0, 1.0), beat_pulse * 0.3);
+        if (beat_phase < 0.1) {
+            // First 10% of the beat has increased saturation
+            finalColor *= 1.3;
+        }
+    }
     // Get alpha from original texture
     let alpha = textureSample(tex, tex_sampler, uv).a;
     
