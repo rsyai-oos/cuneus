@@ -89,7 +89,6 @@ impl BaseShader {
                 dimensions: [core.size.width as f32, core.size.height as f32],
                 _padding: [0.0, 0.0],
                 audio_data: [[0.0; 4]; 32],
-                audio_raw: [[0.0; 4]; 32],
                 bpm: 0.0,
                 _bpm_padding: [0.0, 0.0, 0.0],
             },

@@ -29,7 +29,6 @@ impl SpectrumAnalyzer {
         for i in 0..32 {
             for j in 0..4 {
                 resolution_uniform.data.audio_data[i][j] = 0.0;
-                resolution_uniform.data.audio_raw[i][j] = 0.0;
             }
         }
         
@@ -44,47 +43,16 @@ impl SpectrumAnalyzer {
                         let bands = spectrum_data.bands;
                         // Highly sensitive threshold for detecting subtle high frequencies
                         let threshold: f32 = -60.0;
-                        // Store raw audio data with frequency-dependent processing
-                        for i in 0..128.min(bands) {
-                            // Linear frequency index for accurate frequency representation
-                            let band_percent = i as f32 / 128.0;
-                            // Map to source index with slight emphasis on higher frequencies
-                            let src_idx = (band_percent * (0.8 + band_percent * 0.2) * bands as f32) as usize;
-                            if src_idx < bands {
-                                // Get value
-                                let val = spectrum_data.magnitudes[src_idx];
-                                // Normalize from dB to 0-1 with frequency-dependent boost
-                                // Higher frequencies get progressively more boost
-                                let freq_boost = if band_percent < 0.6 {
-                                    // No boost for low/mid frequencies
-                                    1.0
-                                } else {
-                                    // Progressive boost for high frequencies
-                                    // Linear increase from 1.0 at 60% to 4.0 at 100%
-                                    1.0 + (band_percent - 0.6) * 7.5
-                                };
-                                
-                                // Basic normalization
-                                let normalized = ((val - threshold) / -threshold).max(0.0).min(1.0);
-                                // Apply frequency boost with limiting
-                                let boosted = (normalized * freq_boost).min(1.0);
-                                // Store in raw audio array
-                                let vec_idx = i / 4;
-                                let vec_component = i % 4;
-                                if vec_idx < 32 {
-                                    resolution_uniform.data.audio_raw[vec_idx][vec_component] = boosted;
-                                }
-                            }
-                        }
                         
                         // Process enhanced audio data with accurate representation
                         for i in 0..128.min(bands) {
                             let band_percent = i as f32 / 128.0;
-                            // Similar conservative mapping as above
+                            // Map to source index with slight emphasis on higher frequencies
                             let source_idx = (band_percent * (0.8 + band_percent * 0.2) * bands as f32) as usize;
                             // Use narrow width for all frequencies for accuracy
                             let width = 1;
                             let end_idx = (source_idx + width).min(bands);
+                            
                             if source_idx < bands {
                                 // Get peak value in this range
                                 let mut peak: f32 = -120.0;
