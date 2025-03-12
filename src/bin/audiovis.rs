@@ -20,12 +20,10 @@ impl UniformProvider for ShaderParams {
     }
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    //debugs  are active untill I merge the PR
     cuneus::gst::init()?;
-    std::env::set_var("RUST_LOG", "info,gstreamer=debug,cuneus=debug");
+    //std::env::set_var("RUST_LOG", "info,gstreamer=debug,cuneus=debug");
     env_logger::init();
-    std::env::set_var("GST_DEBUG", "bpmdetect:5,pitch:5,soundtouch:5,bus:4,element:4");
-
+    //std::env::set_var("GST_DEBUG", "bpmdetect:5,pitch:5,soundtouch:5,bus:4,element:4");
     let (app, event_loop) = ShaderApp::new("audiovis", 800, 600);
     let shader = AudioVis::init(app.core());
     app.run(event_loop, shader)
@@ -368,7 +366,8 @@ impl ShaderManager for AudioVis {
         let current_time = self.base.controls.get_time(&self.base.start_time);
         self.base.time_uniform.data.time = current_time;
         self.base.time_uniform.update(&core.queue);
-        self.base.update_audio_spectrum(&core.queue);
+        // FOR AUIDO SPECTRUM WE NEED TO UPDATE THE AUDIO SPECTRUM ON here. 
+        self.base.update_audio_spectrum(&core.queue); 
 
 
         

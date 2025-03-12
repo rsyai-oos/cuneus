@@ -459,7 +459,7 @@ impl BaseShader {
                 if video_manager.has_audio() {
                     let spectrum_data = video_manager.spectrum_data();
                     self.resolution_uniform.data.bpm = video_manager.get_bpm();
-                    print!("BPM: {}", self.resolution_uniform.data.bpm);
+                    info!("BPM: {}", self.resolution_uniform.data.bpm);
                     if !spectrum_data.magnitudes.is_empty() {
                         let bands = spectrum_data.bands;
                         // Highly sensitive threshold for detecting subtle high frequencies
