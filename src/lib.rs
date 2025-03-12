@@ -113,3 +113,4 @@ mod hot;
 mod controls;
 mod atomic;
 pub mod gst;
+mod spectrum;
