@@ -3,6 +3,8 @@
 
 In fact you can simply copy a rust file in the “bin” folder and just go to the wgsl stage. But to set the parameters in egui you only need to change the parameters.
 
+Note: Please don't be surprised to see that some Uniforms are common both in “baseshader.rs” (an important backend file in cuneus where most things are init) and in the final rust file we created for our shader (like mandelbrot.rs). The only purpose of this is related to hot reload. :-)
+
 ## Quick Start
 
 1. Copy one of the template files from `src/bin/` that best matches your needs:
@@ -12,6 +14,7 @@ In fact you can simply copy a rust file in the “bin” folder and just go to t
    - `fluid.rs`: Multi-pass shader with texture support
    - `attractor.rs`: Three-pass rendering example
    - `xmas.rs`: Single pass with extensive parameter controls
+   - `audiovis.rs` Audio visualizer example to show how you can use spectrum/bpm data from rust.
   
 if you want 4 passes or more the logic is exactly the same. 
 
@@ -100,7 +103,8 @@ let full_output = if self.base.key_handler.show_ui {
 ## WGSL Shader Patterns
 
 ### Standard Vertex Shader
-All shaders use this common vertex shader (vertex.wgsl):
+All shaders use this common vertex shader (vertex.wgsl): If you are not doing anything special, this file can always remain fixed. If you look at my shader examples, they all use this same file.
+
 ```wgsl
 struct VertexOutput {
     @location(0) tex_coords: vec2<f32>,
@@ -183,6 +187,21 @@ Your WGSL shaders can access actual dimensions when needed:
 ```wgsl
 let dimensions = vec2<f32>(textureDimensions(my_texture));
 ```
+
+### How to use Audio Data 
+
+ On the Rust side, unlike other backends, make sure you only add this single line. 
+
+https://github.com/altunenes/cuneus/blob/776434e2f5ac8797dd5a07ffe86659745a8e88a6/src/bin/audiovis.rs#L370 
+
+I passed the data about spectrum and BPM to the resolution uniform. You can use them from here:
+
+https://github.com/altunenes/cuneus/blob/776434e2f5ac8797dd5a07ffe86659745a8e88a6/shaders/audiovis.wgsl#L10-L15
+
+then use it as you desired. 
+
+note that, spectrum data is not raw. I process it on the rust side. If this is not suitable for you, you can fix it. Audio is not my specialty. If you have a better idea please open a PR.
+https://github.com/altunenes/cuneus/blob/main/src/spectrum.rs#L47
 
 ### Adding Interactive Controls
 1. Start with a template that includes GUI (e.g., `xmas.rs`)
