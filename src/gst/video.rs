@@ -67,6 +67,7 @@ pub struct VideoTextureManager {
     current_frame: Arc<Mutex<Option<image::RgbaImage>>>,
     /// Path to the video file
     video_path: String,
+    /// Whether the video texture has been initialized
     texture_initialized: bool,
     /// Frame counter for debugging
     frame_count: usize,
@@ -78,6 +79,8 @@ pub struct VideoTextureManager {
     spectrum_threshold: i32,
     /// Spectrum data from the most recent analysis
     spectrum_data: Arc<Mutex<SpectrumData>>,
+    /// bpm
+    bpm_value: Arc<Mutex<f32>>,
 }
 
 impl VideoTextureManager {
@@ -136,15 +139,14 @@ impl VideoTextureManager {
         
         let appsink = appsink.dynamic_cast::<gst_app::AppSink>()
             .map_err(|_| anyhow!("Failed to cast to AppSink"))?;
-            
-        // Configure appsink
-        appsink.set_caps(Some(&gst::Caps::builder("video/x-raw")
-            .field("format", gst_video::VideoFormat::Rgba.to_str())
-            .build()));
-        
-        appsink.set_max_buffers(2);
-        appsink.set_drop(true);  // Drop old buffers when full
-        appsink.set_sync(true);
+            // Configure appsink
+            appsink.set_caps(Some(&gst::Caps::builder("video/x-raw")
+                .field("format", gst_video::VideoFormat::Rgba.to_str())
+                .build()));
+            appsink.set_max_buffers(2);
+            // Drop old buffers when full
+            appsink.set_drop(true);
+            appsink.set_sync(true);
             
         // video elements goes to the pipeline
         pipeline.add_many(&[
@@ -181,7 +183,7 @@ impl VideoTextureManager {
         // bus watch for spectrum messages with debug
         let bus = pipeline.bus().expect("Pipeline has no bus");
         let spectrum_data_clone2 = spectrum_data.clone();
-        
+        let bpm_value_clone = Arc::new(Mutex::new(0.0));
         // message handler for spectrum messages (these are my sanity checks)
         let _ = bus.add_watch(move |_, message| {
             // Log ALL message types
@@ -273,6 +275,33 @@ impl VideoTextureManager {
                                 warn!("⚠️ Failed to extract any magnitude values from spectrum message");
                             }
                         }
+
+                        if structure.name() == "bpm" || structure.name().contains("bpm") {
+                                    info!("BPM MESSAGE DETECTED");
+                                    info!("Full BPM structure: {}", structure.to_string());
+                                    // Try to extract BPM value from structure
+                                    if let Ok(bpm_val) = structure.get::<f32>("bpm") {
+                                        info!("BPM detected: {:.1}", bpm_val);
+                                        // Update our stored BPM value
+                                        if let Ok(mut bpm_lock) = bpm_value_clone.lock() {
+                                            *bpm_lock = bpm_val as f32;
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        gst::MessageView::Tag(tag) => {
+                            let tags = tag.tags();
+                            // Check for BPM tag
+                            if let Some(bpm) = tags.get::<gst::tags::BeatsPerMinute>() {
+                                let bpm_val = bpm.get();
+                                info!("BPM tag detected: {:.1}", bpm_val);
+                                
+                                if bpm_val > 0.0 {
+                                    if let Ok(mut bpm_lock) = bpm_value_clone.lock() {
+                                        *bpm_lock = bpm_val as f32;
+                                    }
+                                }
                     }
                 },
                 gst::MessageView::Error(err) => {
@@ -339,7 +368,18 @@ impl VideoTextureManager {
                                     return;
                                 }
                             };
-
+                            let bpmdetect = match gst::ElementFactory::make("bpmdetect")
+                            .name("bpmdetect")
+                            .build() {
+                                Ok(e) => {
+                                    info!("Created BPM detector");
+                                    e
+                                },
+                                Err(_) => {
+                                    warn!("Failed to create BPM detector");
+                                    return;
+                                }
+                            };
                         let spectrum = match gst::ElementFactory::make("spectrum")
                             .name("spectrum")
                             .property("bands", spectrum_bands as u32)
@@ -383,21 +423,22 @@ impl VideoTextureManager {
                             
                         // Add elements to pipeline
                         if let Err(e) = pad.parent_element().unwrap().parent().unwrap()
-                                         .downcast_ref::<gst::Pipeline>().unwrap()
-                                         .add_many(&[&audioconvert, &audioresample, &spectrum, &volume, &audio_sink]) {
+                            .downcast_ref::<gst::Pipeline>().unwrap()
+                            .add_many(&[&audioconvert, &audioresample, &bpmdetect, &spectrum, &volume, &audio_sink]) {
                             warn!("Failed to add audio elements: {:?}", e);
                             return;
                         }
-                        
                         // Link audio elements
-                        if let Err(e) = gst::Element::link_many(&[&audioconvert, &audioresample, &spectrum, &volume, &audio_sink]) {
+                        if let Err(e) = gst::Element::link_many(&[&audioconvert, &audioresample, &bpmdetect, &spectrum, &volume, &audio_sink]) {
                             warn!("Failed to link audio elements: {:?}", e);
                             return;
                         }
+                            
                         
                         // Set elements to PAUSED state
                         let _ = audioconvert.sync_state_with_parent();
                         let _ = audioresample.sync_state_with_parent();
+                        let _ = bpmdetect.sync_state_with_parent();
                         let _ = spectrum.sync_state_with_parent();
                         let _ = volume.sync_state_with_parent();
                         let _ = audio_sink.sync_state_with_parent();
@@ -523,6 +564,7 @@ impl VideoTextureManager {
             spectrum_bands,
             spectrum_threshold,
             spectrum_data,
+            bpm_value: Arc::new(Mutex::new(0.0)),
         };
         // Start pipeline in paused state to get video info
         if video_texture.pipeline.set_state(gst::State::Paused).is_err() {
@@ -628,116 +670,244 @@ impl VideoTextureManager {
                 if let Some(bus) = self.pipeline.bus() {
                     // Poll for pending messages
                     while let Some(message) = bus.pop() {
-                        if let gst::MessageView::Element(element) = message.view() {
-                            if let Some(structure) = element.structure() {
-                                if structure.name() == "spectrum" {
-                                    info!("🎵 Spectrum data received");
+                        match message.view() {
+                            gst::MessageView::Element(element) => {
+                                if let Some(structure) = element.structure() {
+                                    //spectrum data
+                                    if structure.name() == "spectrum" {
+                                        info!("🎵 Spectrum data received");
+                                        
+                                        // Extract magnitude values - two possible approaches
+                                        let mut magnitude_values = Vec::with_capacity(128);
+                                        
+                                        // APPROACH 1: Parse from structure string
+                                        let struct_str = structure.to_string();
+                                        if struct_str.contains("magnitude=(float){") {
+                                            // Extract magnitude values from string
+                                            if let Some(start_idx) = struct_str.find("magnitude=(float){") {
+                                                if let Some(end_idx) = struct_str[start_idx..].find("}") {
+                                                    let magnitude_str = &struct_str[start_idx + "magnitude=(float){".len()..start_idx + end_idx];
+                                                    let values: Vec<&str> = magnitude_str.split(',').collect();
+                                                    
+                                                    for value_str in values {
+                                                        if let Ok(value) = value_str.trim().parse::<f32>() {
+                                                            magnitude_values.push(value);
+                                                        }
+                                                    }
+                                                    
+                                                    info!("Extracted {} magnitude values from string", magnitude_values.len());
+                                                }
+                                            }
+                                        }
+                                        
+                                        // APPROACH 2: Try to access directly by index if approach 1 fails
+                                        if magnitude_values.is_empty() {
+                                            for i in 0..128 {
+                                                let field_name = format!("magnitude[{}]", i);
+                                                if let Ok(value) = structure.get::<f32>(&field_name) {
+                                                    magnitude_values.push(value);
+                                                } else {
+                                                    break;
+                                                }
+                                            }
+                                            
+                                            if !magnitude_values.is_empty() {
+                                                info!("Extracted {} magnitude values by field access", magnitude_values.len());
+                                            }
+                                        }
+                                        
+                                        // Process spectrum data if we have it
+                                        if !magnitude_values.is_empty() {
+                                            // Calculate audio metrics
+                                            let bands = magnitude_values.len();
+                                            
+                                            // Calculate average and normalize values
+                                            // Values are in dB (typically negative, with higher/less negative being louder)
+                                            let threshold = self.spectrum_threshold as f32;
+                                            
+                                            // Create normalized values from -60dB (silence) to 0dB (loudest)
+                                            let normalized_values: Vec<f32> = magnitude_values.iter()
+                                                .map(|&v| ((v - threshold) / -threshold).max(0.0).min(1.0))
+                                                .collect();
+                                            
+                                            // Calculate frequency band energy averages (useful for visualization)
+                                            let bass_range = (bands as f32 * 0.1) as usize; // First 10% of frequencies
+                                            let mid_range_start = bass_range;
+                                            let mid_range_end = (bands as f32 * 0.5) as usize; // 10-50% of frequencies
+                                            let high_range_start = mid_range_end;
+                                            
+                                            let bass_energy = if bass_range > 0 {
+                                                normalized_values[0..bass_range].iter().sum::<f32>() / bass_range as f32
+                                            } else {
+                                                0.0
+                                            };
+                                            
+                                            let mid_energy = if mid_range_end > mid_range_start {
+                                                normalized_values[mid_range_start..mid_range_end].iter().sum::<f32>() 
+                                                / (mid_range_end - mid_range_start) as f32
+                                            } else {
+                                                0.0
+                                            };
+                                            
+                                            let high_energy = if bands > high_range_start {
+                                                normalized_values[high_range_start..].iter().sum::<f32>() 
+                                                / (bands - high_range_start) as f32
+                                            } else {
+                                                0.0
+                                            };
+                                            
+                                            // Find peak frequency band
+                                            let peak_info = normalized_values.iter()
+                                                .enumerate()
+                                                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                                            
+                                            if let Some((peak_idx, &peak_val)) = peak_info {
+                                                 // Rough estimate of frequency based on band index
+                                                let peak_freq = (peak_idx as f32 / bands as f32) * 20000.0;
+                                                info!("Peak freq: ~{:.0} Hz (band {}, val: {:.2})", peak_freq, peak_idx, peak_val);
+                                            }
+                                            
+                                            // Log energy metrics
+                                            info!("Audio energy - Bass: {:.2}, Mid: {:.2}, High: {:.2}", 
+                                                 bass_energy, mid_energy, high_energy);
+                                            
+                                            // Update spectrum data
+                                            if let Ok(mut data) = self.spectrum_data.lock() {
+                                                *data = SpectrumData {
+                                                    bands,
+                                                    magnitudes: magnitude_values,
+                                                    phases: None,
+                                                    timestamp: structure.get("timestamp").ok(),
+                                                };
+                                            }
+                                        }
+                                    }
                                     
-                                    // Extract magnitude values - two possible approaches
-                                    let mut magnitude_values = Vec::with_capacity(128);
-                                    
-                                    // APPROACH 1: Parse from structure string
-                                    let struct_str = structure.to_string();
-                                    if struct_str.contains("magnitude=(float){") {
-                                        // Extract magnitude values from string
-                                        if let Some(start_idx) = struct_str.find("magnitude=(float){") {
-                                            if let Some(end_idx) = struct_str[start_idx..].find("}") {
-                                                let magnitude_str = &struct_str[start_idx + "magnitude=(float){".len()..start_idx + end_idx];
-                                                let values: Vec<&str> = magnitude_str.split(',').collect();
+                                    // Check for BPM messages
+                                    if structure.name() == "bpm" || structure.name().contains("bpm") {
+                                        info!("🎵 BPM data received");
+                                        info!("Full BPM structure: {}", structure.to_string());
+                                        
+                                        // Try to extract BPM value directly
+                                        if let Ok(bpm_val) = structure.get::<f32>("bpm") {
+                                            info!("BPM detected: {:.1}", bpm_val);
+                                            if let Ok(mut bpm_lock) = self.bpm_value.lock() {
+                                                // Apply musical heuristics to handle tempo octave ambiguity: https://www.ifs.tuwien.ac.at/~knees/publications/hoerschlaeger_etal_smc_2015.pdf
+                                                let current_bpm = *bpm_lock;
                                                 
-                                                for value_str in values {
-                                                    if let Ok(value) = value_str.trim().parse::<f32>() {
-                                                        magnitude_values.push(value);
+                                                if current_bpm == 0.0 && bpm_val > 0.0 {
+                                                    // First detection - apply preference for 70-150 BPM range
+                                                    if bpm_val > 150.0 {
+                                                        // If detected BPM is high, use half tempo
+                                                        *bpm_lock = (bpm_val / 2.0) as f32;
+                                                        info!("Initial BPM halved: {:.1} → {:.1}", bpm_val, *bpm_lock);
+                                                    } else if bpm_val < 70.0 {
+                                                        // If detected BPM is low, use double tempo
+                                                        *bpm_lock = (bpm_val * 2.0) as f32;
+                                                        info!("Initial BPM doubled: {:.1} → {:.1}", bpm_val, *bpm_lock);
+                                                    } else {
+                                                        // Within preferred range - use directly
+                                                        *bpm_lock = bpm_val as f32;
+                                                    }
+                                                } else if current_bpm > 0.0 && bpm_val > 0.0 {
+                                                    // Subsequent detection - check for tempo octave jumps
+                                                    if bpm_val > current_bpm * 1.8 && bpm_val < current_bpm * 2.2 {
+                                                        // Double tempo detected - stay in preferred range if possible
+                                                        let target = if current_bpm >= 70.0 && current_bpm <= 150.0 {
+                                                            current_bpm  // Keep current if already in good range
+                                                        } else if bpm_val >= 70.0 && bpm_val <= 150.0 {
+                                                            bpm_val      // Use new if it's in good range
+                                                        } else {
+                                                            // Neither in ideal range - prefer the lower value
+                                                            current_bpm
+                                                        };
+                                                        *bpm_lock = target as f32;
+                                                        info!("Tempo doubling corrected: {:.1} → {:.1}", bpm_val, *bpm_lock);
+                                                    } else if bpm_val > current_bpm * 0.45 && bpm_val < current_bpm * 0.55 {
+                                                        // Half tempo detected - stay in preferred range if possible
+                                                        let target = if current_bpm >= 70.0 && current_bpm <= 150.0 {
+                                                            current_bpm  // Keep current if already in good range
+                                                        } else if bpm_val >= 70.0 && bpm_val <= 150.0 {
+                                                            bpm_val      // Use new if it's in good range
+                                                        } else {
+                                                            // Neither in ideal range - prefer the higher value
+                                                            current_bpm
+                                                        };
+                                                        *bpm_lock = target as f32;
+                                                        info!("Tempo halving corrected: {:.1} → {:.1}", bpm_val, *bpm_lock);
+                                                    } else {
+                                                        // Apply light smoothing to avoid jumps
+                                                        *bpm_lock = (current_bpm * 0.8 + bpm_val as f32 * 0.2) as f32;
                                                     }
                                                 }
-                                                
-                                                info!("Extracted {} magnitude values from string", magnitude_values.len());
                                             }
-                                        }
-                                    }
-                                    
-                                    // APPROACH 2: Try to access directly by index if approach 1 fails
-                                    if magnitude_values.is_empty() {
-                                        for i in 0..128 {
-                                            let field_name = format!("magnitude[{}]", i);
-                                            if let Ok(value) = structure.get::<f32>(&field_name) {
-                                                magnitude_values.push(value);
-                                            } else {
-                                                break;
-                                            }
-                                        }
-                                        
-                                        if !magnitude_values.is_empty() {
-                                            info!("Extracted {} magnitude values by field access", magnitude_values.len());
-                                        }
-                                    }
-                                    
-                                    // Process spectrum data if we have it
-                                    if !magnitude_values.is_empty() {
-                                        // Calculate audio metrics
-                                        let bands = magnitude_values.len();
-                                        
-                                        // Calculate average and normalize values
-                                        // Values are in dB (typically negative, with higher/less negative being louder)
-                                        let threshold = self.spectrum_threshold as f32;
-                                        
-                                        // Create normalized values from -60dB (silence) to 0dB (loudest)
-                                        let normalized_values: Vec<f32> = magnitude_values.iter()
-                                            .map(|&v| ((v - threshold) / -threshold).max(0.0).min(1.0))
-                                            .collect();
-                                        
-                                        // Calculate frequency band energy averages (useful for visualization)
-                                        let bass_range = (bands as f32 * 0.1) as usize; // First 10% of frequencies
-                                        let mid_range_start = bass_range;
-                                        let mid_range_end = (bands as f32 * 0.5) as usize; // 10-50% of frequencies
-                                        let high_range_start = mid_range_end;
-                                        
-                                        let bass_energy = if bass_range > 0 {
-                                            normalized_values[0..bass_range].iter().sum::<f32>() / bass_range as f32
-                                        } else {
-                                            0.0
-                                        };
-                                        
-                                        let mid_energy = if mid_range_end > mid_range_start {
-                                            normalized_values[mid_range_start..mid_range_end].iter().sum::<f32>() 
-                                            / (mid_range_end - mid_range_start) as f32
-                                        } else {
-                                            0.0
-                                        };
-                                        
-                                        let high_energy = if bands > high_range_start {
-                                            normalized_values[high_range_start..].iter().sum::<f32>() 
-                                            / (bands - high_range_start) as f32
-                                        } else {
-                                            0.0
-                                        };
-                                        
-                                        // Find peak frequency band
-                                        let peak_info = normalized_values.iter()
-                                            .enumerate()
-                                            .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-                                        
-                                        if let Some((peak_idx, &peak_val)) = peak_info {
-                                            let peak_freq = (peak_idx as f32 / bands as f32) * 20000.0; // Rough estimate of frequency
-                                            info!("Peak freq: ~{:.0} Hz (band {}, val: {:.2})", peak_freq, peak_idx, peak_val);
-                                        }
-                                        
-                                        // Log energy metrics
-                                        info!("Audio energy - Bass: {:.2}, Mid: {:.2}, High: {:.2}", 
-                                             bass_energy, mid_energy, high_energy);
-                                        
-                                        // Update spectrum data
-                                        if let Ok(mut data) = self.spectrum_data.lock() {
-                                            *data = SpectrumData {
-                                                bands,
-                                                magnitudes: magnitude_values,
-                                                phases: None,
-                                                timestamp: structure.get("timestamp").ok(),
-                                            };
                                         }
                                     }
                                 }
-                            }
+                            },
+                            // Also check for tag messages as bpmdetect might send tags
+                            gst::MessageView::Tag(tag) => {
+                                let tags = tag.tags();
+                                
+                                // Check for BPM tag
+                                if let Some(bpm) = tags.get::<gst::tags::BeatsPerMinute>() {
+                                    let bpm_val = bpm.get();
+                                    info!("BPM tag detected: {:.1}", bpm_val);
+                                    
+                                    if bpm_val > 0.0 {
+                                        // Update stored BPM value with musical heuristics
+                                        if let Ok(mut bpm_lock) = self.bpm_value.lock() {
+                                            let current_bpm = *bpm_lock;
+                                            let bpm_val_f32 = bpm_val as f32;
+                                            
+                                            // Tags are usually pre-processed, but I ll apply heuristics anyway
+                                            if current_bpm == 0.0 {
+                                                // First detection - apply preference for 70-150 BPM range
+                                                if bpm_val_f32 > 150.0 {
+                                                    *bpm_lock = bpm_val_f32 / 2.0;
+                                                    info!("Tag BPM halved: {:.1} → {:.1}", bpm_val, *bpm_lock as f64);
+                                                } else if bpm_val_f32 < 70.0 {
+                                                    *bpm_lock = bpm_val_f32 * 2.0;
+                                                    info!("Tag BPM doubled: {:.1} → {:.1}", bpm_val, *bpm_lock as f64);
+                                                } else {
+                                                    *bpm_lock = bpm_val_f32;
+                                                }
+                                            } else {
+                                                // Check for octave relationship and prefer values in 70-150 range
+                                                let double_current = current_bpm * 2.0;
+                                                let half_current = current_bpm / 2.0;
+                                                
+                                                if (bpm_val_f32 > current_bpm * 1.8 && bpm_val_f32 < current_bpm * 2.2) || 
+                                                (bpm_val_f32 > current_bpm * 0.45 && bpm_val_f32 < current_bpm * 0.55) {
+                                                    // Octave relationship detected
+                                                    // Choose value in preferred range
+                                                    let candidates = [bpm_val_f32, current_bpm, double_current, half_current];
+                                                    let preferred = candidates.iter()
+                                                        .filter(|&&v| v >= 70.0 && v <= 150.0)
+                                                        .min_by(|a, b| {
+                                                            let a_dist = (**a - 110.0).abs();
+                                                            let b_dist = (**b - 110.0).abs();
+                                                            a_dist.partial_cmp(&b_dist).unwrap_or(std::cmp::Ordering::Equal)
+                                                        });
+                                                    
+                                                    if let Some(&best_bpm) = preferred {
+                                                        *bpm_lock = best_bpm;
+                                                        info!("Tag BPM adjusted to preferred range: {:.1} → {:.1}", bpm_val, *bpm_lock as f64);
+                                                    } else {
+                                                        // No value in preferred range, use tag value
+                                                        *bpm_lock = bpm_val_f32;
+                                                    }
+                                                } else {
+                                                    // Not an octave relationship - tags are usually reliable
+                                                    // Use 30% weighting for current value to avoid abrupt changes
+                                                    *bpm_lock = current_bpm * 0.3 + bpm_val_f32 * 0.7;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            _ => (),
                         }
                     }
                 }
@@ -987,7 +1157,16 @@ impl VideoTextureManager {
             Err(_) => SpectrumData::default(),
         }
     }
-    
+    pub fn get_bpm(&self) -> f32 {
+        if !self.has_audio {
+            return 0.0;
+        }
+        
+        match self.bpm_value.lock() {
+            Ok(bpm) => *bpm,
+            Err(_) => 0.0
+        }
+    }
     /// Set interval between spectrum updates in milliseconds
     pub fn set_spectrum_interval(&mut self, interval_ms: u64) -> Result<()> {
         if !self.has_audio {
