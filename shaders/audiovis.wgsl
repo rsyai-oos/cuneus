@@ -1,6 +1,6 @@
 
-//This is an example shader that uses audio data to create a visualizer effect.
-//Currently still TODO.
+//This is an example shader that uses audio data to create a visualizer effect to show how to use audio data in a shader.
+//MIT Licese, Enes Altun, 2025
 @group(0) @binding(0) var tex: texture_2d<f32>;
 @group(0) @binding(1) var tex_sampler: sampler;
 @group(1) @binding(0) var<uniform> u_time: TimeUniform;
@@ -17,7 +17,7 @@ struct ResolutionUniform {
 struct TimeUniform {
     time: f32,
 };
-
+// These are unrelated, you can change them to match your needs (rust side)
 struct Params { 
     red_power: f32,
     green_power: f32,
