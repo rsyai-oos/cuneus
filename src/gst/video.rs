@@ -67,6 +67,7 @@ pub struct VideoTextureManager {
     current_frame: Arc<Mutex<Option<image::RgbaImage>>>,
     /// Path to the video file
     video_path: String,
+    /// Whether the video texture has been initialized
     texture_initialized: bool,
     /// Frame counter for debugging
     frame_count: usize,
@@ -78,7 +79,7 @@ pub struct VideoTextureManager {
     spectrum_threshold: i32,
     /// Spectrum data from the most recent analysis
     spectrum_data: Arc<Mutex<SpectrumData>>,
-    //bpm
+    /// bpm
     bpm_value: Arc<Mutex<f32>>,
 }
 
@@ -138,15 +139,14 @@ impl VideoTextureManager {
         
         let appsink = appsink.dynamic_cast::<gst_app::AppSink>()
             .map_err(|_| anyhow!("Failed to cast to AppSink"))?;
-            
-        // Configure appsink
-        appsink.set_caps(Some(&gst::Caps::builder("video/x-raw")
-            .field("format", gst_video::VideoFormat::Rgba.to_str())
-            .build()));
-        
-        appsink.set_max_buffers(2);
-        appsink.set_drop(true);  // Drop old buffers when full
-        appsink.set_sync(true);
+            // Configure appsink
+            appsink.set_caps(Some(&gst::Caps::builder("video/x-raw")
+                .field("format", gst_video::VideoFormat::Rgba.to_str())
+                .build()));
+            appsink.set_max_buffers(2);
+            // Drop old buffers when full
+            appsink.set_drop(true);
+            appsink.set_sync(true);
             
         // video elements goes to the pipeline
         pipeline.add_many(&[
@@ -422,18 +422,17 @@ impl VideoTextureManager {
                             };
                             
                         // Add elements to pipeline
-                                    if let Err(e) = pad.parent_element().unwrap().parent().unwrap()
-                                    .downcast_ref::<gst::Pipeline>().unwrap()
-                                    .add_many(&[&audioconvert, &audioresample, &bpmdetect, &spectrum, &volume, &audio_sink]) {
-                                warn!("Failed to add audio elements: {:?}", e);
-                                return;
-                            }
-                            
-                            // Link audio elements
-                            if let Err(e) = gst::Element::link_many(&[&audioconvert, &audioresample, &bpmdetect, &spectrum, &volume, &audio_sink]) {
-                                warn!("Failed to link audio elements: {:?}", e);
-                                return;
-                            }
+                        if let Err(e) = pad.parent_element().unwrap().parent().unwrap()
+                            .downcast_ref::<gst::Pipeline>().unwrap()
+                            .add_many(&[&audioconvert, &audioresample, &bpmdetect, &spectrum, &volume, &audio_sink]) {
+                            warn!("Failed to add audio elements: {:?}", e);
+                            return;
+                        }
+                        // Link audio elements
+                        if let Err(e) = gst::Element::link_many(&[&audioconvert, &audioresample, &bpmdetect, &spectrum, &volume, &audio_sink]) {
+                            warn!("Failed to link audio elements: {:?}", e);
+                            return;
+                        }
                             
                         
                         // Set elements to PAUSED state
@@ -763,7 +762,8 @@ impl VideoTextureManager {
                                                 .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
                                             
                                             if let Some((peak_idx, &peak_val)) = peak_info {
-                                                let peak_freq = (peak_idx as f32 / bands as f32) * 20000.0; // Rough estimate of frequency
+                                                 // Rough estimate of frequency based on band index
+                                                let peak_freq = (peak_idx as f32 / bands as f32) * 20000.0;
                                                 info!("Peak freq: ~{:.0} Hz (band {}, val: {:.2})", peak_freq, peak_idx, peak_val);
                                             }
                                             
@@ -792,7 +792,7 @@ impl VideoTextureManager {
                                         if let Ok(bpm_val) = structure.get::<f32>("bpm") {
                                             info!("BPM detected: {:.1}", bpm_val);
                                             if let Ok(mut bpm_lock) = self.bpm_value.lock() {
-                                                // Apply musical heuristics to handle tempo octave ambiguity
+                                                // Apply musical heuristics to handle tempo octave ambiguity: https://www.ifs.tuwien.ac.at/~knees/publications/hoerschlaeger_etal_smc_2015.pdf
                                                 let current_bpm = *bpm_lock;
                                                 
                                                 if current_bpm == 0.0 && bpm_val > 0.0 {
