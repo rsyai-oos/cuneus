@@ -14,7 +14,6 @@ struct ResolutionUniform {
     audio_raw: array<vec4<f32>, 32>,   // 128 raw bands
     bpm: f32,
 };
-
 struct TimeUniform {
     time: f32,
 };
@@ -258,17 +257,36 @@ fn fs_main(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec
         }
     }
     // ==================
-    // BPM: TODO
+    // BPM DEBUG
     // ==================
     if (u_resolution.bpm > 0.0) {
         // Calculate beat phase (0-1 for each beat)
-        let beat_duration = 60.0 / max(u_resolution.bpm, 1.0);
+        let beats_per_second = u_resolution.bpm / 60.0;
+        let beat_duration = 1.0 / beats_per_second;
         let beat_phase = fract(u_time.time / beat_duration);
-        let beat_pulse = smoothstep(0.0, 0.1, beat_phase) * smoothstep(1.0, 0.8, beat_phase);
-        finalColor = mix(finalColor, vec3<f32>(1.0, 1.0, 1.0), beat_pulse * 0.3);
-        if (beat_phase < 0.1) {
-            // First 10% of the beat has increased saturation
-            finalColor *= 1.3;
+        let bar_height = 0.02;
+        let bar_y_pos = 0.04; // From bottom
+        let bar_start_x = 0.1;
+        let bar_end_x = 0.9;
+        let bar_width = bar_end_x - bar_start_x;
+        // Draw the beat bar area
+        if (uv.y >= bar_y_pos && uv.y <= bar_y_pos + bar_height) {
+            // Background for the entire bar
+            if (uv.x >= bar_start_x && uv.x <= bar_end_x) {
+                // Dark background
+                finalColor = vec3<f32>(0.1, 0.1, 0.2);
+                // Draw the beat position (fills up from left to right)
+                if (uv.x <= bar_start_x + (bar_width * beat_phase)) {
+                    // Color gradient based on phase
+                    let intensity = 0.4 + (1.0 - beat_phase) * 0.6; // Brighter at start, fades
+                    finalColor = vec3<f32>(0.0, 0.5, 1.0) * intensity;
+                    // Extra bright flash right at the beat
+                    if (beat_phase < 0.05 || beat_phase > 0.95) {
+                        finalColor = vec3<f32>(1.0, 0.5, 0.1); // Orange flash
+                    }
+                }
+
+            }
         }
     }
     // Get alpha from original texture

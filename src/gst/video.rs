@@ -183,7 +183,7 @@ impl VideoTextureManager {
         // bus watch for spectrum messages with debug
         let bus = pipeline.bus().expect("Pipeline has no bus");
         let spectrum_data_clone2 = spectrum_data.clone();
-        let bpm_value_clone = Arc::new(Mutex::new(0.0));  // Create BPM value mutex
+        let bpm_value_clone = Arc::new(Mutex::new(0.0));
         // message handler for spectrum messages (these are my sanity checks)
         let _ = bus.add_watch(move |_, message| {
             // Log ALL message types
@@ -792,7 +792,54 @@ impl VideoTextureManager {
                                         if let Ok(bpm_val) = structure.get::<f32>("bpm") {
                                             info!("BPM detected: {:.1}", bpm_val);
                                             if let Ok(mut bpm_lock) = self.bpm_value.lock() {
-                                                *bpm_lock = bpm_val as f32;
+                                                // Apply musical heuristics to handle tempo octave ambiguity
+                                                let current_bpm = *bpm_lock;
+                                                
+                                                if current_bpm == 0.0 && bpm_val > 0.0 {
+                                                    // First detection - apply preference for 70-150 BPM range
+                                                    if bpm_val > 150.0 {
+                                                        // If detected BPM is high, use half tempo
+                                                        *bpm_lock = (bpm_val / 2.0) as f32;
+                                                        info!("Initial BPM halved: {:.1} → {:.1}", bpm_val, *bpm_lock);
+                                                    } else if bpm_val < 70.0 {
+                                                        // If detected BPM is low, use double tempo
+                                                        *bpm_lock = (bpm_val * 2.0) as f32;
+                                                        info!("Initial BPM doubled: {:.1} → {:.1}", bpm_val, *bpm_lock);
+                                                    } else {
+                                                        // Within preferred range - use directly
+                                                        *bpm_lock = bpm_val as f32;
+                                                    }
+                                                } else if current_bpm > 0.0 && bpm_val > 0.0 {
+                                                    // Subsequent detection - check for tempo octave jumps
+                                                    if bpm_val > current_bpm * 1.8 && bpm_val < current_bpm * 2.2 {
+                                                        // Double tempo detected - stay in preferred range if possible
+                                                        let target = if current_bpm >= 70.0 && current_bpm <= 150.0 {
+                                                            current_bpm  // Keep current if already in good range
+                                                        } else if bpm_val >= 70.0 && bpm_val <= 150.0 {
+                                                            bpm_val      // Use new if it's in good range
+                                                        } else {
+                                                            // Neither in ideal range - prefer the lower value
+                                                            current_bpm
+                                                        };
+                                                        *bpm_lock = target as f32;
+                                                        info!("Tempo doubling corrected: {:.1} → {:.1}", bpm_val, *bpm_lock);
+                                                    } else if bpm_val > current_bpm * 0.45 && bpm_val < current_bpm * 0.55 {
+                                                        // Half tempo detected - stay in preferred range if possible
+                                                        let target = if current_bpm >= 70.0 && current_bpm <= 150.0 {
+                                                            current_bpm  // Keep current if already in good range
+                                                        } else if bpm_val >= 70.0 && bpm_val <= 150.0 {
+                                                            bpm_val      // Use new if it's in good range
+                                                        } else {
+                                                            // Neither in ideal range - prefer the higher value
+                                                            current_bpm
+                                                        };
+                                                        *bpm_lock = target as f32;
+                                                        info!("Tempo halving corrected: {:.1} → {:.1}", bpm_val, *bpm_lock);
+                                                    } else {
+                                                        // Apply light smoothing to avoid jumps
+                                                        *bpm_lock = (current_bpm * 0.8 + bpm_val as f32 * 0.2) as f32;
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -808,9 +855,54 @@ impl VideoTextureManager {
                                     info!("BPM tag detected: {:.1}", bpm_val);
                                     
                                     if bpm_val > 0.0 {
-                                        // Update stored BPM value
+                                        // Update stored BPM value with musical heuristics
                                         if let Ok(mut bpm_lock) = self.bpm_value.lock() {
-                                            *bpm_lock = bpm_val as f32;
+                                            let current_bpm = *bpm_lock;
+                                            let bpm_val_f32 = bpm_val as f32;
+                                            
+                                            // Tags are usually pre-processed, but I ll apply heuristics anyway
+                                            if current_bpm == 0.0 {
+                                                // First detection - apply preference for 70-150 BPM range
+                                                if bpm_val_f32 > 150.0 {
+                                                    *bpm_lock = bpm_val_f32 / 2.0;
+                                                    info!("Tag BPM halved: {:.1} → {:.1}", bpm_val, *bpm_lock as f64);
+                                                } else if bpm_val_f32 < 70.0 {
+                                                    *bpm_lock = bpm_val_f32 * 2.0;
+                                                    info!("Tag BPM doubled: {:.1} → {:.1}", bpm_val, *bpm_lock as f64);
+                                                } else {
+                                                    *bpm_lock = bpm_val_f32;
+                                                }
+                                            } else {
+                                                // Check for octave relationship and prefer values in 70-150 range
+                                                let double_current = current_bpm * 2.0;
+                                                let half_current = current_bpm / 2.0;
+                                                
+                                                if (bpm_val_f32 > current_bpm * 1.8 && bpm_val_f32 < current_bpm * 2.2) || 
+                                                (bpm_val_f32 > current_bpm * 0.45 && bpm_val_f32 < current_bpm * 0.55) {
+                                                    // Octave relationship detected
+                                                    // Choose value in preferred range
+                                                    let candidates = [bpm_val_f32, current_bpm, double_current, half_current];
+                                                    let preferred = candidates.iter()
+                                                        .filter(|&&v| v >= 70.0 && v <= 150.0)
+                                                        .min_by(|a, b| {
+                                                            let a_dist = (**a - 110.0).abs();
+                                                            let b_dist = (**b - 110.0).abs();
+                                                            a_dist.partial_cmp(&b_dist).unwrap_or(std::cmp::Ordering::Equal)
+                                                        });
+                                                    
+                                                    if let Some(&best_bpm) = preferred {
+                                                        *bpm_lock = best_bpm;
+                                                        info!("Tag BPM adjusted to preferred range: {:.1} → {:.1}", bpm_val, *bpm_lock as f64);
+                                                    } else {
+                                                        // No value in preferred range, use tag value
+                                                        *bpm_lock = bpm_val_f32;
+                                                    }
+                                                } else {
+                                                    // Not an octave relationship - tags are usually reliable
+                                                    // Use 30% weighting for current value to avoid abrupt changes
+                                                    *bpm_lock = current_bpm * 0.3 + bpm_val_f32 * 0.7;
+                                                }
+                                            }
                                         }
                                     }
                                 }
