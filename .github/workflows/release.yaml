@@ -13,7 +13,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        shader: [asahi, attractor, clifford, droste, fluid, galaxy, lich, mandelbulb, satan, sdvert, sinh, spiral, roto, xmas, orbits, dna, genuary2025_6, genuary2025_18,nebula,rorschach,poe2,voronoi,tree,matrix,gabornoise,scenecolor]
+        shader: [asahi, attractor, clifford, droste, fluid, galaxy, lich, mandelbulb, satan, sdvert, sinh, spiral, roto, xmas, orbits, dna, genuary2025_6, genuary2025_18, nebula, rorschach, poe2, voronoi, tree, matrix, gabornoise, scenecolor,audiovis]
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
@@ -36,12 +36,104 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      # Install required dependencies for Linux
+      # Install GStreamer for macOS
+      - name: Install macOS dependencies
+        if: runner.os == 'macOS'
+        run: |
+          # Download and install official GStreamer packages
+          GSTREAMER_VERSION="1.26.0"
+          curl -L "https://gstreamer.freedesktop.org/data/pkg/osx/$GSTREAMER_VERSION/gstreamer-1.0-$GSTREAMER_VERSION-universal.pkg" -o gstreamer.pkg
+          curl -L "https://gstreamer.freedesktop.org/data/pkg/osx/$GSTREAMER_VERSION/gstreamer-1.0-devel-$GSTREAMER_VERSION-universal.pkg" -o gstreamer-devel.pkg
+          
+          sudo installer -pkg gstreamer.pkg -target /
+          sudo installer -pkg gstreamer-devel.pkg -target /
+          
+          # Set environment variables for build and runtime
+          echo "PKG_CONFIG_PATH=/Library/Frameworks/GStreamer.framework/Versions/1.0/lib/pkgconfig" >> $GITHUB_ENV
+          echo "GST_PLUGIN_PATH=/Library/Frameworks/GStreamer.framework/Versions/1.0/lib/gstreamer-1.0" >> $GITHUB_ENV
+          echo "DYLD_FALLBACK_LIBRARY_PATH=/Library/Frameworks/GStreamer.framework/Versions/1.0/lib" >> $GITHUB_ENV
+
+      # Install GStreamer for Linux
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev libudev-dev
+          sudo apt-get install -y \
+            libgtk-3-dev \
+            libudev-dev \
+            pkg-config \
+            build-essential \
+            libglib2.0-dev \
+            libgstreamer1.0-dev \
+            libgstreamer-plugins-base1.0-dev \
+            gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-bad \
+            gstreamer1.0-plugins-ugly
+
+      # Install GStreamer for Windows
+      - name: Install Windows dependencies
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Write-Host "Starting GStreamer installation process..."
+          $gstVer = "1.26.0"
+          $tempDir = "C:\gst-temp"
+          $installDir = "C:\gstreamer"
+          
+          # Create necessary directories
+          New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
+          New-Item -ItemType Directory -Force -Path $installDir | Out-Null
+
+          Write-Host "Downloading installers..."
+          $baseUrl = "https://gstreamer.freedesktop.org/data/pkg/windows/$gstVer/msvc"
+          $runtimeUrl = "$baseUrl/gstreamer-1.0-msvc-x86_64-$gstVer.msi"
+          $develUrl = "$baseUrl/gstreamer-1.0-devel-msvc-x86_64-$gstVer.msi"
+          
+          Write-Host "Downloading MSVC 64-bit runtime installer..."
+          Invoke-WebRequest -Uri $runtimeUrl -OutFile "$tempDir\gstreamer.msi"
+          
+          Write-Host "Downloading MSVC 64-bit development installer..."
+          Invoke-WebRequest -Uri $develUrl -OutFile "$tempDir\gstreamer-devel.msi"
+
+          Write-Host "Installing runtime package..."
+          $proc = Start-Process msiexec -ArgumentList "/i", "`"$tempDir\gstreamer.msi`"", "INSTALLDIR=$installDir", "/qn" -Wait -PassThru -NoNewWindow
+          if ($proc.ExitCode -ne 0) {
+            Write-Host "Runtime installation failed with code: $($proc.ExitCode)"
+            exit 1
+          }
+
+          Write-Host "Installing development package..."
+          $proc = Start-Process msiexec -ArgumentList "/i", "`"$tempDir\gstreamer-devel.msi`"", "INSTALLDIR=$installDir", "/qn" -Wait -PassThru -NoNewWindow
+          if ($proc.ExitCode -ne 0) {
+            Write-Host "Development installation failed with code: $($proc.ExitCode)"
+            exit 1
+          }
+          
+          Write-Host "Looking for GStreamer installation..."
+          $expectedPath = "$installDir\1.0\msvc_x86_64"
+          $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+          while (-not (Test-Path $expectedPath)) {
+            if ($stopwatch.Elapsed.TotalSeconds -gt 60) {
+              Write-Host "Timeout waiting for installation directory. Current structure:"
+              Get-ChildItem -Path $installDir -Recurse | Format-List
+              exit 1
+            }
+            Start-Sleep -Seconds 5
+            Write-Host "Waiting for installation directory... ($([int]$stopwatch.Elapsed.TotalSeconds)s)"
+          }
+          
+          Write-Host "Setting environment variables..."
+          $env:GSTREAMER_1_0_ROOT_MSVC_X86_64 = $expectedPath
+          $env:GST_PLUGIN_PATH = "$expectedPath\lib\gstreamer-1.0"
+          $env:PKG_CONFIG_PATH = "$expectedPath\lib\pkgconfig"
+          $env:Path = "$expectedPath\bin;" + $env:Path
+          
+          # Set environment variables for subsequent steps
+          "GSTREAMER_1_0_ROOT_MSVC_X86_64=$expectedPath" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "GST_PLUGIN_PATH=$expectedPath\lib\gstreamer-1.0" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "PKG_CONFIG_PATH=$expectedPath\lib\pkgconfig" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "PATH=$expectedPath\bin;$env:Path" | Out-File -FilePath $env:GITHUB_ENV -Append
 
       # Build the binary
       - name: Build binary
@@ -66,7 +158,10 @@ jobs:
           
           # Create a README file
           echo "${{ matrix.shader }} Shader" > release/${{ matrix.shader }}/README.txt
-          echo "Please ensure the 'shaders' directory remains in the same folder as the executable." >> release/${{ matrix.shader }}/README.txt
+          echo "Requirements:" >> release/${{ matrix.shader }}/README.txt
+          echo "1. GStreamer 1.26.0 or later must be installed on your system." >> release/${{ matrix.shader }}/README.txt
+          echo "   Download from: https://gstreamer.freedesktop.org/download/" >> release/${{ matrix.shader }}/README.txt
+          echo "2. The 'shaders' directory must remain in the same folder as the executable." >> release/${{ matrix.shader }}/README.txt
           
           # Windows-specific: create .bat launcher
           if [[ "${{ runner.os }}" == "Windows" ]]; then
