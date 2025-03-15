@@ -348,23 +348,23 @@ impl ShaderManager for SpiralShader {
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
                 egui::Window::new("Shader Settings").show(ctx, |ui| {
-                    ShaderControls::render_media_panel(
-                        ui,
-                        &mut controls_request,
-                        using_video_texture,
-                        video_info
-                    );
-                            ui.separator();
+                    egui::CollapsingHeader::new("Media").default_open(true).show(ui, |ui| {
+                        ShaderControls::render_media_panel(
+                            ui,
+                            &mut controls_request,
+                            using_video_texture,
+                            video_info
+                        );
+                    });
+                    ui.separator();
 
-                    ui.group(|ui| {
-                        ui.label("Basic Parameters");
+                    egui::CollapsingHeader::new("Basic Parameters").default_open(true).show(ui, |ui| {
                         changed |= ui.add(egui::Slider::new(&mut params.branches, -20.0..=20.0).text("Branches")).changed();
                         changed |= ui.add(egui::Slider::new(&mut params.scale, 0.0..=2.0).text("Scale")).changed();
                         changed |= ui.add(egui::Slider::new(&mut params.zoom, 0.1..=5.0).text("Zoom")).changed();
                     });
                     
-                    ui.group(|ui| {
-                        ui.label("Animation");
+                    egui::CollapsingHeader::new("sty").default_open(false).show(ui, |ui| {
                         let mut use_anim = params.use_animation > 0.5;
                         if ui.checkbox(&mut use_anim, "Enable Animation").changed() {
                             changed = true;
@@ -376,16 +376,14 @@ impl ShaderManager for SpiralShader {
                         changed |= ui.add(egui::Slider::new(&mut params.rotation, -6.28..=6.28).text("Rotation")).changed();
                     });
     
-                    ui.group(|ui| {
-                        ui.label("Advanced Parameters");
+                    egui::CollapsingHeader::new("anim").default_open(false).show(ui, |ui| {
                         changed |= ui.add(egui::Slider::new(&mut params.iterations, -10.0..=10.0).text("Iterations")).changed();
                         changed |= ui.add(egui::Slider::new(&mut params.smoothing, -1.0..=1.0).text("Smoothing")).changed();
                     });
                     
-                    ui.group(|ui| {
-                        ui.label("Texture Offset");
-                        changed |= ui.add(egui::Slider::new(&mut params.offset_x, -1.0..=1.0).text("X Offset")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.offset_y, -1.0..=1.0).text("Y Offset")).changed();
+                    egui::CollapsingHeader::new("Tex Offset").default_open(false).show(ui, |ui| {
+                        changed |= ui.add(egui::Slider::new(&mut params.offset_x, -1.0..=1.0).text("X")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.offset_y, -1.0..=1.0).text("Y")).changed();
                     });
     
                     ui.separator();
