@@ -611,7 +611,9 @@ impl ShaderManager for Shader {
 
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
-                egui::Window::new("Tree Fractal Settings").show(ctx, |ui| {
+                ctx.style_mut(|style| {
+                    style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(0, 0, 0, 180);
+                });                egui::Window::new("Tree Fractal Settings").show(ctx, |ui| {
                     changed |= ui.add(egui::Slider::new(&mut params.pixel_offset, -3.14..=3.14).text("pixel_offset_y")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.pixel_offset2, -3.14..=3.14).text("pixel_offset_x")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.lights, 0.0..=12.2).text("lights")).changed();

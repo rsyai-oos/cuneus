@@ -303,7 +303,9 @@ impl ShaderManager for Shader {
 
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
-                egui::Window::new("Galaxy Settings").show(ctx, |ui| {
+                ctx.style_mut(|style| {
+                    style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(0, 0, 0, 180);
+                });                egui::Window::new("Galaxy Settings").show(ctx, |ui| {
                     ui.collapsing("Parameters", |ui| {
                         changed |= ui.add(egui::Slider::new(&mut params.max_iterations, 50..=300)
                             .text("Max Iterations")).changed();
