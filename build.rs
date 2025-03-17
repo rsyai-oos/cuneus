@@ -21,6 +21,8 @@
 // windows for instance, just download the installer and click next, next, next, finish. That's all, it should automatically set the environment variables for you. 
 // And you will able to use Gstreamer in this project. Bellow is my own configuration for Gstreamer in my mac machine which I used via PKG_CONFIG_PATH. 
 // You can also use the same configuration in your mac machine. And I strongly recommend you to install it with PKG_CONFIG_PATH.
+// Please see how I build the project in github actions, you can use it as a reference:
+// github.com/altunenes/cuneus/blob/main/.github/workflows/release.yaml
 use std::env;
 fn main() {
     let target = env::var("CARGO_CFG_TARGET_OS");

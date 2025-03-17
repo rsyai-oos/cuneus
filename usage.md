@@ -27,11 +27,17 @@ Cuneus supports using Videos as textures, which requires GStreamer bins to be in
 
 ### Installation
 
-Install from the [GStreamer website](https://gstreamer.freedesktop.org/download/#macos), both the runtime and development libraries, and make sure the `gstreamer` and `gstreamer-app` binaries are in your path.
+Install from the [GStreamer website](https://gstreamer.freedesktop.org/download/#macos), both the runtime and development libraries.
 
 [build.rs](https://github.com/altunenes/cuneus/blob/main/build.rs) contains configuration for macOS frameworks and library paths. Adjust as needed for your system for development :-) 
 
 > **Note**: GStreamer is only required if you need video texture functionality. Image-based textures should work without it.
+
+> **Note2** Development libraries are required only for building the project.
+
+Please see how I build the project in github actions, you can use it as a reference:
+
+[release](https://github.com/altunenes/cuneus/blob/main/.github/workflows/release.yaml)
 
 ## Template Structure
 
