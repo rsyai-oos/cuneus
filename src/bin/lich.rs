@@ -466,7 +466,9 @@ impl ShaderManager for AttractorShader {
         );
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
-                egui::Window::new("Settings").show(ctx, |ui| {
+                ctx.style_mut(|style| {
+                    style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(0, 0, 0, 180);
+                });                egui::Window::new("Settings").show(ctx, |ui| {
                     ui.group(|ui| {
                         ui.label(" Parameters");
                         changed |= ui.add(egui::Slider::new(&mut params.cloud_density, 0.0..=24.0)

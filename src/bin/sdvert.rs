@@ -326,7 +326,9 @@ impl ShaderManager for Shader {
         );
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
-                egui::Window::new("Settings").show(ctx, |ui| {
+                ctx.style_mut(|style| {
+                    style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(0, 0, 0, 180);
+                });                egui::Window::new("Settings").show(ctx, |ui| {
                     changed |= ui.add(egui::Slider::new(&mut params.lambda, 0.0..=20.0).text("vert")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.theta, 0.0..=60.0).text("angle")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.alpha, 0.2..=1.0).text("num_vert_min")).changed();

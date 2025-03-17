@@ -321,7 +321,9 @@ impl ShaderManager for ChristmasShader {
 
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
-                egui::Window::new("Christmas Tree Settings").show(ctx, |ui| {
+                ctx.style_mut(|style| {
+                    style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(0, 0, 0, 180);
+                });                egui::Window::new("Christmas Tree Settings").show(ctx, |ui| {
                     changed |= ui.add(egui::Slider::new(&mut params.lambda, 0.0..=5.0).text("top light")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.theta, -0.01..=0.01).text("dec_bleed")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.alpha, -0.4..=0.4).text("ao")).changed();
