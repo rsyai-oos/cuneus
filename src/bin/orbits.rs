@@ -56,7 +56,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.run(event_loop, shader)
 }
 impl Shader {
-    fn capture_frame(&mut self, core: &Core, time: f32) -> Result<Vec<u8>, wgpu::SurfaceError> {
+    fn capture_frame(&mut self, core: &Core, _time: f32) -> Result<Vec<u8>, wgpu::SurfaceError> {
         let settings = self.base.export_manager.settings();
         let (capture_texture, output_buffer) = self.base.create_capture_texture(
             &core.device,
@@ -228,19 +228,19 @@ impl ShaderManager for Shader {
                 accent_color: [0.018, 0.018, 0.018],
                 _pad3: 0.0,
                 _pad4: 0.0,
-                iteration: 220,
+                iteration: 355,
                 col_ext: 2.0,
                 zoom: 0.0004,
-                trap_pow: 2.0,
+                trap_pow: 1.0,
 
                 
                 trap_x: -0.5,
                 trap_y: 2.0,
-                trap_c1: 0.13,
+                trap_c1: 0.2,
                 aa: 1,
                 
-                trap_s1: 2.0,
-                wave_speed: 0.5,
+                trap_s1: 0.8,
+                wave_speed: 0.1,
                 fold_intensity: 1.0,
             },
             &params_bind_group_layout,

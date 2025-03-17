@@ -1,10 +1,9 @@
 // MIT License Enes Altun, 2025
-
+// Trap technique: https://iquilezles.org/articles/ftrapsgeometric/
 struct TimeUniform {
     time: f32,
 };
-const PI: f32 = 3.141592653589793;
-
+const PI = 3.14159;
 struct ResolutionUniform {
     dimensions: vec2<f32>,
     _padding: vec2<f32>,
@@ -12,9 +11,6 @@ struct ResolutionUniform {
 @group(0) @binding(0) var<uniform> u_time: TimeUniform;
 @group(1) @binding(0) var<uniform> u_resolution: ResolutionUniform;
 @group(2) @binding(0) var<uniform> params: Params;
-fn osc(minValue: f32, maxValue: f32, interval: f32, currentTime: f32) -> f32 {
-    return minValue + (maxValue - minValue) * 0.5 * (sin(2.0 * PI * currentTime / interval) + 1.0);
-}
 struct Params {
     base_color: vec3<f32>,
     x: f32,
@@ -23,119 +19,118 @@ struct Params {
     accent_color: vec3<f32>,
     _pad3: f32,
     _pad4: f32,
-
     iteration: i32,
     col_ext: f32,
     zoom: f32,
     trap_pow: f32,
-    
     trap_x: f32,
     trap_y: f32,
     trap_c1: f32,
     aa: i32,
-    
     trap_s1: f32,
     wave_speed: f32,
     fold_intensity: f32,
 };
-
-fn normalize_trap(trap_dist: f32, scale: f32) -> f32 {
-    return 0.5 + 0.5 * tanh(scale * trap_dist);
+// nt: normalize trap
+fn nt(d: f32, s: f32) -> f32 {
+    return .5 * (1. + tanh(s * d));
 }
 
-fn implicit(c: vec2<f32>, trap1: vec2<f32>, trap2: vec2<f32>, currentTime: f32) -> vec4<f32> {
-    var z: vec2<f32> = vec2<f32>(0.0, 0.0);
-    var dz: vec2<f32> = vec2<f32>(1.0, 0.0);
-    var trap1_min: f32 = 1e20;
-    var trap2_min: f32 = 1e20;
-    var MAX_ITER: i32 = params.iteration;
-    var BOUND: f32 = 3.0;
-
-    var i: i32 = 0;
-    for (i = 0; i < MAX_ITER; i = i + 1) {
-        dz = 2.0 * vec2<f32>(z.x * dz.x - z.y * dz.y, z.x * dz.y + z.y * dz.x) + vec2<f32>(1.0, 0.0);
-        let xnew: f32 = z.x * z.x - z.y * z.y + c.x;
-        z.y = 2.0 * z.x * z.y + c.y;
-        z.x = xnew;
-        let dampenedTime: f32 = currentTime * 0.001;
-        z = z + 0.1 * vec2<f32>(sin(0.001 * dampenedTime), cos(0.001 * dampenedTime));
-        
-        trap1_min = min(trap1_min, length(z - trap1));
-        trap2_min = min(trap2_min, dot(z - trap2, z - trap2));
-
-        if (dot(z, z) > BOUND) {
-            break;
-        }
+// op: oscillate with pause
+fn op(mn: f32, mx: f32, i: f32, p: f32, t: f32) -> f32 {
+    let c = 2. * i + p;
+    let m = t % c;
+    if(m < i) {
+        return mix(mx, mn, .5 - .5 * cos(PI * m / i));
+    } else if(m < i + p) {
+        return mn;
+    } else {
+        return mix(mn, mx, .5 - .5 * cos(PI * (m - i - p) / i));
     }
-    let d: f32 = sqrt(dot(z, z) / dot(dz, dz)) * log(dot(z, z));
-    return vec4<f32>(f32(i), d, trap1_min, trap2_min);
 }
-
-fn gamma(color: vec3<f32>, gamma: f32) -> vec3<f32> {
-    return pow(color, vec3<f32>(1.0 / gamma));
+// im: implicit fractal calculation
+fn im(c: vec2<f32>, t1: vec2<f32>, t2: vec2<f32>, t: f32) -> vec4<f32> {
+    var z = vec2(0.);      // position
+    var dz = vec2(1., 0.); // derivative
+    var t1m = 1e20;        // trap1 min
+    var t2m = 1e20;        // trap2 min
+    var t1s = 0.;          // trap1 sum
+    var t1c = 0.;          // trap1 count
+    let mi = params.iteration;
+    let dt = t * .001;
+    var i = 0;
+    for(; i < mi; i++) {
+        dz = 2. * vec2(z.x * dz.x - z.y * dz.y, z.x * dz.y + z.y * dz.x) + vec2(1., 0.);
+        let x = z.x * z.x - z.y * z.y + c.x;
+        z.y = 2. * z.x * z.y + c.y;
+        z.x = x;
+        z += .1 * vec2(sin(.001 * dt), cos(.001 * dt));
+        let d1 = length(z - t1);
+        let f = 1. - smoothstep(.6, 1.4, d1);
+        t1c += f;
+        t1s += f * d1;
+        t1m = min(t1m, d1);
+        t2m = min(t2m, dot(z - t2, z - t2));
+        if(dot(z, z) > 12.5) { break; }
+    }
+    let d = sqrt(dot(z, z) / dot(dz, dz)) * log(dot(z, z));
+    return vec4(f32(i), d, t1s / max(t1c, 1.), t2m);
 }
-
+// g: gamma correction
+fn g(c: vec3<f32>, g: f32) -> vec3<f32> {
+    return pow(c, vec3(1. / g));
+}
 @fragment
-fn fs_main(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
-    let screen_size = u_resolution.dimensions;
-    let fragCoord = vec2<f32>(FragCoord.x, screen_size.y - FragCoord.y);
-    let uv_base = 0.4 * (fragCoord - 0.5 * screen_size) / screen_size.y;
-    let AA: i32 = params.aa;
-    var MAX_ITER: i32 = params.iteration;
-    var BOUND: f32 = 3.0; 
-    let camSpeed = vec2<f32>(0.0002, 0.0002);
-    let camPath = vec2<f32>(
-        sin(camSpeed.x * u_time.time / 10.0),
-        cos(camSpeed.y * u_time.time / 10.0)
-    );
-    
-    var pan: vec2<f32> = vec2<f32>(0.8030, 0.2585);
-
-    if (u_time.time > 2.0) {
-        let timeSince14 = u_time.time - 45.0;
-        pan.y = pan.y + 0.00002 * timeSince14;
-    }
-    
-    let zoomLevel: f32 = osc(0.0004, 0.0004, 20.0, u_time.time * 0.1);
-    let trap1 = vec2<f32>(0.0, 1.0);
-    let trap2 = vec2<f32>(params.trap_x, params.trap_y) + 0.5* vec2<f32>(
-        cos(params.trap_c1 * u_time.time),
-        sin(params.trap_c1* u_time.time)
-    );
-    
-    var col = vec3<f32>(0.0,0.0,0.0);
-    
-    for (var m: i32 = 0; m < AA; m = m + 1) {
-        for (var n: i32 = 0; n < AA; n = n + 1) {
-            let sample_offset = vec2<f32>(f32(m), f32(n)) / f32(AA);
-            let min_res = min(screen_size.x, screen_size.y);
-            let uv_sample = ((fragCoord + sample_offset - 0.5 * screen_size) / min_res * params.zoom + pan + camPath) * 2.033 - vec2<f32>(params.x, params.y);
-            
-            let z_data = implicit(uv_sample, trap1, trap2, u_time.time* 0.1);
-            let iter_ratio = smoothstep(0.0, params.fold_intensity, z_data.x / f32(MAX_ITER));
-            let d = z_data.y;
-            let trap1_dist = z_data.z;
-            let trap2_dist = z_data.w;
-            
-            if (iter_ratio < 1.0) {
-                let c1 = pow(clamp(normalize_trap(2.00 * d / zoomLevel, 1.0), 0.0, 1.0), 0.5);
-                let c2 = pow(clamp(normalize_trap(1.5 * trap1_dist, 2.0), 0.0, 1.0), 2.0);
-                let c3 = pow(clamp(normalize_trap(0.4 * trap2_dist, 0.25), 0.0, 1.0), 0.25);
-                
-                let phase1 = params.col_ext * PI * (c2 + c3);
-                let phase2 = 2.0 * PI * c3;
-                let phase3 = 2.0 * PI * iter_ratio;
-                
-                let col1 = 0.5 + 0.5 * sin(phase1 + params.rim_color);
-                let col2 = 0.5 + 0.5 * sin(phase2 + params.accent_color);
-                let osc_val = osc(0.0, 1.0, 10.0, u_time.time);
-                let exteriorColor = 0.5 + params.wave_speed * sin(params.trap_s1 * PI * normalize_trap(trap2_dist, params.trap_pow) + params.base_color + phase3 + osc_val);
-
-                col = col + mix(col1 + col2, exteriorColor, iter_ratio);
+fn fs_main(@builtin(position) fc: vec4<f32>) -> @location(0) vec4<f32> {
+    let ss = u_resolution.dimensions;
+    let frag = vec2(fc.x, ss.y - fc.y);
+    let AA = params.aa;
+    let t = u_time.time;
+    let t01 = t * .1;
+    // cp: camera path
+    let cp = vec2(sin(.0002 * t / 10.), cos(.0002 * t / 10.));
+    // p: pan position
+    var p = vec2(.8085, .2607);
+    if(t > 17.) { p.y += .00001 * (t - 45.); }
+    // zl: zoom level
+    let zl = op(.0005, .0005, 10., 5., t01);
+    // t1, t2: traps
+    let t1 = vec2(0., params.fold_intensity);
+    let t2 = vec2(params.trap_x, params.trap_y) + params.wave_speed * vec2(cos(.3 * t), sin(.3 * t));
+    var col = vec3(0.);
+    for(var m = 0; m < AA; m++) {
+        for(var n = 0; n < AA; n++) {
+            let so = vec2(f32(m), f32(n)) / f32(AA);
+            let mr = min(ss.x, ss.y);
+            let uv = ((frag + so - .5 * ss) / mr * params.zoom + p + cp) * 2.033 - vec2(params.x, params.y);
+            let zd = im(uv, t1, t2, t01);
+            let ir = zd.x / f32(params.iteration);
+            if(ir < 1.1) {
+                let c1 = pow(clamp(2. * zd.y / zl, 0., 1.), .5);
+                let c2 = pow(clamp(1.5 * zd.z, 0., 1.), 2.);
+                let c3 = pow(clamp(.4 * zd.w, 0., 1.), .25);
+                // cl1, cl2: colors based on params
+                let cl1 = .5 + .5 * sin(vec3(3.) + 4. * c2 + params.rim_color);
+                let cl2 = .5 + .5 * sin(vec3(4.1) + 2. * c3 + params.accent_color);
+                // bc: base color
+                let bc = 2. * sqrt(c1 * cl1 * cl2);
+                // te: time effect
+                let te = op(params.trap_pow, params.trap_pow, 6., 0., t01);
+                // ec: exterior color
+                let ec = .5 + .5 * cos(params.col_ext * zd.w + zd.z + params.base_color + PI * 6. * ir + te);
+                // bf: blend factor
+                let bf = smoothstep(.2, params.trap_s1, ir);
+                let pc = mix(bc, ec, bf);
+                let tce = op(1., 1., 10., 5., t01);
+                // vc: variation color
+                let vc = pc * (.5 + .5 * sin(PI * vec3(.5, .7, .9) * ir + tce));
+                col += mix(pc, vc, params.trap_c1);
             }
         }
     }
-
-    col = gamma(col / f32(AA * AA),0.4);
-    return vec4<f32>(col, 1.0);
+    //gamma and vignette
+    col = g(col / f32(AA * AA), .4);
+    let q = frag.xy / ss;
+    col *= .7 + .3 * pow(16. * q.x * q.y * (1. - q.x) * (1. - q.y), .15);
+    return vec4(col, 1.);
 }
