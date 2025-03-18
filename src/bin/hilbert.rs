@@ -7,7 +7,7 @@ use std::path::PathBuf;
 struct ShaderParams {
     // Hilbert curve parameters
     iterations: u32,
-    num_rays: u32,
+    num_rays: f32,
     _pad1: [f32; 2],
     
     // Animation and scaling stuff
@@ -18,7 +18,7 @@ struct ShaderParams {
     
     // Color parameters
     color_offset: [f32; 3],
-    _pad2: f32, 
+    flanc: f32, 
 }
 impl UniformProvider for ShaderParams {
     fn as_bytes(&self) -> &[u8] {
@@ -209,16 +209,16 @@ impl ShaderManager for Shader {
             "Params Uniform",
             ShaderParams {
                 iterations: 2, 
-                num_rays: 45,   
+                num_rays: 6.0,   
                 _pad1: [0.0; 2],
                 
-                scale: 0.3,          
+                scale: 2.0,          
                 time_scale: 1.5,    
-                vignette_radius: 0.3, 
-                vignette_softness: 0.4,
+                vignette_radius: 0.5, 
+                vignette_softness: 2.2,
                 
-                color_offset: [0.0, 0.33, 0.67],
-                _pad2: 0.0,
+                color_offset: [0.0, 0.0, 0.0],
+                flanc: 1.0,
             },
             &params_bind_group_layout,
             0,
@@ -312,21 +312,23 @@ impl ShaderManager for Shader {
                     style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(0, 0, 0, 180);
                 });                egui::Window::new("cfg").show(ctx, |ui| {
                     ui.collapsing("Curve Parameters", |ui| {
-                        changed |= ui.add(egui::Slider::new(&mut params.iterations, 1..=4)
+                        changed |= ui.add(egui::Slider::new(&mut params.iterations, 1..=3)
                             .text("Iter")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.num_rays, 1..=120)
-                            .text("Number of Rays")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.scale, 0.1..=1.0)
+                        changed |= ui.add(egui::Slider::new(&mut params.num_rays, 0.0..=12.0)
+                            .text("ray length")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.scale, 0.0..=12.0)
                             .text("Curve Scale")).changed();
                     });
         
                     ui.collapsing("AEffects", |ui| {
                         changed |= ui.add(egui::Slider::new(&mut params.time_scale, 0.0..=2.0)
                             .text("Speed")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.vignette_radius, 0.1..=1.0)
-                            .text("Vignette_Radi")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.vignette_softness, 0.0..=1.0)
-                            .text("softnes")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.vignette_radius, 0.1..=1.1)
+                            .text("Gamma")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.vignette_softness, 0.0..=2.2)
+                            .text("fluanc")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.flanc, 0.0..=4.0)
+                            .text("flanc")).changed();
                     });
         
                     ui.collapsing("Color Settings", |ui| {
