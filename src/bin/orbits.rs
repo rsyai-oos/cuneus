@@ -380,17 +380,48 @@ impl ShaderManager for Shader {
                     });
 
 
-                    ui.collapsing("Possitions", |ui| {
-
-                    changed |= ui.add(egui::Slider::new(&mut params.zoom, 0.0001..=1.5)
-                        .text("Zoom")).changed();
-                    
-                    changed |= ui.add(egui::Slider::new(&mut params.x, 0.0..=3.0)
-                        .text("X")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.y, 0.0..=6.0)
-                        .text("Y")).changed();
+                    ui.collapsing("Positions", |ui| {
+                        changed |= ui.add(egui::Slider::new(&mut params.zoom, 0.0001..=1.5)
+                            .text("Zoom")
+                            .logarithmic(true)).changed();
+                        ui.horizontal(|ui| {
+                            ui.label("Fine Zoom:");
+                            if ui.button("÷1.1").clicked() {
+                                params.zoom = (params.zoom / 1.1).max(0.0001);
+                                changed = true;
+                            }
+                            if ui.button("×1.1").clicked() {
+                                params.zoom = (params.zoom * 1.1).min(1.5);
+                                changed = true;
+                            }
                         });
-
+                        changed |= ui.add(egui::Slider::new(&mut params.x, 0.0..=3.0)
+                            .text("X")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.y, 0.0..=6.0)
+                            .text("Y")).changed();
+                        ui.horizontal(|ui| {
+                            ui.label("Fine X:");
+                            if ui.button("-0.001").clicked() {
+                                params.x = (params.x - 0.001).max(0.0);
+                                changed = true;
+                            }
+                            if ui.button("+0.001").clicked() {
+                                params.x = (params.x + 0.001).min(3.0);
+                                changed = true;
+                            }
+                        });
+                        ui.horizontal(|ui| {
+                            ui.label("Fine Y:");
+                            if ui.button("-0.001").clicked() {
+                                params.y = (params.y - 0.001).max(0.0);
+                                changed = true;
+                            }
+                            if ui.button("+0.001").clicked() {
+                                params.y = (params.y + 0.001).min(6.0);
+                                changed = true;
+                            }
+                        });
+                    });
                       ui.separator();
                     ShaderControls::render_controls_widget(ui, &mut controls_request);
                     ui.separator();
