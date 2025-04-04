@@ -392,7 +392,7 @@ impl ShaderManager for Shader {
                 frame: 1.0,
                 col1:100.0,
                 col2:4.1,
-                decay: 0.98,
+                decay: 1.0,
             },
             &params_bind_group_layout,
             0,
@@ -617,7 +617,7 @@ impl ShaderManager for Shader {
                     changed |= ui.add(egui::Slider::new(&mut params.pixel_offset, -3.14..=3.14).text("pixel_offset_y")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.pixel_offset2, -3.14..=3.14).text("pixel_offset_x")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.lights, 0.0..=12.2).text("lights")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.exp, 1.0..=60.0).text("exp")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.exp, 1.0..=120.0).text("exp")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.frame, 0.0..=2.2).text("frame")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.col1, 0.0..=300.0).text("iter")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.col2, 0.0..=10.0).text("col2")).changed();
