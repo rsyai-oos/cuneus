@@ -2,36 +2,24 @@ use cuneus::{Core,Renderer,ShaderApp, ShaderManager, UniformProvider, UniformBin
 use winit::event::*;
 use image::ImageError;
 use std::path::PathBuf;
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ShaderParams {
-    // Colors
-    base_color: [f32; 3],
+    square_size: f32, 
+    circle_radius: f32,
+    edge_thickness: f32,
+    animation_speed: f32,
+    
+    background_color: [f32; 3],
+    edge_color_intensity: f32,
+    
     _pad1: f32,
-    rim_color: [f32; 3],
     _pad2: f32,
-    accent_color: [f32; 3],
     _pad3: f32,
-    
-    // Lighting parameters
-    light_intensity: f32,
-    rim_power: f32,
-    ao_strength: f32,
-    env_light_strength: f32,
-    
-    // Effect parameters
-    iridescence_power: f32,
-    falloff_distance: f32,
-    vignette_strength: f32,
-    num_cells: i32,
-    
-    // Animation parameters
-    rotation_speed: f32,
-    wave_speed: f32,
-    fold_intensity: f32,
     _pad4: f32,
-}
 
+}
 
 impl UniformProvider for ShaderParams {
     fn as_bytes(&self) -> &[u8] {
@@ -47,12 +35,14 @@ struct Shader {
     resolution_bind_group_layout: wgpu::BindGroupLayout,
     params_bind_group_layout: wgpu::BindGroupLayout,
 }
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
-    let (app, event_loop) = ShaderApp::new("roto", 800, 600);
+    let (app, event_loop) = ShaderApp::new("rotation_illusion", 800, 600);
     let shader = Shader::init(app.core());
     app.run(event_loop, shader)
 }
+
 impl Shader {
     fn capture_frame(&mut self, core: &Core, time: f32) -> Result<Vec<u8>, wgpu::SurfaceError> {
         let settings = self.base.export_manager.settings();
@@ -175,6 +165,7 @@ impl Shader {
         }
     }
 }
+
 impl ShaderManager for Shader {
     fn init(core: &Core) -> Self {
         let time_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -217,30 +208,22 @@ impl ShaderManager for Shader {
             label: Some("params_bind_group_layout"),
         });
 
+        // Initialize with the original ShaderToy values
         let params_uniform = UniformBinding::new(
             &core.device,
             "Params Uniform",
             ShaderParams {
-                base_color: [0.6, 0.6, 0.6],
+                square_size: 0.2,
+                circle_radius: 0.11,
+                edge_thickness: 0.003,
+                animation_speed: 12.0,
+                
+                background_color: [0.5, 0.5, 0.5],
+                edge_color_intensity: 1.0,
+                
                 _pad1: 0.0,
-                rim_color: [0.8, 0.85, 0.9],
                 _pad2: 0.0,
-                accent_color: [0.4, 0.6, 0.8],
                 _pad3: 0.0,
-                
-                light_intensity: 2.8,
-                rim_power: 1.8,
-                ao_strength: 0.1,
-                env_light_strength: 0.3,
-                
-                iridescence_power: 0.12,
-                falloff_distance: 2.0,
-                vignette_strength: 0.25,
-                num_cells: 12,
-                
-                rotation_speed: 0.1,
-                wave_speed: 0.5,
-                fold_intensity: 0.5,
                 _pad4: 0.0,
             },
             &params_bind_group_layout,
@@ -335,32 +318,25 @@ impl ShaderManager for Shader {
             self.base.render_ui(core, |ctx| {
                 ctx.style_mut(|style| {
                     style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(0, 0, 0, 180);
-                });                egui::Window::new("cfg").show(ctx, |ui| {
-                    // Colors
-                    changed |= ui.color_edit_button_rgb(&mut params.base_color).changed();
-                    ui.label("Base Color");
+                });
+                egui::Window::new("Rotation Illusion").show(ctx, |ui| {
+                    changed |= ui.add(egui::Slider::new(&mut params.square_size, 0.05..=0.5)
+                        .text("Square Size")).changed();
                     
-                    changed |= ui.color_edit_button_rgb(&mut params.rim_color).changed();
-                    ui.label("Rim Color");
+                    changed |= ui.add(egui::Slider::new(&mut params.circle_radius, 0.05..=0.2)
+                        .text("Circle Radius")).changed();
                     
+                    changed |= ui.add(egui::Slider::new(&mut params.edge_thickness, 0.001..=0.01)
+                        .text("Edge Thickness")).changed();
                     
-                    changed |= ui.add(egui::Slider::new(&mut params.light_intensity, 0.0..=8.0)
-                        .text("Light Power")).changed();
-                    
-                    changed |= ui.add(egui::Slider::new(&mut params.rim_power, 0.0..=12.0)
-                        .text("Rim Effect")).changed();
-                        
-                    changed |= ui.add(egui::Slider::new(&mut params.iridescence_power, 0.0..=12.3)
-                        .text("Iridescence")).changed();
-                        
-                    changed |= ui.add(egui::Slider::new(&mut params.falloff_distance, 0.5..=12.0)
-                        .text("Light Range")).changed();
-                        
-                    changed |= ui.add(egui::Slider::new(&mut params.wave_speed, 0.0..=2.0)
+                    changed |= ui.add(egui::Slider::new(&mut params.animation_speed, 1.0..=30.0)
                         .text("Animation Speed")).changed();
-                        
-                    changed |= ui.add(egui::Slider::new(&mut params.fold_intensity, 0.0..=6.0)
-                        .text("light")).changed();
+                    
+                    changed |= ui.color_edit_button_rgb(&mut params.background_color).changed();
+                    ui.label("Background Color");
+                    
+                    changed |= ui.add(egui::Slider::new(&mut params.edge_color_intensity, 0.1..=2.0)
+                        .text("Edge Brightness")).changed();
 
                     ui.separator();
                     ShaderControls::render_controls_widget(ui, &mut controls_request);
@@ -433,4 +409,3 @@ impl ShaderManager for Shader {
         false
     }
 }
-
