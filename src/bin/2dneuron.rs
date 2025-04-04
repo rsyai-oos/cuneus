@@ -427,7 +427,7 @@ impl ShaderManager for Shader {
 
         let fs_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Fragment Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/tree.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/2dneuron.wgsl").into()),
         });
 
         let standard_pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -454,7 +454,7 @@ impl ShaderManager for Shader {
         let base = BaseShader::new(
             core,
             include_str!("../../shaders/vertex.wgsl"),
-            include_str!("../../shaders/tree.wgsl"),
+            include_str!("../../shaders/2dneuron.wgsl"),
             &[
                 &texture_bind_group_layout,
                 &time_bind_group_layout,
@@ -465,7 +465,7 @@ impl ShaderManager for Shader {
 
         let shader_paths = vec![
             PathBuf::from("shaders/vertex.wgsl"),
-            PathBuf::from("shaders/tree.wgsl"),
+            PathBuf::from("shaders/2dneuron.wgsl"),
         ];
 
         let hot_reload = ShaderHotReload::new(
@@ -613,14 +613,14 @@ impl ShaderManager for Shader {
             self.base.render_ui(core, |ctx| {
                 ctx.style_mut(|style| {
                     style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(0, 0, 0, 180);
-                }); egui::Window::new("set").show(ctx, |ui| {
+                }); egui::Window::new("Neuron").show(ctx, |ui| {
                     changed |= ui.add(egui::Slider::new(&mut params.pixel_offset, -3.14..=3.14).text("pixel_offset_y")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.pixel_offset2, -3.14..=3.14).text("pixel_offset_x")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.lights, 0.0..=12.2).text("lights")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.exp, 1.0..=120.0).text("exp")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.frame, 0.0..=2.2).text("frame")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.col1, 0.0..=300.0).text("iter")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.col2, 0.0..=10.0).text("col2")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.frame, 0.0..=5.2).text("frame")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.col1, 0.0..=150.0).text("iter")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.col2, 0.0..=20.0).text("col2")).changed();
                     changed |= ui.add(egui::Slider::new(&mut params.decay, 0.0..=1.0).text("Feedback")).changed();
                     ui.separator();
                     ShaderControls::render_controls_widget(ui, &mut controls_request);
@@ -852,7 +852,7 @@ impl ShaderManager for Shader {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
-    let (app, event_loop) = ShaderApp::new("Fractal Tree", 800, 600);
+    let (app, event_loop) = ShaderApp::new("2dneuron", 320, 420);
     let shader = Shader::init(app.core());
     app.run(event_loop, shader)
 }
