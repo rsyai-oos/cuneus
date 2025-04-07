@@ -22,10 +22,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let (app, event_loop) = ShaderApp::new("voronoi", 800, 600);
     app.run(event_loop, |core| {
-        SpiralShader::init(core)
+        Voronoi::init(core)
     })
 }
-struct SpiralShader {
+struct Voronoi {
     base: BaseShader,
     params_uniform: UniformBinding<ShaderParams>,
     hot_reload: ShaderHotReload,
@@ -34,7 +34,7 @@ struct SpiralShader {
     resolution_bind_group_layout: wgpu::BindGroupLayout,
     params_bind_group_layout: wgpu::BindGroupLayout,
 }
-impl SpiralShader {
+impl Voronoi {
     fn capture_frame(&mut self, core: &Core, time: f32) -> Result<Vec<u8>, wgpu::SurfaceError> {
         let settings = self.base.export_manager.settings();
         let (capture_texture, output_buffer) = self.base.create_capture_texture(
@@ -166,7 +166,7 @@ impl SpiralShader {
         }
     }
 }
-impl ShaderManager for SpiralShader {
+impl ShaderManager for Voronoi {
     fn init(core: &cuneus::Core) -> Self {
         let time_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[wgpu::BindGroupLayoutEntry {
