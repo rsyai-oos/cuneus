@@ -42,8 +42,9 @@ struct ChristmasShader {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let (app, event_loop) = ShaderApp::new("xmas", 800, 600);
-    let shader = ChristmasShader::init(app.core());
-    app.run(event_loop, shader)
+    app.run(event_loop, |core| {
+        ChristmasShader::init(core)
+    })
 }
 impl ChristmasShader {
     fn capture_frame(&mut self, core: &Core, time: f32) -> Result<Vec<u8>, wgpu::SurfaceError> {

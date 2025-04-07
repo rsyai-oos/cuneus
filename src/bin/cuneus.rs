@@ -54,8 +54,9 @@ struct Shader {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let (app, event_loop) = ShaderApp::new("cuneus", 800, 600);
-    let shader = Shader::init(app.core());
-    app.run(event_loop, shader)
+    app.run(event_loop, |core| {
+        Shader::init(core)
+    })
 }
 
 impl Shader {

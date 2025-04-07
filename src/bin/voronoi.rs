@@ -21,8 +21,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     cuneus::gst::init()?;
     env_logger::init();
     let (app, event_loop) = ShaderApp::new("voronoi", 800, 600);
-    let shader = SpiralShader::init(app.core());
-    app.run(event_loop, shader)
+    app.run(event_loop, |core| {
+        SpiralShader::init(core)
+    })
 }
 struct SpiralShader {
     base: BaseShader,
