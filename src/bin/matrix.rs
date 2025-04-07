@@ -25,8 +25,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     //std::env::set_var("GST_DEBUG", "spectrum:5");
     let (app, event_loop) = ShaderApp::new("matrix", 800, 600);
-    let shader = MatrixShader::init(app.core());
-    app.run(event_loop, shader)
+    app.run(event_loop, |core| {
+        MatrixShader::init(core)
+    })
 }
 struct MatrixShader {
     base: BaseShader,

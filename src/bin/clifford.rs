@@ -503,6 +503,7 @@ impl ShaderManager for FeedbackShader {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let (app, event_loop) = ShaderApp::new("Clifford", 800, 600);
-    let shader = FeedbackShader::init(app.core());
-    app.run(event_loop, shader)
+    app.run(event_loop, |core| {
+        FeedbackShader::init(core)
+    })
 }

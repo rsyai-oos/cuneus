@@ -654,6 +654,7 @@ fn handle_input(&mut self, core: &Core, event: &WindowEvent) -> bool {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
 env_logger::init();
 let (app, event_loop) = ShaderApp::new("genuary2025_18", 800, 600);
-let shader = Shader::init(app.core());
-app.run(event_loop, shader)
+app.run(event_loop, |core| {
+    Shader::init(core)
+})
 }

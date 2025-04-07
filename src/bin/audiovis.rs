@@ -25,8 +25,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     //std::env::set_var("GST_DEBUG", "bpmdetect:5,pitch:5,soundtouch:5,bus:4,element:4");
     let (app, event_loop) = ShaderApp::new("audiovis", 800, 600);
-    let shader = AudioVis::init(app.core());
-    app.run(event_loop, shader)
+    app.run(event_loop, |core| {
+        AudioVis::init(core)
+    })
 }
 struct AudioVis {
     base: BaseShader,
