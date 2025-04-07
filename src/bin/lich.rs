@@ -32,7 +32,7 @@ impl UniformProvider for LightningParams {
 }
 
 
-struct AttractorShader {
+struct Lich {
     base: BaseShader,
     renderer_pass2: Renderer,
     renderer_pass3: Renderer,
@@ -48,7 +48,7 @@ struct AttractorShader {
     atomic_bind_group_layout: wgpu::BindGroupLayout,
 }
 
-impl AttractorShader {
+impl Lich {
     fn capture_frame(&mut self, core: &Core, time: f32) -> Result<Vec<u8>, wgpu::SurfaceError> {
         let settings = self.base.export_manager.settings();
         let (capture_texture, output_buffer) = self.base.create_capture_texture(
@@ -222,7 +222,7 @@ impl AttractorShader {
     }
 }
 
-impl ShaderManager for AttractorShader {
+impl ShaderManager for Lich {
     fn init(core: &Core) -> Self {
         let texture_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
@@ -659,6 +659,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 env_logger::init();
 let (app, event_loop) = ShaderApp::new("Lich", 800, 600);
 app.run(event_loop, |core| {
-    AttractorShader::init(core)
+    Lich::init(core)
 })
 }

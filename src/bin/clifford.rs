@@ -29,7 +29,7 @@ impl UniformProvider for FeedbackParams {
         bytemuck::bytes_of(self)
     }
 }
-struct FeedbackShader {
+struct Clifford {
     base: BaseShader,
     renderer_pass2: Renderer,
     params_uniform: UniformBinding<FeedbackParams>,
@@ -43,7 +43,7 @@ struct FeedbackShader {
     atomic_buffer: AtomicBuffer,
     atomic_bind_group_layout: wgpu::BindGroupLayout,
 }
-impl FeedbackShader {
+impl Clifford {
     fn capture_frame(&mut self, core: &Core, time: f32) -> Result<Vec<u8>, wgpu::SurfaceError> {
         let settings = self.base.export_manager.settings();
         let (capture_texture, output_buffer) = self.base.create_capture_texture(
@@ -163,7 +163,7 @@ impl FeedbackShader {
 }
 
 
-impl ShaderManager for FeedbackShader {
+impl ShaderManager for Clifford {
     fn init(core: &Core) -> Self {
         let texture_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
@@ -504,6 +504,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let (app, event_loop) = ShaderApp::new("Clifford", 800, 600);
     app.run(event_loop, |core| {
-        FeedbackShader::init(core)
+        Clifford::init(core)
     })
 }
