@@ -302,7 +302,7 @@ impl ShaderManager for Shader {
         let export_request = self.base.export_manager.get_ui_request();
 
         let full_output = if self.base.key_handler.show_ui {
-            self.base.render_ui(core, |ctx| {
+            self.base.render_ui(core, |_ctx| {
 
             })
         } else {
