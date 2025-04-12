@@ -1,4 +1,4 @@
-use cuneus::{Core, ShaderManager, UniformProvider, UniformBinding, BaseShader, TextureManager, create_feedback_texture_pair,ExportSettings, ExportError,ExportManager,ShaderHotReload,ShaderControls};
+use cuneus::{Core, ShaderManager, UniformProvider, UniformBinding, RenderKit, TextureManager, create_feedback_texture_pair,ExportSettings, ExportError,ExportManager,ShaderHotReload,ShaderControls};
 use winit::event::WindowEvent;
 use cuneus::ShaderApp;
 use cuneus::Renderer;
@@ -22,7 +22,7 @@ impl UniformProvider for AttractorParams {
 }
 
 struct AttractorShader {
-    base: BaseShader,
+    base: RenderKit,
     renderer_pass2: Renderer,
     renderer_pass3: Renderer,
     params_uniform: UniformBinding<AttractorParams>,
@@ -303,7 +303,7 @@ impl ShaderManager for AttractorShader {
             push_constant_ranges: &[],
         });
 
-        let base = BaseShader::new(
+        let base = RenderKit::new(
             core,
             include_str!("../../shaders/vertex.wgsl"),
             include_str!("../../shaders/attractor.wgsl"),

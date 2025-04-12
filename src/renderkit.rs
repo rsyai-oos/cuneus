@@ -21,7 +21,7 @@ impl UniformProvider for TimeUniform {
         bytemuck::bytes_of(self)
     }
 }
-pub struct BaseShader {
+pub struct RenderKit {
     pub renderer: Renderer,
     pub video_texture_manager: Option<VideoTextureManager>,
     pub using_video_texture: bool,
@@ -38,7 +38,7 @@ pub struct BaseShader {
     pub controls: ShaderControls,
     pub spectrum_analyzer: SpectrumAnalyzer,
 }
-impl BaseShader {
+impl RenderKit {
     pub fn new(
         core: &Core,
         vs_source: &str,

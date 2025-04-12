@@ -1,4 +1,4 @@
-use cuneus::{Core, ShaderManager,UniformProvider, UniformBinding,ExportError, BaseShader,TextureManager,ShaderHotReload,ShaderControls,AtomicBuffer};
+use cuneus::{Core, ShaderManager,UniformProvider, UniformBinding,ExportError, RenderKit,TextureManager,ShaderHotReload,ShaderControls,AtomicBuffer};
 use winit::event::WindowEvent;
 use cuneus::ShaderApp;
 use cuneus::Renderer;
@@ -38,7 +38,7 @@ impl UniformProvider for ShaderParams {
     }
 }
 struct Shader {
-    base: BaseShader,
+    base: RenderKit,
     renderer_pass2: Renderer,
     params_uniform: UniformBinding<ShaderParams>,
     texture_a: Option<TextureManager>,
@@ -306,7 +306,7 @@ impl ShaderManager for Shader {
             &pipeline_layout,
             Some("fs_pass2"),
         );
-        let base = BaseShader::new(
+        let base = RenderKit::new(
             core,
             include_str!("../../shaders/vertex.wgsl"),
             include_str!("../../shaders/rorschach.wgsl"),

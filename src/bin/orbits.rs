@@ -1,4 +1,4 @@
-use cuneus::{Core,Renderer,ShaderApp, ShaderManager, UniformProvider, UniformBinding, BaseShader,ExportSettings, ExportError, ExportManager,ShaderHotReload,ShaderControls};
+use cuneus::{Core,Renderer,ShaderApp, ShaderManager, UniformProvider, UniformBinding, RenderKit,ExportSettings, ExportError, ExportManager,ShaderHotReload,ShaderControls};
 use winit::event::*;
 use image::ImageError;
 use std::path::PathBuf;
@@ -42,7 +42,7 @@ impl UniformProvider for ShaderParams {
 }
 
 struct Shader {
-    base: BaseShader,
+    base: RenderKit,
     params_uniform: UniformBinding<ShaderParams>,
     hot_reload: ShaderHotReload,
     time_bind_group_layout: wgpu::BindGroupLayout,    
@@ -268,7 +268,7 @@ impl ShaderManager for Shader {
             PathBuf::from("shaders/orbits.wgsl"),
         ];
 
-        let base = BaseShader::new(
+        let base = RenderKit::new(
             core,
             include_str!("../../shaders/vertex.wgsl"),
             include_str!("../../shaders/orbits.wgsl"),

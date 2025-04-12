@@ -1,4 +1,4 @@
-use cuneus::{Core, ShaderManager, UniformProvider, UniformBinding, BaseShader, TextureManager, create_feedback_texture_pair, ExportSettings, ExportError, ExportManager, ShaderHotReload, ShaderControls};
+use cuneus::{Core, ShaderManager, UniformProvider, UniformBinding, RenderKit, TextureManager, create_feedback_texture_pair, ExportSettings, ExportError, ExportManager, ShaderHotReload, ShaderControls};
 use winit::event::WindowEvent;
 use cuneus::ShaderApp;
 use cuneus::Renderer;
@@ -25,7 +25,7 @@ impl UniformProvider for TreeParams {
 }
 
 struct Shader {
-    base: BaseShader,
+    base: RenderKit,
     renderer_pass2: Renderer,
     renderer_pass3: Renderer,
     renderer_pass4: Renderer,
@@ -451,7 +451,7 @@ impl ShaderManager for Shader {
             push_constant_ranges: &[],
         });
 
-        let base = BaseShader::new(
+        let base = RenderKit::new(
             core,
             include_str!("../../shaders/vertex.wgsl"),
             include_str!("../../shaders/tree.wgsl"),
