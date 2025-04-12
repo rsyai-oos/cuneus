@@ -3,7 +3,7 @@
 
 In fact you can simply copy a rust file in the “bin” folder and just go to the wgsl stage. But to set the parameters in egui you only need to change the parameters.
 
-Note: Please don't be surprised to see that some Uniforms are common both in “baseshader.rs” (an important backend file in cuneus where most things are init) and in the final rust file we created for our shader (like mandelbrot.rs). The only purpose of this is related to hot reload. :-)
+Note: Please don't be surprised to see that some Uniforms are common both in “RenderKit.rs” (an important backend file in cuneus where most things are init) and in the final rust file we created for our shader (like mandelbrot.rs). The only purpose of this is related to hot reload. :-)
 
 ## Quick Start
 
@@ -54,7 +54,7 @@ I created this by completely copying and pasting xmas.rs, and I could only focus
 
 ```rust
 // 1. Required imports
-use cuneus::{Core, ShaderManager, BaseShader /* ... */};
+use cuneus::{Core, ShaderManager, RenderKit /* ... */};
 
 // 2. Optional parameters if needed
 #[repr(C)]
@@ -65,7 +65,7 @@ struct ShaderParams {
 
 // 3. Main shader structure
 struct MyShader {
-    base: BaseShader,
+    base: RenderKit,
     // Add any additional fields needed
 }
 

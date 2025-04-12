@@ -1,4 +1,4 @@
-use cuneus::{Core,Renderer,ShaderApp, ShaderManager, UniformProvider, UniformBinding, BaseShader,ExportSettings, ExportError, ExportManager,ShaderHotReload,ShaderControls};
+use cuneus::{Core,Renderer,ShaderApp, ShaderManager, UniformProvider, UniformBinding, RenderKit,ExportSettings, ExportError, ExportManager,ShaderHotReload,ShaderControls};
 use winit::event::*;
 use image::ImageError;
 use std::path::PathBuf;
@@ -38,7 +38,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 struct Gabor {
-    base: BaseShader,
+    base: RenderKit,
     params_uniform: UniformBinding<ShaderParams>,
     hot_reload: ShaderHotReload,
     texture_bind_group_layout: wgpu::BindGroupLayout,
@@ -290,7 +290,7 @@ impl ShaderManager for Gabor {
             vs_module,
             fs_module,
         ).expect("Failed to initialize hot reload");
-        let base = BaseShader::new(
+        let base = RenderKit::new(
             core,
             include_str!("../../shaders/vertex.wgsl"),
             include_str!("../../shaders/gabornoise.wgsl"),

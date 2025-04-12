@@ -1,4 +1,4 @@
-use cuneus::{Core, ShaderManager, UniformProvider, UniformBinding, BaseShader, TextureManager, create_feedback_texture_pair,ExportSettings, ExportError,ExportManager,ShaderHotReload,ShaderControls,AtomicBuffer};
+use cuneus::{Core, ShaderManager, UniformProvider, UniformBinding, RenderKit, TextureManager, create_feedback_texture_pair,ExportSettings, ExportError,ExportManager,ShaderHotReload,ShaderControls,AtomicBuffer};
 use winit::event::WindowEvent;
 use cuneus::ShaderApp;
 use cuneus::Renderer;
@@ -33,7 +33,7 @@ impl UniformProvider for LightningParams {
 
 
 struct Lich {
-    base: BaseShader,
+    base: RenderKit,
     renderer_pass2: Renderer,
     renderer_pass3: Renderer,
     params_uniform: UniformBinding<LightningParams>,
@@ -348,7 +348,7 @@ impl ShaderManager for Lich {
             push_constant_ranges: &[],
         });
 
-        let base = BaseShader::new(
+        let base = RenderKit::new(
             core,
             include_str!("../../shaders/vertex.wgsl"),
             include_str!("../../shaders/lich.wgsl"),

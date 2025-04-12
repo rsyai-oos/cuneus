@@ -1,4 +1,4 @@
-use cuneus::{Core, ShaderManager,UniformProvider, UniformBinding,ExportError, BaseShader,TextureManager,ShaderHotReload,ShaderControls};
+use cuneus::{Core, ShaderManager,UniformProvider, UniformBinding,ExportError, RenderKit,TextureManager,ShaderHotReload,ShaderControls};
 use winit::event::WindowEvent;
 use cuneus::ShaderApp;
 use cuneus::Renderer;
@@ -20,7 +20,7 @@ impl UniformProvider for FeedbackParams {
     }
 }
 struct FeedbackShader {
-    base: BaseShader,
+    base: RenderKit,
     renderer_pass2: Renderer,
     params_uniform: UniformBinding<FeedbackParams>,
     texture_a: Option<TextureManager>,
@@ -255,7 +255,7 @@ impl ShaderManager for FeedbackShader {
             &pipeline_layout,
             Some("fs_pass2"),
         );
-        let base = BaseShader::new(
+        let base = RenderKit::new(
             core,
             include_str!("../../shaders/vertex.wgsl"),
             include_str!("../../shaders/feedback.wgsl"),

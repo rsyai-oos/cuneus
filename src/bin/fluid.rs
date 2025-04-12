@@ -1,4 +1,4 @@
-use cuneus::{Core, ShaderManager, UniformProvider, UniformBinding, BaseShader, TextureManager, create_feedback_texture_pair,ExportSettings, ExportError, ExportManager,ShaderHotReload,ShaderControls};
+use cuneus::{Core, ShaderManager, UniformProvider, UniformBinding, RenderKit, TextureManager, create_feedback_texture_pair,ExportSettings, ExportError, ExportManager,ShaderHotReload,ShaderControls};
 use winit::event::WindowEvent;
 use cuneus::ShaderApp;
 use cuneus::Renderer;
@@ -18,7 +18,7 @@ impl UniformProvider for FluidParams {
     }
 }
 struct FluidShader {
-    base: BaseShader,
+    base: RenderKit,
     renderer_pass2: Renderer,
     params_uniform: UniformBinding<FluidParams>,
     texture_a: Option<TextureManager>,
@@ -290,7 +290,7 @@ impl ShaderManager for FluidShader {
             &pipeline_layout,
             Some("fs_pass2"),
         );
-        let base = BaseShader::new(
+        let base = RenderKit::new(
             core,
             include_str!("../../shaders/vertex.wgsl"),
             include_str!("../../shaders/fluid.wgsl"),
