@@ -33,123 +33,173 @@ struct Params {
     _pad4: f32,
 };
 
+const PI = 3.1416;
 
-const PI: f32 = 3.14159265359;
+fn rot(a: f32) -> mat2x2<f32> {
+    let s = sin(a); let c = cos(a);
+    return mat2x2<f32>(c, -s, s, c);
+}
 
+// DNA Helix SDF 
+fn helixSDF(p: vec3<f32>) -> f32 {
+    // Create two helical strands with direct vector ops
+    let sd = 0.9;  // strand distance
+    let s1 = length(p.xz + vec2(sd, 0.)) - 0.25;
+    let s2 = length(p.xz - vec2(sd, 0.)) - 0.25;
+    
+    // Base pairs using modulo trick
+    let py = p.y - 0.6 * floor(p.y/0.6) - 0.3;
+    let bar = max(length(vec2(py, p.z)) - 0.1, abs(p.x) - sd*0.98);
+    
+    return min(min(s1, s2), bar);
+}
 
+fn map(p: vec3<f32>, t: f32) -> f32 {
+    var q = p * (params.falloff_distance + 3.);
+    let rot_matrix = rot(t * params.rotation_speed) * rot(q.y * 0.6);
+    let rotated = rot_matrix * q.xz;
+    q.x = rotated.x;
+    q.z = rotated.y;
+    
+    return helixSDF(q) * params.falloff_distance;
+}
 
-fn waveSDF(p: vec2<f32>, time: f32, frequency: f32, amplitude: f32) -> f32 {
-    var minDist: f32 = 1000.0;
-    let waves = 3;
-    for(var i: i32 = 0; i < waves; i = i + 1) {
-        let phase = f32(i) * PI * 2.0 / f32(waves);
-        let wave_time = time + phase;
-        let wave_x = amplitude * sin(p.y * frequency + wave_time);
-        let dist = abs(p.x - wave_x);
-        let thickness = 0.1 + 0.05 * sin(p.y * 2.0 + time);
-        minDist = min(minDist, dist - thickness);
+fn calcNormal(p: vec3<f32>, t: f32) -> vec3<f32> {
+    const e = vec2(0.001, 0.);
+    return normalize(vec3(
+        map(p + e.xyy, t) - map(p - e.xyy, t),
+        map(p + e.yxy, t) - map(p - e.yxy, t),
+        map(p + e.yyx, t) - map(p - e.yyx, t)
+    ));
+}
+
+fn calcAO(p: vec3<f32>, n: vec3<f32>, t: f32) -> f32 {
+    var o = 0.; var s = 1.;
+    for(var i = 0; i < 5; i++) {
+        let h = 0.01 + 0.03*f32(i);
+        o += -(map(p + n*h, t) - h) * s;
+        s *= 0.95;
+    }
+    return max(0., min(1., 1. - o*params.ao_strength));
+}
+
+fn raymarch(ro: vec3<f32>, rd: vec3<f32>, t: f32) -> vec2<f32> {
+    var d = 0.;
+    for(var i = 0; i < 100; i++) {
+        let h = map(ro + rd*d, t);
+        if(h < 0.001) { return vec2(d, 1.); }
+        d += h * 0.5;
+        if(d > 20.) { break; }
+    }
+    return vec2(d, 0.);
+}
+
+// Light positions with optimal vector construction
+fn getLightPositions(t: f32, l: f32) -> array<vec3<f32>, 4> {
+    var p: array<vec3<f32>, 4>;
+    
+    for(var i = 0; i < 4; i++) {
+        let a = f32(i)*PI/2. + t*0.3;
+        let r = 4. + 0.8*sin(t*0.4 + f32(i));
+        p[i] = vec3(cos(a)*r, 2.*sin(t*0.2 + f32(i)*0.8)*l, sin(a)*r);
     }
     
-    return minDist;
+    return p;
 }
 
-
-fn getWaveLightPositions(time: f32, layer: f32) -> array<vec2<f32>, 4> {
-    var positions: array<vec2<f32>, 4>;
+fn getLightIntensity(p: vec3<f32>, n: vec3<f32>, rd: vec3<f32>, d: f32, l: f32, t: f32) -> f32 {
+    let lights = getLightPositions(t, l);
+    var i = 0.;
     
-    for(var i: i32 = 0; i < 4; i = i + 1) {
-        let angle = f32(i) * PI * 0.5 + time * 0.5;
-        let radius = 1.0 + 0.3 * sin(time * 0.7 + f32(i));
-        positions[i] = vec2<f32>(
-            cos(angle) * radius,
-            sin(angle) * radius + 0.2 * sin(time + layer * 2.0)
-        );
+    // Point lights using optimal vector math
+    for(var j = 0; j < 4; j++) {
+        let lv = lights[j] - p;
+        let ldist = length(lv);
+        i += max(0., dot(n, normalize(lv))) 
+           * (0.2 + 0.1*sin(l*5. + t*(0.5 + f32(j)*0.1))) 
+           / (1. + ldist*0.2);
     }
     
-    return positions;
+    let ao = 0.5 - l*0.1*(1. + 0.2*sin(l*8. + t));
+    let rim = pow(1. - abs(dot(n, -rd)),  1.) * params.fold_intensity;
+    
+    return (i * (1. + 0.1*sin(l*6. + t)*cos(l*4. - t*0.8)) * ao * 5. 
+         + rim*0.7);
 }
 
-fn getLightIntensity(uv: vec2<f32>, wave_dist: f32, layer: f32, time: f32) -> f32 {
-    let lights = getWaveLightPositions(time, layer);
-    var intensity: f32 = 0.0;
-    for(var i: i32 = 0; i < 4; i = i + 1) {
-        let light_pos = lights[i];
-        let dist = length(uv - light_pos);
-        let falloff = 1.0 / (1.0 + dist * 2.5);
-        let interference = 0.2 + 0.1 * sin(layer * 5.0 + time * (0.5 + f32(i) * 0.1));
-        intensity = intensity + falloff * interference;
-    }
-    //  ambient
-    let ao = 0.5 - (layer * 0.1) * (1.0 + 0.2 * sin(layer * 8.0 + time));
-    // rim lighting
-    let normal = normalize(vec2<f32>(wave_dist, 1.0));
-    let rim = params.fold_intensity - abs(dot(normalize(uv), normal));
-    let rim_light = pow(rim, 4.0);
-    
-    //  shimmer effect
-    let shimmer = sin(layer * 6.0 + time) * cos(layer * 4.0 - time * 0.8);
-    intensity = intensity * (1.0 + 0.1 * shimmer);
-    
-    return intensity * ao * 5.0 + rim_light * 0.7;
+// Environment light with vector dot product optimization
+fn getEnvironmentLight(p: vec3<f32>, n: vec3<f32>, l: f32, t: f32) -> f32 {
+    let ld = normalize(vec3(cos(t*0.5), sin(t*0.5), 0.5));
+    let depth = 1. - l/1.5;
+    let layer_fx = sin(l*3. + t)*0.3 + 0.7;
+    return mix(dot(n, ld)*0.5 + 0.5, layer_fx, 0.5) * depth * params.env_light_strength;
 }
 
-fn getEnvironmentLight(uv: vec2<f32>, layer: f32, time: f32) -> f32 {
-    let light_dir = normalize(vec2<f32>(cos(time * 0.5), sin(time * 0.5)));
-    let normal = normalize(uv);
-    var env_light = dot(normal, light_dir);
-    env_light = env_light * 0.5 + 0.5;
-    
-    let depth = 1.0 - (layer / 1.5);
-    let layer_effect = sin(layer * 3.0 + time) * 0.3 + 0.7;
-    
-    return mix(env_light, layer_effect, 0.5) * depth * 0.4;
-}
-
-fn gamma(color: vec3<f32>, gamma: f32) -> vec3<f32> {
-    return pow(color, vec3<f32>(1.0 / gamma));
+fn gamma(c: vec3<f32>, g: f32) -> vec3<f32> {
+    return pow(c, vec3(1./g));
 }
 
 @fragment
-fn fs_main(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
-    let bg = 0.4;
-    var frag_color = vec4<f32>(bg, bg, bg, 1.0);
-    let screen_size = u_resolution.dimensions;
-    let t = u_time.time * 0.5;
+fn fs_main(@builtin(position) fc: vec4<f32>) -> @location(0) vec4<f32> {
+    let t = u_time.time * params.wave_speed;
+    let ss = u_resolution.dimensions;
+    let uv = (fc.xy - ss*0.5) / min(ss.x, ss.y);
     
-    var i: f32 = params.light_intensity;
-    while(i > 1.1) {
-        let layer = i * 3.0;
-        
-        var uv = (FragCoord.xy - screen_size.xy * 0.5) / min(screen_size.x, screen_size.y);
-        
-        let wave = waveSDF(uv * params.falloff_distance, t, 3.0 + sin(layer + t) * 0.5, 0.5);
-        let alpha = smoothstep(params.rim_power, 0.1, (wave + 0.01) * screen_size.y * 0.2);
-        
-        let light_intensity = getLightIntensity(uv, wave, i, t);
-        let env_light = getEnvironmentLight(uv, layer, t);
-        
-        let color_intensity = 0.7 + 0.3 * sin(layer * 15.0 + t) * cos(layer * 10.0 - t * 0.5);
-        let scaled_color = params.rim_color * vec3<f32>(1.0, 2.0, 3.0) + vec3<f32>(1.0, 1.0, 1.0);
-        let hue = sin(i * 0.7 + vec4<f32>(scaled_color, 1.0) + wave * 0.5) * 0.25 + color_intensity;
-        
-        let lit_color = hue * (light_intensity + env_light);
-        
-        let depth_factor = 2.0 - (i - 0.003) / (1.5 - 0.003);
-        let iridescence = sin(dot(uv, uv) * 4.0 + t) * 0.15 * depth_factor + 0.9;
-        let lit_color_irid = lit_color * vec4<f32>(iridescence, iridescence * 0.98, iridescence * 1.02, 1.0);
-        
-        let mix_factor = 0.3 / (abs(wave) + 0.01) * (params.iridescence_power- depth_factor * 0.15);
-        frag_color = mix(lit_color_irid, frag_color, alpha) *
-                    mix(vec4<f32>(params.base_color,1.0), hue + alpha * params.wave_speed * (uv.x / (abs(wave) + 0.001) + light_intensity), mix_factor);
-        
-        i = i -1.0;
+    var col = vec4(0.3, 0.3, 0.33, 1.);
+    
+    let ca = t*0.05;
+    let ro = vec3(sin(ca)*5., 0., cos(ca)*5.);
+    
+    let ww = normalize(-ro);
+    let uu = normalize(cross(ww, vec3(0.,1.,0.)));
+    let vv = normalize(cross(uu, ww));
+    
+    let rd = normalize(uv.x*uu + uv.y*vv + 1.5*ww);
+    
+    if(raymarch(ro, rd, t).y > 0.5) {
+        // Layer processing with optimized loop
+        for(var i = 2.0; i > 1.1; i -= 0.3) {
+            let l = i*params.rim_power;
+            
+            // Layer-specific ray with parallax offset
+            let lr = normalize(rd + 0.01*vec3(sin(l*0.2), cos(l*0.3), 0.));
+            let r = raymarch(ro, lr, t);
+            
+            if(r.y > 0.5 && r.x < 20.) {
+                // Surface properties
+                let p = ro + r.x*lr;
+                let n = calcNormal(p, t);
+                let d = map(p, t);
+                
+                // Alpha with smoothstep
+                let a = smoothstep(0.0, 0.1, (d + 0.01)*0.2);
+                
+                // Lighting and color
+                let li = getLightIntensity(p, n, lr, d, i, t);
+                let el = getEnvironmentLight(p, n, l, t);
+                
+                let ci = 0.7 + 0.3*sin(l*15. + t)*cos(l*10. - t*0.5);
+                let sc = params.rim_color*vec3(1.,2.,3.) + 1.;
+                let h = sin(i*0.7 + vec4(sc, 1.) + d*0.5)*0.25 + ci;
+                
+                // Combined lighting
+                let lc = h * (li + el);
+                
+                // Depth-iridescence effect with dot-product
+                let df = 2. - (i - 0.003)/1.497;
+                let ir = sin(dot(p.xy, p.xy)*4. + t)*0.15*df + 0.9;
+                let lic = lc * vec4(ir, ir*0.98, ir*1.02, 1.);
+                let mf = 0.3/(abs(d) + 0.01)*(params.iridescence_power - df*0.15);
+                col = mix(lic, col, a) * mix(
+                    vec4(params.base_color, 1.),
+                    h + a*params.wave_speed*(uv.x/(abs(d) + 0.001) + li),
+                    mf
+                );
+            }
+        }
     }
     
-    frag_color = vec4<f32>(frag_color.rgb * 1.1, 1.0);
+    let v = 1. - dot((fc.xy - ss*0.5)/ss.y, (fc.xy - ss*0.5)/ss.y)*params.vignette_strength;
     
-    let vignette_uv = (FragCoord.xy - 0.5 * screen_size) / screen_size.y;
-    let vignette = 1.0 - dot(vignette_uv, vignette_uv) * 0.25;
-    
-    let final_color = gamma(frag_color.rgb * vignette, 0.45);
-    return vec4<f32>(final_color, frag_color.a);
+    return vec4(gamma(col.rgb*v*1.1, params.light_intensity), 1.);
 }

@@ -230,13 +230,13 @@ impl ShaderManager for Shader {
                 accent_color: [0.4, 0.6, 0.8],
                 _pad3: 0.0,
                 
-                light_intensity: 1.5,
-                rim_power: 0.0,
+                light_intensity: 0.45,
+                rim_power: 1.5,
                 ao_strength: 0.1,
                 env_light_strength: 0.3,
                 
                 iridescence_power: 0.4,
-                falloff_distance: 3.0,
+                falloff_distance: 0.5,
                 vignette_strength: 0.25,
                 num_cells: 12,
                 
@@ -347,20 +347,20 @@ impl ShaderManager for Shader {
                     ui.label("Rim Color");
                     
                     
-                    changed |= ui.add(egui::Slider::new(&mut params.light_intensity, 1.0..=12.0)
-                        .text("n")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.light_intensity, 0.3..=1.0)
+                        .text("gamma")).changed();
                     
-                    changed |= ui.add(egui::Slider::new(&mut params.rim_power, 0.0..=0.5)
+                    changed |= ui.add(egui::Slider::new(&mut params.rim_power, 0.5..=3.5)
                         .text("alpha")).changed();
                         
                     changed |= ui.add(egui::Slider::new(&mut params.iridescence_power, 0.0..=2.3)
                         .text("Iridescence")).changed();
                         
-                    changed |= ui.add(egui::Slider::new(&mut params.falloff_distance, 0.5..=24.0)
+                    changed |= ui.add(egui::Slider::new(&mut params.falloff_distance, 0.5..=1.0)
                         .text("Range")).changed();
                         
-                    changed |= ui.add(egui::Slider::new(&mut params.wave_speed, 0.0..=2.0)
-                        .text("ALPHA")).changed();
+                    changed |= ui.add(egui::Slider::new(&mut params.wave_speed, 0.0..=12.0)
+                        .text("motion")).changed();
                         
                     changed |= ui.add(egui::Slider::new(&mut params.fold_intensity, 0.1..=6.0)
                         .text("light")).changed();
