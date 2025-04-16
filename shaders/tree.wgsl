@@ -148,5 +148,6 @@ fn fs_pass4(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
     
     let result = pow(raw_result, vec4<f32>(params.lights));
     
-    return result;
+    let gamma = 1.4;
+    return pow(result, vec4<f32>(gamma));
 }
