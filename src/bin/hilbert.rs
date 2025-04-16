@@ -1,6 +1,5 @@
-use cuneus::{Core,Renderer,ShaderApp, ShaderManager, UniformProvider, UniformBinding, RenderKit,ExportSettings, ExportError, ExportManager,ShaderHotReload,ShaderControls};
+use cuneus::{Core,Renderer,ShaderApp, ShaderManager, UniformProvider, UniformBinding, RenderKit,ExportManager,ShaderHotReload,ShaderControls};
 use winit::event::*;
-use image::ImageError;
 use std::path::PathBuf;
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -119,41 +118,11 @@ impl Shader {
         }
         Ok(unpadded_data)
     }
-    #[allow(unused_mut)]
-    fn save_frame(&self, mut data: Vec<u8>, frame: u32, settings: &ExportSettings) -> Result<(), ExportError> {
-        let frame_path = settings.export_path
-            .join(format!("frame_{:05}.png", frame));
-        
-        if let Some(parent) = frame_path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        #[cfg(target_os = "macos")]
-        {
-            for chunk in data.chunks_mut(4) {
-                chunk.swap(0, 2);
-            }
-        }
-        let image = image::ImageBuffer::<image::Rgba<u8>, Vec<u8>>::from_raw(
-            settings.width,
-            settings.height,
-            data
-        ).ok_or_else(|| ImageError::Parameter(
-            image::error::ParameterError::from_kind(
-                image::error::ParameterErrorKind::Generic(
-                    "Failed to create image buffer".to_string()
-                )
-            )
-        ))?;
-        
-        image.save(&frame_path)?;
-        Ok(())
-    }
-
     fn handle_export(&mut self, core: &Core) {
         if let Some((frame, time)) = self.base.export_manager.try_get_next_frame() {
             if let Ok(data) = self.capture_frame(core, time) {
                 let settings = self.base.export_manager.settings();
-                if let Err(e) = self.save_frame(data, frame, settings) {
+                if let Err(e) = cuneus::save_frame(data, frame, settings) {
                     eprintln!("Error saving frame: {:?}", e);
                 }
             }
