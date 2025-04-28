@@ -20,7 +20,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     );
     let col = 0.5 + 0.5 * cos(
         u_time.time + 
-        uv.xyx * 10.0 + 
+        uv.xyx * 1.0 + 
         vec3<f32>(0.0, 2.0, 4.0)
     );
     textureStore(output, global_id.xy, vec4<f32>(col, 1.0));
