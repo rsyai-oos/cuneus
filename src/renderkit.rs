@@ -5,6 +5,7 @@ use crate::gst::video::VideoTextureManager;
 use std::path::Path;
 use log::{warn, info, error};
 use crate::spectrum::SpectrumAnalyzer;
+use crate::compute::ComputeShader;
 use crate::{Core, Renderer, TextureManager, UniformProvider, UniformBinding,KeyInputHandler,ExportManager,ShaderControls,ControlsRequest,ResolutionUniform};
 #[cfg(target_os = "macos")]
 pub const CAPTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8UnormSrgb;
@@ -37,6 +38,7 @@ pub struct RenderKit {
     pub export_manager: ExportManager,
     pub controls: ShaderControls,
     pub spectrum_analyzer: SpectrumAnalyzer,
+    pub compute_shader: Option<ComputeShader>,
 }
 impl RenderKit {
     pub fn new(
@@ -175,6 +177,7 @@ impl RenderKit {
             export_manager: ExportManager::new(),
             controls: ShaderControls::new(),
             spectrum_analyzer: SpectrumAnalyzer::new(),
+            compute_shader: None,
         }
     }
 
@@ -499,7 +502,47 @@ impl RenderKit {
             }
         }
     }
+    pub fn create_compute_shader(
+        &mut self,
+        core: &Core,
+        shader_source: &str,
+        entry_point: &str,
+        workgroup_size: [u32; 3],
+        workgroup_count: Option<[u32; 3]>,
+        dispatch_once: bool,
+    ) {
+        self.compute_shader = Some(ComputeShader::new(
+            core,
+            shader_source,
+            entry_point,
+            workgroup_size,
+            workgroup_count,
+            dispatch_once,
+        ));
+    }
     
+    pub fn dispatch_compute_shader(&mut self, encoder: &mut wgpu::CommandEncoder, core: &Core) {
+        if let Some(compute) = &mut self.compute_shader {
+            compute.dispatch(encoder, core);
+        }
+    }
+    
+    pub fn get_compute_output_texture(&self) -> Option<&TextureManager> {
+        self.compute_shader.as_ref().map(|compute| compute.get_output_texture())
+    }
+    
+    pub fn resize_compute_shader(&mut self, core: &Core) {
+        if let Some(compute) = &mut self.compute_shader {
+            compute.resize(core, core.size.width, core.size.height);
+        }
+    }
+    
+    pub fn update_compute_shader_time(&mut self, elapsed: f32, delta: f32, queue: &wgpu::Queue) {
+        if let Some(compute) = &mut self.compute_shader {
+            compute.set_time(elapsed, delta, queue);
+        }
+    }
+
     /// Get video information if a video texture is loaded
     pub fn get_video_info(&self) -> Option<(Option<f32>, f32, (u32, u32), Option<f32>, bool, bool, f64, bool)> {
         if self.using_video_texture {
