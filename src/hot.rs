@@ -6,19 +6,28 @@ use std::sync::mpsc::{channel, Receiver};
 use std::time::{Duration, Instant};
 use std::collections::HashMap;
 
+pub enum ShaderType {
+    RenderPair, // Vertex + Fragment
+    Compute     // Compute
+}
+
 pub struct ShaderHotReload {
     pub vs_module: wgpu::ShaderModule,
     pub fs_module: wgpu::ShaderModule,
+    compute_module: Option<wgpu::ShaderModule>,
     device: Arc<wgpu::Device>,
     shader_paths: Vec<PathBuf>,
     last_vs_content: String,
     last_fs_content: String,
+    last_compute_content: Option<String>,
     #[allow(dead_code)]
     watcher: notify::RecommendedWatcher,
     rx: Receiver<notify::Event>,
     _watcher_tx: std::sync::mpsc::Sender<notify::Event>,
-    last_update_times: HashMap<PathBuf, Instant>, //Keeps track of when each shader file was last updated.
-    debounce_duration: Duration, //Defines how long to wait before allowing another reload of the same file. The default is 100ms.
+    last_update_times: HashMap<PathBuf, Instant>,
+    debounce_duration: Duration,
+    shader_type: ShaderType,
+    entry_point: Option<String>, // 4 compute shaders
 }
 
 impl ShaderHotReload {
@@ -30,8 +39,6 @@ impl ShaderHotReload {
     ) -> notify::Result<Self> {
         let (tx, rx) = channel();
         let watcher_tx = tx.clone();
-
-
 
         let mut watcher = notify::recommended_watcher(move |res: Result<Event, _>| {
             if let Ok(event) = res {
@@ -77,21 +84,91 @@ impl ShaderHotReload {
         Ok(Self {
             vs_module,
             fs_module,
+            compute_module: None,
             device,
             shader_paths: normalized_paths,
             last_vs_content,
             last_fs_content,
+            last_compute_content: None,
             watcher,
             rx,
             _watcher_tx: watcher_tx,
             last_update_times: HashMap::new(),
             debounce_duration: Duration::from_millis(100),
+            shader_type: ShaderType::RenderPair,
+            entry_point: None,
+        })
+    }
+    pub fn new_compute(
+        device: Arc<wgpu::Device>,
+        shader_path: PathBuf,
+        compute_module: wgpu::ShaderModule,
+        entry_point: &str,
+    ) -> notify::Result<Self> {
+        let (tx, rx) = channel();
+        let watcher_tx = tx.clone();
+
+        let mut watcher = notify::recommended_watcher(move |res: Result<Event, _>| {
+            if let Ok(event) = res {
+                match event.kind {
+                    EventKind::Modify(_) |
+                    EventKind::Create(_) |
+                    EventKind::Remove(_)
+                    => {
+                        tx.send(event).unwrap_or_default();
+                    },
+                    _ => {}
+                }
+            }
+        })?;
+
+        let normalized_path = Self::normalize_path(&shader_path);
+        let shader_paths = vec![normalized_path.clone()];
+
+        if let Some(parent) = normalized_path.parent() {
+            if !parent.exists() {
+                fs::create_dir_all(parent).unwrap_or_else(|e| {
+                    println!("Failed to create shader directory: {}", e);
+                });
+            }
+            
+            if let Err(e) = watcher.watch(parent, RecursiveMode::Recursive) {
+                println!("Warning: Could not watch shader directory {}: {}", parent.display(), e);
+                if cfg!(windows) {
+                    if let Err(e) = watcher.watch(parent, RecursiveMode::NonRecursive) {
+                        println!("Fallback watch failed: {}", e);
+                    }
+                }
+            }
+        }
+
+        let last_compute_content = fs::read_to_string(&normalized_path).unwrap_or_default();
+        let dummy_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Dummy Shader Module"),
+            source: wgpu::ShaderSource::Wgsl("".into()),
+        });
+
+        Ok(Self {
+            vs_module: dummy_shader.clone(),
+            fs_module: dummy_shader,
+            compute_module: Some(compute_module),
+            device,
+            shader_paths,
+            last_vs_content: String::new(),
+            last_fs_content: String::new(),
+            last_compute_content: Some(last_compute_content),
+            watcher,
+            rx,
+            _watcher_tx: watcher_tx,
+            last_update_times: HashMap::new(),
+            debounce_duration: Duration::from_millis(100),
+            shader_type: ShaderType::Compute,
+            entry_point: Some(entry_point.to_string()),
         })
     }
 
     fn normalize_path(path: &Path) -> PathBuf {
         if cfg!(windows) {
-            
             path.components()
                 .collect::<PathBuf>()
                 .canonicalize()
@@ -102,6 +179,16 @@ impl ShaderHotReload {
     }
 
     pub fn check_and_reload(&mut self) -> Option<(&wgpu::ShaderModule, &wgpu::ShaderModule)> {
+        match self.shader_type {
+            ShaderType::RenderPair => self.reload_render_shaders(),
+            ShaderType::Compute => {
+                self.reload_compute_shader();
+                None
+            }
+        }
+    }
+
+    fn reload_render_shaders(&mut self) -> Option<(&wgpu::ShaderModule, &wgpu::ShaderModule)> {
         let mut should_reload = false;
         
         // Process all pending events
@@ -160,6 +247,51 @@ impl ShaderHotReload {
 
         Some((&self.vs_module, &self.fs_module))
     }
+    pub fn reload_compute_shader(&mut self) -> Option<&wgpu::ShaderModule> {
+        let mut should_reload = false;
+        while let Ok(event) = self.rx.try_recv() {
+            for path in event.paths {
+                let now = Instant::now();
+                
+                if let Some(last_update) = self.last_update_times.get(&path) {
+                    if now.duration_since(*last_update) < self.debounce_duration {
+                        continue;
+                    }
+                }
+                
+                self.last_update_times.insert(path.clone(), now);
+                should_reload = true;
+            }
+        }
+
+        if !should_reload {
+            return None;
+        }
+
+        let compute_content = match fs::read_to_string(&self.shader_paths[0]) {
+            Ok(content) => content,
+            Err(e) => {
+                eprintln!("Failed to read compute shader: {}", e);
+                return None;
+            }
+        };
+        
+        if let Some(ref last_content) = self.last_compute_content {
+            if compute_content == *last_content {
+                return None;
+            }
+        }
+
+        let new_compute = match self.create_shader_module(&compute_content, "Compute Shader") {
+            Some(module) => module,
+            None => return None,
+        };
+        
+        self.last_compute_content = Some(compute_content);
+        self.compute_module = Some(new_compute);
+
+        self.compute_module.as_ref()
+    }
 
     fn create_shader_module(&self, source: &str, label: &str) -> Option<wgpu::ShaderModule> {
         let desc = wgpu::ShaderModuleDescriptor {
@@ -182,5 +314,13 @@ impl ShaderHotReload {
                 None
             }
         }
+    }
+    
+    pub fn entry_point(&self) -> Option<&str> {
+        self.entry_point.as_deref()
+    }
+    
+    pub fn get_compute_module(&self) -> Option<&wgpu::ShaderModule> {
+        self.compute_module.as_ref()
     }
 }

@@ -1,4 +1,6 @@
-use crate::{Core, UniformProvider, UniformBinding, TextureManager};
+use crate::{Core, UniformProvider, UniformBinding, TextureManager,ShaderHotReload};
+use std::sync::Arc;
+use std::path::PathBuf;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -26,6 +28,9 @@ pub struct ComputeShader {
     pub time_bind_group_layout: wgpu::BindGroupLayout,
     pub storage_texture_layout: wgpu::BindGroupLayout,
     pub storage_bind_group: wgpu::BindGroup,
+    pub hot_reload: Option<ShaderHotReload>,
+    pub pipeline_layout: wgpu::PipelineLayout,
+    pub entry_point: String,
 }
 
 impl ComputeShader {
@@ -188,7 +193,48 @@ impl ComputeShader {
             time_bind_group_layout,
             storage_texture_layout,
             storage_bind_group,
+            hot_reload: None,
+            pipeline_layout,
+            entry_point: entry_point.to_string(),
         }
+    }
+    pub fn enable_hot_reload(&mut self, 
+        device: Arc<wgpu::Device>, 
+        shader_path: PathBuf, 
+        shader_module: wgpu::ShaderModule,
+    ) -> Result<(), notify::Error> {
+        let hot_reload = ShaderHotReload::new_compute(
+            device,
+            shader_path,
+            shader_module,
+            &self.entry_point,
+        )?;
+        
+        self.hot_reload = Some(hot_reload);
+        Ok(())
+    }
+    pub fn check_hot_reload(&mut self, device: &wgpu::Device) -> bool {
+        if let Some(hot_reload) = &mut self.hot_reload {
+            // Get the entry point BEFORE we mutably borrow for check_and_reload
+            let entry_point = hot_reload.entry_point().map(String::from);
+            // Call reload_compute_shader directly for compute shaders
+            if let Some(new_module) = hot_reload.reload_compute_shader() {
+                // Create a new pipeline with the updated shader
+                let entry_point_to_use = entry_point.as_deref().unwrap_or(&self.entry_point);
+                let new_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: Some("Updated Compute Pipeline"),
+                    layout: Some(&self.pipeline_layout),
+                    module: new_module,
+                    entry_point: Some(entry_point_to_use),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    cache: None,
+                });
+                self.pipeline = new_pipeline;
+                println!("Compute shader hot-reloaded at frame: {}", self.current_frame);
+                return true;
+            }
+        }
+        false
     }
 
     pub fn set_time(&mut self, elapsed: f32, delta: f32, queue: &wgpu::Queue) {
@@ -199,6 +245,7 @@ impl ComputeShader {
     }
     
     pub fn dispatch(&mut self, encoder: &mut wgpu::CommandEncoder, core: &Core) {
+        self.check_hot_reload(&core.device);
         if self.dispatch_once && self.current_frame > 0 {
             return;
         }

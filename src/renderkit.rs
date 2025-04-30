@@ -521,6 +521,26 @@ impl RenderKit {
         ));
     }
     
+    pub fn enable_compute_hot_reload(&mut self, core: &Core, shader_path: &Path) -> Result<(), notify::Error> {
+        if let Some(compute_shader) = &mut self.compute_shader {
+            let shader_source = std::fs::read_to_string(shader_path)?;
+            let shader_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Compute Shader Hot Reload"),
+                source: wgpu::ShaderSource::Wgsl(shader_source.into()),
+            });
+            compute_shader.enable_hot_reload(
+                core.device.clone(),
+                shader_path.to_path_buf(),
+                shader_module,
+            )?;
+            
+            println!("Compute shader hot reload enabled for: {}", shader_path.display());
+            Ok(())
+        } else {
+            Err(notify::Error::generic("No compute shader initialized"))
+        }
+    }
+    
     pub fn dispatch_compute_shader(&mut self, encoder: &mut wgpu::CommandEncoder, core: &Core) {
         if let Some(compute) = &mut self.compute_shader {
             compute.dispatch(encoder, core);

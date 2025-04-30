@@ -1,5 +1,6 @@
 use cuneus::{Core, ShaderApp, ShaderManager, RenderKit, ShaderControls};
 use winit::event::*;
+use std::path::PathBuf;
 
 struct ComputeExample {
     base: RenderKit,
@@ -53,7 +54,9 @@ impl ShaderManager for ComputeExample {
             None,
             false,
         );
-
+        if let Err(e) = base.enable_compute_hot_reload(core, &PathBuf::from("shaders/compute_basic.wgsl")) {
+            eprintln!("Failed to enable compute shader hot reload: {}", e);
+        }
         Self { base }
     }
 
