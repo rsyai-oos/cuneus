@@ -398,7 +398,7 @@ impl ShaderManager for ColorProjection {
             cache: None,
         });
         
-        // Create initial compute bind group
+        // Create initial compute bind group with default texture
         let compute_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &compute_bind_group_layout,
             entries: &[
@@ -488,43 +488,21 @@ impl ShaderManager for ColorProjection {
                 cache: None,
             });
         }
-        
-        // Use a static flag to track texture changes: This is a hack to avoid currently I dont get the source of the problem, will fix it later
-        static mut LAST_TEXTURE_ID: usize = 0;
-        let current_texture_id = if self.base.using_video_texture {
-            if let Some(ref vm) = self.base.video_texture_manager {
-                vm as *const _ as usize
-            } else {
-                0
-            }
-        } else if let Some(ref tm) = self.base.texture_manager {
-            tm as *const _ as usize
+        let video_updated = if self.base.using_video_texture {
+            self.base.update_video_texture(core, &core.queue)
         } else {
-            0
+            false
         };
-        
-        let mut video_updated = false;
-        if self.base.using_video_texture {
-            video_updated = self.base.update_video_texture(core, &core.queue);
-        }
-        
-        let texture_changed = unsafe {
-            if LAST_TEXTURE_ID != current_texture_id {
-                LAST_TEXTURE_ID = current_texture_id;
-                true
-            } else {
-                false
-            }
-        };
-        
-        if texture_changed || video_updated {
+        if video_updated {
             self.recreate_compute_resources(core);
         }
         
+        // Handle export if needed
         if self.base.export_manager.is_exporting() {
             self.handle_export(core);
         }
     }
+
     
     fn resize(&mut self, core: &Core) {
         println!("Resizing to {:?}", core.size);
