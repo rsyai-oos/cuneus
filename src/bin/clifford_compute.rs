@@ -1,9 +1,8 @@
-// Example of a compute shader using the Clifford attractor (please see frag version: clifford.rs)
-use cuneus::{Core, ShaderManager, UniformProvider, UniformBinding, RenderKit, ShaderControls, ExportManager, ShaderHotReload};
-use std::path::PathBuf;
+use cuneus::{Core, ShaderManager, UniformProvider, UniformBinding, RenderKit, ShaderControls, ExportManager};
+use cuneus::compute::{create_bind_group_layout, BindGroupLayoutType};
 use winit::event::WindowEvent;
 
-// Parameter struct for Clifford attractor. this is similar to the fragment shader version, nothing new here
+// Parameter struct for Clifford attractor
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct ComputeParams {
@@ -47,10 +46,6 @@ struct CliffordCompute {
     params_uniform: UniformBinding<ComputeParams>,
     compute_time_uniform: UniformBinding<cuneus::compute::ComputeTimeUniform>,
     
-    // Compute-specific components
-    compute_pipeline_points: wgpu::ComputePipeline,
-    compute_pipeline_feedback: wgpu::ComputePipeline,
-    
     // Texture ping-pong
     texture_pair: TexturePair,
     frame_count: u32,
@@ -59,40 +54,16 @@ struct CliffordCompute {
     // Bind group layouts
     compute_bind_group_layout: wgpu::BindGroupLayout,
     atomic_bind_group_layout: wgpu::BindGroupLayout,
-    time_bind_group_layout: wgpu::BindGroupLayout,
-    params_bind_group_layout: wgpu::BindGroupLayout,
     
     // Atomic buffer for point accumulation
     atomic_buffer: cuneus::AtomicBuffer,
     
-    // Hot reload 
-    hot_reload: cuneus::ShaderHotReload,
+    // Compute pipelines
+    compute_pipeline_points: wgpu::ComputePipeline,
+    compute_pipeline_feedback: wgpu::ComputePipeline,
 }
 
 impl CliffordCompute {
-    // Helper method to create a storage texture for compute shader output, I probably put those backend in the future
-    fn create_storage_texture(
-        device: &wgpu::Device, 
-        width: u32, 
-        height: u32, 
-        label: &str
-    ) -> wgpu::Texture {
-        device.create_texture(&wgpu::TextureDescriptor {
-            label: Some(label),
-            size: wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba16Float,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
-            view_formats: &[],
-        })
-    }
-    
     // Create a pair of ping-pong textures with necessary bind groups
     fn create_texture_pair(
         device: &wgpu::Device,
@@ -102,8 +73,21 @@ impl CliffordCompute {
         texture_bind_group_layout: &wgpu::BindGroupLayout,
     ) -> TexturePair {
         // Create two storage textures for ping-pong
-        let texture_a = Self::create_storage_texture(device, width, height, "Compute Texture A");
-        let texture_b = Self::create_storage_texture(device, width, height, "Compute Texture B");
+        let texture_a = cuneus::compute::create_storage_texture(
+            device, 
+            width, 
+            height, 
+            cuneus::compute::COMPUTE_TEXTURE_FORMAT_RGBA16,
+            "Compute Texture A"
+        );
+        
+        let texture_b = cuneus::compute::create_storage_texture(
+            device, 
+            width, 
+            height, 
+            cuneus::compute::COMPUTE_TEXTURE_FORMAT_RGBA16,
+            "Compute Texture B"
+        );
         
         // Create views and sampler
         let view_a = texture_a.create_view(&wgpu::TextureViewDescriptor::default());
@@ -206,7 +190,6 @@ impl CliffordCompute {
         }
     }
     
-    // same as the fragment shader version. LGTM for now
     fn capture_frame(&mut self, core: &Core, time: f32) -> Result<Vec<u8>, wgpu::SurfaceError> {
         let settings = self.base.export_manager.settings();
         let (capture_texture, output_buffer) = self.base.create_capture_texture(
@@ -278,6 +261,7 @@ impl CliffordCompute {
         }
         Ok(unpadded_data)
     }
+    
     fn handle_export(&mut self, core: &Core) {
         if let Some((frame, time)) = self.base.export_manager.try_get_next_frame() {
             if let Ok(data) = self.capture_frame(core, time) {
@@ -290,6 +274,7 @@ impl CliffordCompute {
             self.base.export_manager.complete_export();
         }
     }
+    
     fn recreate_textures(&mut self, core: &Core) {
         let texture_pair = Self::create_texture_pair(
             &core.device,
@@ -312,7 +297,7 @@ impl CliffordCompute {
 
 impl ShaderManager for CliffordCompute {
     fn init(core: &Core) -> Self {
-        // Those are the mostly same as the fragment shader version
+        // Create the standard fragment texture bind group layout
         let texture_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -334,88 +319,24 @@ impl ShaderManager for CliffordCompute {
             ],
             label: Some("texture_bind_group_layout"),
         });
-        let time_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-            label: Some("time_bind_group_layout"),
-        });
-        let params_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-            label: Some("params_bind_group_layout"),
-        });
-        let atomic_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage { read_only: false },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-            label: Some("atomic_bind_group_layout"),
-        });
         
-        let buffer_size = core.config.width * core.config.height;
-        let atomic_buffer = cuneus::AtomicBuffer::new(
-            &core.device,
-            buffer_size,
-            &atomic_bind_group_layout,
+        // Create specialized bind group layouts using our utility functions
+        let time_bind_group_layout = create_bind_group_layout(
+            &core.device, 
+            BindGroupLayoutType::TimeUniform, 
+            "Clifford Compute"
         );
-        let params_uniform = UniformBinding::new(
-            &core.device,
-            "Compute Params Uniform",
-            ComputeParams {
-                decay: 0.9,
-                speed: 1.0,
-                intensity: 1.0,
-                scale: 1.0,
-                rotation_x: 0.0,
-                rotation_y: 0.0,
-                rotation_z: 0.0,
-                rotation_speed: 0.15,
-                attractor_a: 1.7,
-                attractor_b: 1.7,
-                attractor_c: 0.6,
-                attractor_d: 1.2,
-                attractor_animate_amount: 1.0,
-                num_points: 222,
-                iterations_per_point: 15,
-                clear_buffer: 1,
-                _padding: 0,
-            },
-            &params_bind_group_layout,
-            0,
+        
+        let params_bind_group_layout = create_bind_group_layout(
+            &core.device, 
+            BindGroupLayoutType::CustomUniform, 
+            "Clifford Params"
         );
-        let compute_time_uniform = UniformBinding::new(
-            &core.device,
-            "Compute Time Uniform",
-            cuneus::compute::ComputeTimeUniform {
-                time: 0.0,
-                delta: 0.0,
-                frame: 0,
-                _padding: 0,
-            },
-            &time_bind_group_layout,
-            0,
+        
+        let atomic_bind_group_layout = create_bind_group_layout(
+            &core.device, 
+            BindGroupLayoutType::AtomicBuffer, 
+            "Clifford Compute"
         );
         
         // Create compute bind group layout
@@ -442,7 +363,7 @@ impl ShaderManager for CliffordCompute {
                     visibility: wgpu::ShaderStages::COMPUTE,
                     ty: wgpu::BindingType::StorageTexture {
                         access: wgpu::StorageTextureAccess::WriteOnly,
-                        format: wgpu::TextureFormat::Rgba16Float,
+                        format: cuneus::compute::COMPUTE_TEXTURE_FORMAT_RGBA16,
                         view_dimension: wgpu::TextureViewDimension::D2,
                     },
                     count: None,
@@ -450,6 +371,54 @@ impl ShaderManager for CliffordCompute {
             ],
             label: Some("compute_bind_group_layout"),
         });
+        
+        // Create atomic buffer
+        let buffer_size = core.config.width * core.config.height;
+        let atomic_buffer = cuneus::AtomicBuffer::new(
+            &core.device,
+            buffer_size,
+            &atomic_bind_group_layout,
+        );
+        
+        // Create params uniform
+        let params_uniform = UniformBinding::new(
+            &core.device,
+            "Compute Params Uniform",
+            ComputeParams {
+                decay: 0.9,
+                speed: 1.0,
+                intensity: 1.0,
+                scale: 1.0,
+                rotation_x: 0.0,
+                rotation_y: 0.0,
+                rotation_z: 0.0,
+                rotation_speed: 0.15,
+                attractor_a: 1.7,
+                attractor_b: 1.7,
+                attractor_c: 0.6,
+                attractor_d: 1.2,
+                attractor_animate_amount: 1.0,
+                num_points: 222,
+                iterations_per_point: 15,
+                clear_buffer: 1,
+                _padding: 0,
+            },
+            &params_bind_group_layout,
+            0,
+        );
+        
+        let compute_time_uniform = UniformBinding::new(
+            &core.device,
+            "Compute Time Uniform",
+            cuneus::compute::ComputeTimeUniform {
+                time: 0.0,
+                delta: 0.0,
+                frame: 0,
+                _padding: 0,
+            },
+            &time_bind_group_layout,
+            0,
+        );
         
         // Create texture pair
         let texture_pair = Self::create_texture_pair(
@@ -461,18 +430,11 @@ impl ShaderManager for CliffordCompute {
         );
         
         // Create compute shader module
+        let shader_source = include_str!("../../shaders/clifford_compute.wgsl");
         let cs_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Clifford Compute Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/clifford_compute.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(shader_source.into()),
         });
-        
-        // Set up hot reload
-        let hot_reload = ShaderHotReload::new_compute(
-            core.device.clone(),
-            PathBuf::from("shaders/clifford_compute.wgsl"),
-            cs_module.clone(),
-            "compute_points", // Entry point
-        ).expect("Failed to initialize hot reload");
         
         // Create compute pipeline layout
         let compute_pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -525,50 +487,11 @@ impl ShaderManager for CliffordCompute {
             source_is_a: false,
             compute_bind_group_layout,
             atomic_bind_group_layout,
-            time_bind_group_layout,
-            params_bind_group_layout,
             atomic_buffer,
-            hot_reload,
         }
     }
     
     fn update(&mut self, core: &Core) {
-        // Check for shader hot reload
-        if let Some(new_shader) = self.hot_reload.reload_compute_shader() {
-            println!("Reloading compute shader at time: {:.2}s", self.base.start_time.elapsed().as_secs_f32());
-            
-            // Create new compute pipeline layout
-            let compute_pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Updated Compute Pipeline Layout"),
-                bind_group_layouts: &[
-                    &self.time_bind_group_layout,
-                    &self.params_bind_group_layout,
-                    &self.compute_bind_group_layout,
-                    &self.atomic_bind_group_layout,
-                ],
-                push_constant_ranges: &[],
-            });
-            
-            // Create new compute pipelines with the updated shader
-            self.compute_pipeline_points = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Updated Compute Points Pipeline"),
-                layout: Some(&compute_pipeline_layout),
-                module: new_shader,
-                entry_point: Some("compute_points"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                cache: None,
-            });
-            
-            self.compute_pipeline_feedback = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Updated Compute Feedback Pipeline"),
-                layout: Some(&compute_pipeline_layout),
-                module: new_shader,
-                entry_point: Some("compute_feedback"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                cache: None,
-            });
-        }
-        
         // Handle exports if needed
         if self.base.export_manager.is_exporting() {
             self.handle_export(core);
@@ -713,15 +636,11 @@ impl ShaderManager for CliffordCompute {
             &self.texture_pair.bind_group_b
         };
         
-        // Calculate workgroup dispatch dimensions, 16 generally works well for compute shaders
+        // Calculate workgroup dispatch dimensions
         let width = core.size.width.div_ceil(16);
         let height = core.size.height.div_ceil(16);
         
-
-        let dispatch_width = width;
-        let dispatch_height = height;
-        
-        // First compute pass
+        // First compute pass - Points
         {
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("Points Compute Pass"),
@@ -734,10 +653,10 @@ impl ShaderManager for CliffordCompute {
             compute_pass.set_bind_group(2, source_bind_group, &[]);
             compute_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]);
             
-            compute_pass.dispatch_workgroups(dispatch_width, dispatch_height, 1);
+            compute_pass.dispatch_workgroups(width, height, 1);
         }
         
-        // Second compute pass
+        // Second compute pass - Feedback
         {
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some("Feedback Compute Pass"),
@@ -750,8 +669,7 @@ impl ShaderManager for CliffordCompute {
             compute_pass.set_bind_group(2, source_bind_group, &[]);
             compute_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]);
             
-            // Use the same limited workgroup count for efficiency
-            compute_pass.dispatch_workgroups(dispatch_width, dispatch_height, 1);
+            compute_pass.dispatch_workgroups(width, height, 1);
         }
         
         // Render the result to screen

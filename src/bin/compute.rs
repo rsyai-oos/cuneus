@@ -1,17 +1,10 @@
 use cuneus::{Core, ShaderApp, ShaderManager, RenderKit, ShaderControls};
+use cuneus::compute::{ComputeShaderConfig, COMPUTE_TEXTURE_FORMAT_RGBA16};
 use winit::event::*;
 use std::path::PathBuf;
 
 struct ComputeExample {
     base: RenderKit,
-}
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    env_logger::init();
-    let (app, event_loop) = ShaderApp::new("Compute Shader Example", 800, 600);
-    app.run(event_loop, |core| {
-        ComputeExample::init(core)
-    })
 }
 
 impl ShaderManager for ComputeExample {
@@ -37,7 +30,6 @@ impl ShaderManager for ComputeExample {
                 },
             ],
         });
-
         let mut base = RenderKit::new(
             core,
             include_str!("../../shaders/vertex.wgsl"),
@@ -45,18 +37,42 @@ impl ShaderManager for ComputeExample {
             &[&texture_bind_group_layout],
             None,
         );
-
-        base.create_compute_shader(
+        let compute_config = ComputeShaderConfig {
+            workgroup_size: [16, 16, 1],
+            workgroup_count: None,  // Auto-determine from texture size
+            dispatch_once: false,   // Run every frame
+            storage_texture_format: COMPUTE_TEXTURE_FORMAT_RGBA16,
+            enable_atomic_buffer: false,  // Not needed for this simple shader
+            atomic_buffer_multiples: 4,
+            entry_points: vec!["main".to_string()],  // Single entry point
+            sampler_address_mode: wgpu::AddressMode::ClampToEdge,
+            sampler_filter_mode: wgpu::FilterMode::Linear,
+            label: "Basic Compute".to_string(),
+        };
+        
+        // Create compute shader with our backend
+        base.compute_shader = Some(cuneus::compute::ComputeShader::new_with_config(
             core,
             include_str!("../../shaders/compute_basic.wgsl"),
-            "main",
-            [16, 16, 1],
-            None,
-            false,
-        );
-        if let Err(e) = base.enable_compute_hot_reload(core, &PathBuf::from("shaders/compute_basic.wgsl")) {
-            eprintln!("Failed to enable compute shader hot reload: {}", e);
+            compute_config,
+        ));
+        
+        // Enable hot reload if desired
+        if let Some(compute_shader) = &mut base.compute_shader {
+            // Create shader module for hot reload
+            let shader_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Basic Compute Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/compute_basic.wgsl").into()),
+            });
+            if let Err(e) = compute_shader.enable_hot_reload(
+                core.device.clone(),
+                PathBuf::from("shaders/compute_basic.wgsl"),
+                shader_module,
+            ) {
+                eprintln!("Failed to enable compute shader hot reload: {}", e);
+            }
         }
+        
         Self { base }
     }
 
@@ -66,12 +82,12 @@ impl ShaderManager for ComputeExample {
         let delta = 1.0/60.0; // Approximate delta time
         self.base.update_compute_shader_time(current_time, delta, &core.queue);
     }
-
     fn resize(&mut self, core: &Core) {
+        // Update resolution uniform
         self.base.update_resolution(&core.queue, core.size);
+        // Resize compute shader resources
         self.base.resize_compute_shader(core);
     }
-
     fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {
         let output = core.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -84,20 +100,36 @@ impl ShaderManager for ComputeExample {
                 ctx.style_mut(|style| {
                     style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(0, 0, 0, 180);
                 });
-
-                egui::Window::new("Compute Shader Controls").show(ctx, |ui| {
-                    ui.label("Controls");
-                    ShaderControls::render_controls_widget(ui, &mut controls_request);
-                });
+                
+                egui::Window::new("Compute Shader Controls")
+                    .show(ctx, |ui| {
+                        // Time controls (play/pause/reset)
+                        ui.heading("Controls");
+                        ShaderControls::render_controls_widget(ui, &mut controls_request);
+                        
+                        // Add any shader-specific controls here
+                        ui.separator();
+                        ui.label("Press 'H' to toggle this UI");
+                        ui.label("Press 'F' to toggle fullscreen");
+                    });
             })
         } else {
+            // Empty UI if hidden
             self.base.render_ui(core, |_ctx| {})
         };
+        
+        // Apply control requests (play/pause/etc)
         self.base.apply_control_request(controls_request);
+        
+        // Create command encoder
         let mut encoder = core.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Render Encoder"),
         });
+        
+        // Run compute shader
         self.base.dispatch_compute_shader(&mut encoder, core);
+        
+        // Render compute output to screen
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Main Render Pass"),
@@ -113,6 +145,7 @@ impl ShaderManager for ComputeExample {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
+            // Draw the compute shader output
             if let Some(compute_texture) = self.base.get_compute_output_texture() {
                 render_pass.set_pipeline(&self.base.renderer.render_pipeline);
                 render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
@@ -121,18 +154,31 @@ impl ShaderManager for ComputeExample {
             }
         }
         self.base.handle_render_output(core, &view, full_output, &mut encoder);
+        // Submit work and present
         core.queue.submit(Some(encoder.finish()));
         output.present();
         Ok(())
     }
 
     fn handle_input(&mut self, core: &Core, event: &WindowEvent) -> bool {
+        // Handle egui events
         if self.base.egui_state.on_window_event(core.window(), event).consumed {
             return true;
         }
+        // Handle keyboard input
         if let WindowEvent::KeyboardInput { event, .. } = event {
             return self.base.key_handler.handle_keyboard_input(core.window(), event);
         }
+        
         false
     }
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    env_logger::init();
+    let (app, event_loop) = ShaderApp::new("Compute Shader Example", 800, 600);
+    
+    app.run(event_loop, |core| {
+        ComputeExample::init(core)
+    })
 }
