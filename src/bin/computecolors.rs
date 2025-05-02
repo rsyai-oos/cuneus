@@ -398,7 +398,7 @@ impl ShaderManager for ColorProjection {
                 rot_x: 0.0,
                 rot_y: 0.0,
                 rot_z: 0.0,
-                rot_w: 0.0,
+                rot_w: 1.0,
                 scale: 1.0,
                 _padding: 0,
             },
@@ -668,9 +668,11 @@ impl ShaderManager for ColorProjection {
                         egui::CollapsingHeader::new("Visual Settings")
                             .default_open(true)
                             .show(ui, |ui| {
-                                changed |= ui.add(egui::Slider::new(&mut params.intensity, 0.1..=3.0).text("Intensity")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.intensity, 0.1..=12.0).text("Intensity")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.scale, 0.5..=4.0).text("Scale")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.rotation_speed, 0.0..=1.0).text("Rotation Speed")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.rot_w, 0.0..=1.0).text("bg intensity")).changed();
+
                                 if ui.button("Reset Visual").clicked() {
                                     params.intensity = 1.2;
                                     params.scale = 1.0;
@@ -685,12 +687,10 @@ impl ShaderManager for ColorProjection {
                                 changed |= ui.add(egui::Slider::new(&mut params.rot_x, -3.14..=3.14).text("X Rotation")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.rot_y, -3.14..=3.14).text("Y Rotation")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.rot_z, -3.14..=3.14).text("Z Rotation")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.rot_w, -3.14..=3.14).text("W Rotation")).changed();
                                 if ui.button("Reset Rotation").clicked() {
                                     params.rot_x = 0.0;
                                     params.rot_y = 0.0;
                                     params.rot_z = 0.0;
-                                    params.rot_w = 0.0;
                                     changed = true;
                                 }
                             });

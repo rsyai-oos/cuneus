@@ -144,6 +144,7 @@ fn generate_image(@builtin(global_invocation_id) id: vec3<u32>) {
         textureStore(output, vec2<i32>(id.xy), vec4<f32>(vec3<f32>(r,g,b) * params.intensity, 1.));
     } else {
         let uv = (vec2<f32>(id.xy) + .5) / vec2<f32>(scr);
-        textureStore(output, vec2<i32>(id.xy), vec4<f32>(textureSampleLevel(input_texture, tex_sampler, uv, 0.).xyz, 1.));
+        let bg_color = textureSampleLevel(input_texture, tex_sampler, uv, 0.).xyz * params.rot_w;
+        textureStore(output, vec2<i32>(id.xy), vec4<f32>(bg_color, 1.));    
     }
 }
