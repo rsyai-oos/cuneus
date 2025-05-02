@@ -1,8 +1,7 @@
 use cuneus::{Core, ShaderManager, UniformProvider, UniformBinding, RenderKit, ShaderControls, ExportManager, ShaderHotReload};
+use cuneus::compute::{ BindGroupLayoutType, create_bind_group_layout, create_external_texture_bind_group};
 use std::path::PathBuf;
 use winit::event::WindowEvent;
-
-// Parameters for the 3D colorspace projection compute shader
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct ColorProjectionParams {
@@ -21,8 +20,6 @@ impl UniformProvider for ColorProjectionParams {
         bytemuck::bytes_of(self)
     }
 }
-
-// Main structure for Color Projection compute shader example
 struct ColorProjection {
     // Core components
     base: RenderKit,
@@ -57,92 +54,8 @@ struct ColorProjection {
 }
 
 impl ColorProjection {
-    // Create a storage texture for compute shader output
-    fn create_storage_texture(
-        device: &wgpu::Device, 
-        width: u32, 
-        height: u32, 
-        label: &str
-    ) -> wgpu::Texture {
-        device.create_texture(&wgpu::TextureDescriptor {
-            label: Some(label),
-            size: wgpu::Extent3d {
-                width,
-                height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba16Float,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::STORAGE_BINDING,
-            view_formats: &[],
-        })
-    }
-    
-    // Helper method to create a texture manager for output display
-    fn create_output_texture(
-        device: &wgpu::Device,
-        width: u32,
-        height: u32,
-        texture_bind_group_layout: &wgpu::BindGroupLayout,
-    ) -> cuneus::TextureManager {
-        let texture = Self::create_storage_texture(device, width, height, "Output Texture");
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
-        });
-        
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: texture_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
-                },
-            ],
-            label: Some("Output Texture Bind Group"),
-        });
-        
-        cuneus::TextureManager {
-            texture,
-            view,
-            sampler,
-            bind_group,
-        }
-    }
-    
-    // Creates all compute resources after window resize or texture changes
+    // Function to recreate compute resources after window resize or texture changes
     fn recreate_compute_resources(&mut self, core: &Core) {
-        // Create output texture
-        self.output_texture = Self::create_output_texture(
-            &core.device,
-            core.size.width,
-            core.size.height,
-            &self.base.texture_bind_group_layout,
-        );
-        
-        // Create atomic buffer
-        let buffer_size = core.size.width * core.size.height;
-        self.atomic_buffer = cuneus::AtomicBuffer::new(
-            &core.device,
-            buffer_size,
-            &self.atomic_bind_group_layout,
-        );
-        
-        // Recreate compute bind group based on current input texture
-        let view_output = self.output_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        
         // Determine which texture to use as input
         let input_texture_view;
         let input_sampler;
@@ -166,24 +79,38 @@ impl ColorProjection {
             // This should never happen as we always have a default texture
             panic!("No texture available for compute shader input");
         }
-        self.compute_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &self.compute_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(input_texture_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(input_sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&view_output),
-                },
-            ],
-            label: Some("Compute Bind Group"),
-        });
+        
+        // Create output texture using our general utility function
+        self.output_texture = cuneus::compute::create_output_texture(
+            &core.device,
+            core.size.width,
+            core.size.height,
+            wgpu::TextureFormat::Rgba16Float,
+            &self.base.texture_bind_group_layout,
+            wgpu::AddressMode::ClampToEdge,
+            wgpu::FilterMode::Linear,
+            "Color Projection Output",
+        );
+        
+        // Create atomic buffer
+        let buffer_size = core.size.width * core.size.height;
+        self.atomic_buffer = cuneus::AtomicBuffer::new(
+            &core.device,
+            buffer_size,
+            &self.atomic_bind_group_layout,
+        );
+        
+        // Create the compute bind group with current textures
+        let view_output = self.output_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        
+        self.compute_bind_group = create_external_texture_bind_group(
+            &core.device,
+            &self.compute_bind_group_layout,
+            input_texture_view,
+            input_sampler,
+            &view_output,
+            "Color Projection Compute",
+        );
     }
     
     // Capture the current frame for export
@@ -284,7 +211,7 @@ impl ColorProjection {
 
 impl ShaderManager for ColorProjection {
     fn init(core: &Core) -> Self {
-        // Create bind group layouts
+        // Create bind group layouts using the utility functions
         let texture_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -307,47 +234,24 @@ impl ShaderManager for ColorProjection {
             label: Some("texture_bind_group_layout"),
         });
         
-        let time_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-            label: Some("time_bind_group_layout"),
-        });
+        // Create specialized bind group layouts
+        let time_bind_group_layout = create_bind_group_layout(
+            &core.device, 
+            BindGroupLayoutType::TimeUniform, 
+            "Color Projection"
+        );
         
-        let params_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-            label: Some("params_bind_group_layout"),
-        });
+        let params_bind_group_layout = create_bind_group_layout(
+            &core.device, 
+            BindGroupLayoutType::CustomUniform, 
+            "Color Projection Params"
+        );
         
-        let atomic_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage { read_only: false },
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-            label: Some("atomic_bind_group_layout"),
-        });
+        let atomic_bind_group_layout = create_bind_group_layout(
+            &core.device, 
+            BindGroupLayoutType::AtomicBuffer, 
+            "Color Projection"
+        );
         
         let compute_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
@@ -442,12 +346,16 @@ impl ShaderManager for ColorProjection {
             None,
         );
         
-        // Create output texture manager
-        let output_texture = Self::create_output_texture(
+        // Create output texture using the utility function
+        let output_texture = cuneus::compute::create_output_texture(
             &core.device,
             core.config.width,
             core.config.height,
+            wgpu::TextureFormat::Rgba16Float,
             &texture_bind_group_layout,
+            wgpu::AddressMode::ClampToEdge,
+            wgpu::FilterMode::Linear,
+            "Color Projection Output",
         );
         
         // Create compute pipeline layout
@@ -490,7 +398,7 @@ impl ShaderManager for ColorProjection {
             cache: None,
         });
         
-        // Create initial compute bind group (will be updated in recreate_compute_resources)
+        // Create initial compute bind group
         let compute_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &compute_bind_group_layout,
             entries: &[
@@ -556,7 +464,7 @@ impl ShaderManager for ColorProjection {
             self.compute_pipeline_clear = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some("Updated Clear Buffer Pipeline"),
                 layout: Some(&compute_pipeline_layout),
-                module: new_shader,
+                module: &new_shader,
                 entry_point: Some("clear_buffer"),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 cache: None,
@@ -565,7 +473,7 @@ impl ShaderManager for ColorProjection {
             self.compute_pipeline_project = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some("Updated Project Colors Pipeline"),
                 layout: Some(&compute_pipeline_layout),
-                module: new_shader,
+                module: &new_shader,
                 entry_point: Some("project_colors"),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 cache: None,
@@ -574,7 +482,7 @@ impl ShaderManager for ColorProjection {
             self.compute_pipeline_generate = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some("Updated Generate Image Pipeline"),
                 layout: Some(&compute_pipeline_layout),
-                module: new_shader,
+                module: &new_shader,
                 entry_point: Some("generate_image"),
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
                 cache: None,
@@ -858,9 +766,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize GStreamer for video support
     cuneus::gst::init()?;
     env_logger::init();
-    
     let (app, event_loop) = cuneus::ShaderApp::new("Color Projection", 800, 600);
-    
     app.run(event_loop, |core| {
         ColorProjection::init(core)
     })
