@@ -13,7 +13,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        shader: [asahi, attractor, clifford, droste, fluid, galaxy, lich, mandelbulb, satan, sdvert, sinh, spiral, roto, xmas, orbits, dna, genuary2025_6, genuary2025_18, nebula, rorschach, poe2, voronoi, tree, matrix, gabornoise, scenecolor,audiovis,2dneuron,spiralchaos]
+        shader: [asahi, attractor, clifford, droste, fluid, galaxy, lich, mandelbulb, satan, sdvert, sinh, spiral, roto, xmas, orbits, dna, genuary2025_6, genuary2025_18, nebula, rorschach, poe2, voronoi, tree, matrix, gabornoise, scenecolor,audiovis,2dneuron,spiralchaos,cliffordcompute]
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
