@@ -484,7 +484,7 @@ impl ShaderManager for SpiralShader {
                                 });
                                 
                                 ui.horizontal(|ui| {
-                                    ui.label("c2");
+                                    ui.label("c2:");
                                     let mut color = [params.color2_r, params.color2_g, params.color2_b];
                                     if ui.color_edit_button_rgb(&mut color).changed() {
                                         params.color2_r = color[0];
