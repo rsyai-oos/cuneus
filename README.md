@@ -41,7 +41,7 @@ A tool for experimenting with WGSL shaders, it uses `wgpu` for rendering, `egui`
 
 # Gallery
 
-| **Sinh** | **vertices* | **Satan** |
+| **Sinh** | **vertices** | **Satan** |
 |:---:|:---:|:---:|
 | <a href="https://github.com/user-attachments/assets/a80d2415-fbb2-4335-bbc3-b74b7a8170ad"><img src="https://github.com/user-attachments/assets/823a3def-b822-42ed-906b-e419fa490634" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/sinh.rs) | <a href="https://github.com/user-attachments/assets/1847c374-5719-4fee-b74d-3418e5fa4d7b"><img src="https://github.com/user-attachments/assets/1847c374-5719-4fee-b74d-3418e5fa4d7b" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/sdvert.rs) | <a href="https://github.com/user-attachments/assets/8f86a3b4-8d31-499f-b9fa-8b23266291ae"><img src="https://github.com/user-attachments/assets/8f86a3b4-8d31-499f-b9fa-8b23266291ae" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/satan.rs) |
 
@@ -49,9 +49,9 @@ A tool for experimenting with WGSL shaders, it uses `wgpu` for rendering, `egui`
 |:---:|:---:|:---:|
 | <a href="https://github.com/user-attachments/assets/2405334c-f13e-4d8d-863f-bab7dcc676ab"><img src="https://github.com/user-attachments/assets/2405334c-f13e-4d8d-863f-bab7dcc676ab" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/mandelbulb.rs) | <a href="https://github.com/user-attachments/assets/9589d2ec-43b8-4373-8dce-9cd2c74d862f"><img src="https://github.com/user-attachments/assets/9589d2ec-43b8-4373-8dce-9cd2c74d862f" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/lich.rs) | <a href="https://github.com/user-attachments/assets/a2647904-55bd-4912-9713-4558203ee6aa"><img src="https://github.com/user-attachments/assets/a2647904-55bd-4912-9713-4558203ee6aa" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/galaxy.rs) |
 
-| **Xmas** | **Droste** | **Clifford** |
+| **Buddhabrot** | **Droste** | **Clifford** |
 |:---:|:---:|:---:|
-| <a href="https://github.com/user-attachments/assets/4f1f0cc0-12a5-4158-90e1-ac205fa2d28a"><img src="https://github.com/user-attachments/assets/4f1f0cc0-12a5-4158-90e1-ac205fa2d28a" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/xmas.rs) | <a href="https://github.com/user-attachments/assets/ffe1e193-9a9a-4784-8193-177d6b8648af"><img src="https://github.com/user-attachments/assets/ffe1e193-9a9a-4784-8193-177d6b8648af" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/droste.rs) | <a href="https://github.com/user-attachments/assets/8b078f40-a989-4d07-bb2f-d19d8232cc9f"><img src="https://github.com/user-attachments/assets/8b078f40-a989-4d07-bb2f-d19d8232cc9f" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/cliffordcompute.rs) |
+| <a href="https://github.com/user-attachments/assets/93a17f27-695a-4249-9ff8-be2742926358"><img src="https://github.com/user-attachments/assets/93a17f27-695a-4249-9ff8-be2742926358" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/buddhabrot.rs) | <a href="https://github.com/user-attachments/assets/ffe1e193-9a9a-4784-8193-177d6b8648af"><img src="https://github.com/user-attachments/assets/ffe1e193-9a9a-4784-8193-177d6b8648af" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/droste.rs) | <a href="https://github.com/user-attachments/assets/8b078f40-a989-4d07-bb2f-d19d8232cc9f"><img src="https://github.com/user-attachments/assets/8b078f40-a989-4d07-bb2f-d19d8232cc9f" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/cliffordcompute.rs) |
 
 
 | **orbits** | **hilbert room** | **genuary6** |
@@ -66,4 +66,6 @@ A tool for experimenting with WGSL shaders, it uses `wgpu` for rendering, `egui`
 | **Poe2:loading** | **tree** | **voronoi** |
 |:---:|:---:|:---:|
 | <a href="https://github.com/user-attachments/assets/fa588334-dd8d-492d-9caa-1aaeaecf024b"><img src="https://github.com/user-attachments/assets/fa588334-dd8d-492d-9caa-1aaeaecf024b" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/poe2.rs) | <a href="https://github.com/user-attachments/assets/2f0bdc7c-d226-4091-bae7-b96561c1fb4f"><img src="https://github.com/user-attachments/assets/2f0bdc7c-d226-4091-bae7-b96561c1fb4f" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/tree.rs) | <a href="https://github.com/user-attachments/assets/6c68d718-872c-4e14-bccb-f2339cf121d2"><img src="https://github.com/user-attachments/assets/6c68d718-872c-4e14-bccb-f2339cf121d2" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/voronoi.rs) |
+
+
 
