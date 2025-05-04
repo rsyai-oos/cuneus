@@ -41,7 +41,7 @@ A tool for experimenting with WGSL shaders, it uses `wgpu` for rendering, `egui`
 
 # Gallery
 
-| **Sinh** | **Signed Distance** | **Satan** |
+| **Sinh** | **vertices* | **Satan** |
 |:---:|:---:|:---:|
 | <a href="https://github.com/user-attachments/assets/a80d2415-fbb2-4335-bbc3-b74b7a8170ad"><img src="https://github.com/user-attachments/assets/823a3def-b822-42ed-906b-e419fa490634" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/sinh.rs) | <a href="https://github.com/user-attachments/assets/1847c374-5719-4fee-b74d-3418e5fa4d7b"><img src="https://github.com/user-attachments/assets/1847c374-5719-4fee-b74d-3418e5fa4d7b" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/sdvert.rs) | <a href="https://github.com/user-attachments/assets/8f86a3b4-8d31-499f-b9fa-8b23266291ae"><img src="https://github.com/user-attachments/assets/8f86a3b4-8d31-499f-b9fa-8b23266291ae" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/satan.rs) |
 
@@ -51,7 +51,7 @@ A tool for experimenting with WGSL shaders, it uses `wgpu` for rendering, `egui`
 
 | **Xmas** | **Droste** | **Clifford** |
 |:---:|:---:|:---:|
-| <a href="https://github.com/user-attachments/assets/4f1f0cc0-12a5-4158-90e1-ac205fa2d28a"><img src="https://github.com/user-attachments/assets/4f1f0cc0-12a5-4158-90e1-ac205fa2d28a" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/xmas.rs) | <a href="https://github.com/user-attachments/assets/ffe1e193-9a9a-4784-8193-177d6b8648af"><img src="https://github.com/user-attachments/assets/ffe1e193-9a9a-4784-8193-177d6b8648af" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/droste.rs) | <a href="https://github.com/user-attachments/assets/42868686-bad9-4ce3-b5bd-346d880c8540"><img src="https://github.com/user-attachments/assets/42868686-bad9-4ce3-b5bd-346d880c8540" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/clifford.rs) |
+| <a href="https://github.com/user-attachments/assets/4f1f0cc0-12a5-4158-90e1-ac205fa2d28a"><img src="https://github.com/user-attachments/assets/4f1f0cc0-12a5-4158-90e1-ac205fa2d28a" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/xmas.rs) | <a href="https://github.com/user-attachments/assets/ffe1e193-9a9a-4784-8193-177d6b8648af"><img src="https://github.com/user-attachments/assets/ffe1e193-9a9a-4784-8193-177d6b8648af" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/droste.rs) | <a href="https://github.com/user-attachments/assets/8b078f40-a989-4d07-bb2f-d19d8232cc9f"><img src="https://github.com/user-attachments/assets/8b078f40-a989-4d07-bb2f-d19d8232cc9f" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/cliffordcompute.rs) |
 
 
 | **orbits** | **hilbert room** | **genuary6** |
