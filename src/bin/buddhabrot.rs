@@ -287,7 +287,7 @@ impl ShaderManager for BuddhabrotShader {
                 zoom: 0.5,
                 offset_x: -0.5,
                 offset_y: 0.0,
-                rotation: 0.0,
+                rotation: 1.5,
                 exposure: 0.00005,
                 low_iterations: 20,
                 high_iterations: 100,
