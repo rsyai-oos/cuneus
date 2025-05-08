@@ -12,6 +12,7 @@ pub use export::{ExportSettings, ExportManager, ExportError, ExportUiState, save
 pub use hot::ShaderHotReload;
 pub use controls::{ControlsRequest, ShaderControls};
 pub use atomic::AtomicBuffer;
+pub use mouse::*;
 pub struct Core {
     pub surface: wgpu::Surface<'static>,
     pub device: Arc<wgpu::Device>,
@@ -114,3 +115,4 @@ pub mod gst;
 pub mod compute;
 mod spectrum;
 mod fps;
+mod mouse;

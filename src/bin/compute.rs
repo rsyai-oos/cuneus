@@ -37,6 +37,32 @@ impl ShaderManager for ComputeExample {
             &[&texture_bind_group_layout],
             None,
         );
+        
+        let mouse_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+            label: Some("mouse_bind_group_layout"),
+        });
+        
+        let mouse_uniform = cuneus::UniformBinding::new(
+            &core.device,
+            "Mouse Uniform",
+            cuneus::MouseUniform::default(),
+            &mouse_bind_group_layout,
+            0,
+        );
+        
+        base.mouse_bind_group_layout = Some(mouse_bind_group_layout.clone());
+        base.mouse_uniform = Some(mouse_uniform);
+        
         let compute_config = ComputeShaderConfig {
             workgroup_size: [16, 16, 1],
             workgroup_count: None,  // Auto-determine from texture size
@@ -48,6 +74,7 @@ impl ShaderManager for ComputeExample {
             sampler_address_mode: wgpu::AddressMode::ClampToEdge,
             sampler_filter_mode: wgpu::FilterMode::Linear,
             label: "Basic Compute".to_string(),
+            mouse_bind_group_layout: Some(mouse_bind_group_layout),
         };
         
         // Create compute shader with our backend
@@ -56,6 +83,13 @@ impl ShaderManager for ComputeExample {
             include_str!("../../shaders/compute_basic.wgsl"),
             compute_config,
         ));
+        
+        if let (Some(compute_shader), Some(mouse_uniform)) = (&mut base.compute_shader, &base.mouse_uniform) {
+            compute_shader.add_mouse_uniform_binding(
+                &mouse_uniform.bind_group,
+                2
+            );
+        }
         
         // Enable hot reload if desired
         if let Some(compute_shader) = &mut base.compute_shader {
@@ -81,6 +115,7 @@ impl ShaderManager for ComputeExample {
         let current_time = self.base.controls.get_time(&self.base.start_time);
         let delta = 1.0/60.0; // Approximate delta time
         self.base.update_compute_shader_time(current_time, delta, &core.queue);
+        self.base.update_mouse_uniform(&core.queue);
         self.base.fps_tracker.update();
     }
     fn resize(&mut self, core: &Core) {
@@ -97,6 +132,10 @@ impl ShaderManager for ComputeExample {
             &core.size
         );
         controls_request.current_fps = Some(self.base.fps_tracker.fps());
+        let mouse_pos = self.base.mouse_tracker.uniform.position;
+        let raw_pos = self.base.mouse_tracker.raw_position;
+        let mouse_buttons = self.base.mouse_tracker.uniform.buttons[0];
+        let mouse_wheel = self.base.mouse_tracker.uniform.wheel;
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
                 ctx.style_mut(|style| {
@@ -109,8 +148,16 @@ impl ShaderManager for ComputeExample {
                         ui.heading("Controls");
                         ShaderControls::render_controls_widget(ui, &mut controls_request);
                         
-                        // Add any shader-specific controls here
                         ui.separator();
+                        ui.heading("Mouse Debug");
+                        ui.label(format!("Position (normalized): {:.3}, {:.3}", mouse_pos[0], mouse_pos[1]));
+                        ui.label(format!("Position (pixels): {:.1}, {:.1}", raw_pos[0], raw_pos[1]));
+                        ui.label(format!("Buttons: {:#b}", mouse_buttons));
+                        ui.label(format!("Wheel: {:.2}, {:.2}", mouse_wheel[0], mouse_wheel[1]));
+                        
+                        ui.separator();
+                        ui.label("Left-click to invert colors");
+                        ui.label("Scroll wheel to create pulse effect");
                         ui.label("Press 'H' to toggle this UI");
                         ui.label("Press 'F' to toggle fullscreen");
                     });
@@ -164,7 +211,10 @@ impl ShaderManager for ComputeExample {
 
     fn handle_input(&mut self, core: &Core, event: &WindowEvent) -> bool {
         // Handle egui events
-        if self.base.egui_state.on_window_event(core.window(), event).consumed {
+        let ui_handled = self.base.egui_state.on_window_event(core.window(), event).consumed;
+        
+        // Handle mouse input for shader if UI didn't consume it
+        if self.base.handle_mouse_input(core, event, ui_handled) {
             return true;
         }
         // Handle keyboard input

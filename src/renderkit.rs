@@ -7,6 +7,9 @@ use log::{warn, info, error};
 use crate::spectrum::SpectrumAnalyzer;
 use crate::compute::ComputeShader;
 use crate::{Core,fps, Renderer, TextureManager, UniformProvider, UniformBinding,KeyInputHandler,ExportManager,ShaderControls,ControlsRequest,ResolutionUniform};
+use crate::mouse::MouseUniform;
+use crate::mouse::MouseTracker;
+use winit::event::WindowEvent;
 #[cfg(target_os = "macos")]
 pub const CAPTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8UnormSrgb;
 #[cfg(not(target_os = "macos"))]
@@ -40,6 +43,9 @@ pub struct RenderKit {
     pub spectrum_analyzer: SpectrumAnalyzer,
     pub compute_shader: Option<ComputeShader>,
     pub fps_tracker: fps::FpsTracker,
+    pub mouse_tracker: MouseTracker,
+    pub mouse_uniform: Option<UniformBinding<MouseUniform>>,
+    pub mouse_bind_group_layout: Option<wgpu::BindGroupLayout>,
 }
 impl RenderKit {
     pub fn new(
@@ -162,6 +168,8 @@ impl RenderKit {
         //  default texture manager
         let texture_manager = Self::create_default_texture_manager(core, &texture_bind_group_layout);
         let fps_tracker = fps::FpsTracker::new();
+        let mouse_tracker = MouseTracker::new();
+
         Self {
             renderer,
             video_texture_manager: None,
@@ -179,7 +187,10 @@ impl RenderKit {
             controls: ShaderControls::new(),
             spectrum_analyzer: SpectrumAnalyzer::new(),
             compute_shader: None,
-            fps_tracker
+            fps_tracker,
+            mouse_tracker,
+            mouse_uniform: None,
+            mouse_bind_group_layout: None,
         }
     }
 
@@ -585,5 +596,49 @@ impl RenderKit {
         } else {
             None
         }
+    }
+    pub fn setup_mouse_uniform(&mut self, core: &Core) {
+        if self.mouse_uniform.is_none() {
+            let mouse_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+                label: Some("mouse_bind_group_layout"),
+            });
+            
+            let mouse_uniform = UniformBinding::new(
+                &core.device,
+                "Mouse Uniform",
+                self.mouse_tracker.uniform,
+                &mouse_bind_group_layout,
+                0,
+            );
+            
+            self.mouse_bind_group_layout = Some(mouse_bind_group_layout);
+            self.mouse_uniform = Some(mouse_uniform);
+        }
+    }
+    
+    pub fn update_mouse_uniform(&mut self, queue: &wgpu::Queue) {
+        if let Some(mouse_uniform) = &mut self.mouse_uniform {
+            mouse_uniform.data = self.mouse_tracker.uniform;
+            mouse_uniform.update(queue);
+        }
+    }
+    
+    pub fn handle_mouse_input(&mut self, core: &Core, event: &WindowEvent, ui_handled: bool) -> bool {
+        let window_size = [
+            core.size.width as f32,
+            core.size.height as f32,
+        ];
+        
+        self.mouse_tracker.handle_mouse_input(event, window_size, ui_handled)
     }
 }
