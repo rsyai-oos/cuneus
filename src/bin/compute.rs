@@ -81,6 +81,7 @@ impl ShaderManager for ComputeExample {
         let current_time = self.base.controls.get_time(&self.base.start_time);
         let delta = 1.0/60.0; // Approximate delta time
         self.base.update_compute_shader_time(current_time, delta, &core.queue);
+        self.base.fps_tracker.update();
     }
     fn resize(&mut self, core: &Core) {
         // Update resolution uniform
@@ -95,6 +96,7 @@ impl ShaderManager for ComputeExample {
             &self.base.start_time,
             &core.size
         );
+        controls_request.current_fps = Some(self.base.fps_tracker.fps());
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
                 ctx.style_mut(|style| {

@@ -6,7 +6,7 @@ use std::path::Path;
 use log::{warn, info, error};
 use crate::spectrum::SpectrumAnalyzer;
 use crate::compute::ComputeShader;
-use crate::{Core, Renderer, TextureManager, UniformProvider, UniformBinding,KeyInputHandler,ExportManager,ShaderControls,ControlsRequest,ResolutionUniform};
+use crate::{Core,fps, Renderer, TextureManager, UniformProvider, UniformBinding,KeyInputHandler,ExportManager,ShaderControls,ControlsRequest,ResolutionUniform};
 #[cfg(target_os = "macos")]
 pub const CAPTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8UnormSrgb;
 #[cfg(not(target_os = "macos"))]
@@ -39,6 +39,7 @@ pub struct RenderKit {
     pub controls: ShaderControls,
     pub spectrum_analyzer: SpectrumAnalyzer,
     pub compute_shader: Option<ComputeShader>,
+    pub fps_tracker: fps::FpsTracker,
 }
 impl RenderKit {
     pub fn new(
@@ -160,7 +161,7 @@ impl RenderKit {
 
         //  default texture manager
         let texture_manager = Self::create_default_texture_manager(core, &texture_bind_group_layout);
-
+        let fps_tracker = fps::FpsTracker::new();
         Self {
             renderer,
             video_texture_manager: None,
@@ -178,6 +179,7 @@ impl RenderKit {
             controls: ShaderControls::new(),
             spectrum_analyzer: SpectrumAnalyzer::new(),
             compute_shader: None,
+            fps_tracker
         }
     }
 

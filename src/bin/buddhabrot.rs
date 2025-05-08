@@ -455,6 +455,7 @@ impl ShaderManager for BuddhabrotShader {
         if self.base.export_manager.is_exporting() {
             self.handle_export(core);
         }
+        self.base.fps_tracker.update();
     }
     
     fn resize(&mut self, core: &Core) {
@@ -477,7 +478,7 @@ impl ShaderManager for BuddhabrotShader {
             &self.base.start_time,
             &core.size
         );
-        
+        controls_request.current_fps = Some(self.base.fps_tracker.fps());
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
                 ctx.style_mut(|style| {

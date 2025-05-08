@@ -501,6 +501,7 @@ impl ShaderManager for ColorProjection {
         if self.base.export_manager.is_exporting() {
             self.handle_export(core);
         }
+        self.base.fps_tracker.update();
     }
 
     
@@ -530,6 +531,7 @@ impl ShaderManager for ColorProjection {
         let video_info = self.base.get_video_info();
         
         // Render UI
+        controls_request.current_fps = Some(self.base.fps_tracker.fps());
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
                 ctx.style_mut(|style| {

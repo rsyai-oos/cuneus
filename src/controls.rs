@@ -1,6 +1,5 @@
 use std::path::PathBuf;
 use crate::gst::video::VideoTextureManager;
-
 #[derive(Clone)]
 pub struct ControlsRequest {
     pub is_paused: bool,
@@ -8,6 +7,8 @@ pub struct ControlsRequest {
     pub should_clear_buffers: bool,  
     pub current_time: Option<f32>, 
     pub window_size: Option<(u32, u32)>,
+    
+    pub current_fps: Option<f32>,
     
     // Video reqs
     pub load_media_path: Option<PathBuf>,
@@ -31,6 +32,8 @@ impl Default for ControlsRequest {
             should_clear_buffers: false,
             current_time: None,
             window_size: None,
+            
+            current_fps: None,
             
             // Video-related stuff
             load_media_path: None,
@@ -102,7 +105,8 @@ impl ShaderControls {
             should_clear_buffers: false,
             current_time: Some(self.get_time(start_time)),
             window_size: Some((size.width, size.height)),
-            
+            current_fps: None,
+
             load_media_path: None,
             play_video: false,
             pause_video: false,
@@ -273,6 +277,9 @@ impl ShaderControls {
                 }
                 if let Some(time) = request.current_time { 
                     ui.label(format!("Time: {:.2}s", time));
+                }
+                if let Some(fps) = request.current_fps {
+                    ui.label(format!("FPS: {:.1}", fps));
                 }
             });
             if let Some((width, height)) = request.window_size {

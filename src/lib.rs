@@ -113,3 +113,4 @@ mod atomic;
 pub mod gst;
 pub mod compute;
 mod spectrum;
+mod fps;
