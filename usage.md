@@ -3,14 +3,12 @@
 
 In fact you can simply copy a rust file in the “bin” folder and just go to the wgsl stage. But to set the parameters in egui you only need to change the parameters.
 
-Note: Please don't be surprised to see that some Uniforms are common both in “RenderKit.rs” (an important backend file in cuneus where most things are init) and in the final rust file we created for our shader (like mandelbrot.rs). The only purpose of this is related to hot reload. :-)
+Note: Please don't be surprised to see that some Uniforms are common both in “RenderKit.rs” (an important backend file in cuneus where most things are init) and in the final rust file we created for our shader. The only purpose of this is related to hot reload. :-)
 
 ## Quick Start
 
 1. Copy one of the template files from `src/bin/` that best matches your needs:
-   - `mandelbrot.rs`: Minimal single-pass shader without GUI controls
    - `spiral.rs`: Simple single-pass shader with texture support
-   - `feedback.rs`: Basic two-pass shader
    - `fluid.rs`: Multi-pass shader with texture support
    - `attractor.rs`: Three-pass rendering example
    - `xmas.rs`: Single pass with extensive parameter controls
@@ -43,7 +41,7 @@ Please see how I build the project in github actions, you can use it as a refere
 
 ### Basic Single Pass Shader (No GUI)
 
-The simplest way to start is with a basic shader like `mandelbrot.rs`. This template includes:
+This template includes:
 
 1. Core imports and setup
 2. Minimal shader parameters
@@ -91,7 +89,7 @@ To add parameter controls through egui:
 struct ShaderParams {
     rotation_speed: f32,
     intensity: f32,
-    // Add more parameters as needed
+    // Add more parameters as needed, note please be careful about the GPU memory aligment! (I usally use paddings)
 }
 
 // In render function:
