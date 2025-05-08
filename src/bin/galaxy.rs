@@ -257,6 +257,7 @@ impl ShaderManager for Shader {
         if self.base.export_manager.is_exporting() {
             self.handle_export(core);
         }
+        self.base.fps_tracker.update();
     }
     fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {
         let output = core.surface.get_current_texture()?;
@@ -270,7 +271,7 @@ impl ShaderManager for Shader {
             &self.base.start_time,
             &core.size
         );
-
+        controls_request.current_fps = Some(self.base.fps_tracker.fps());
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
                 ctx.style_mut(|style| {

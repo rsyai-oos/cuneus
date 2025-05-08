@@ -275,6 +275,7 @@ impl ShaderManager for ChristmasShader {
         if self.base.export_manager.is_exporting() {
             self.handle_export(core);
         }
+        self.base.fps_tracker.update();
     }
 
     fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {
@@ -288,7 +289,7 @@ impl ShaderManager for ChristmasShader {
         let mut changed = false;
         let mut should_start_export = false;
         let mut export_request = self.base.export_manager.get_ui_request();
-
+        controls_request.current_fps = Some(self.base.fps_tracker.fps());
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
                 ctx.style_mut(|style| {
