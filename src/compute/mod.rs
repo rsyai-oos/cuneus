@@ -32,7 +32,7 @@ pub struct ComputeShaderConfig {
     pub sampler_address_mode: wgpu::AddressMode,
     pub sampler_filter_mode: wgpu::FilterMode,
     pub label: String,
-}
+    pub mouse_bind_group_layout: Option<wgpu::BindGroupLayout>,}
 
 impl Default for ComputeShaderConfig {
     fn default() -> Self {
@@ -47,6 +47,7 @@ impl Default for ComputeShaderConfig {
             sampler_address_mode: wgpu::AddressMode::ClampToEdge,
             sampler_filter_mode: wgpu::FilterMode::Linear,
             label: "Compute Shader".to_string(),
+            mouse_bind_group_layout: None,
         }
     }
 }
@@ -58,6 +59,7 @@ pub enum BindGroupLayoutType {
     CustomUniform,
     AtomicBuffer,
     ExternalTexture,
+    MouseUniform,
 }
 
 pub fn create_storage_texture(
@@ -164,6 +166,21 @@ pub fn create_bind_group_layout(
                     count: None,
                 }],
                 label: Some(&format!("{} Time Uniform Layout", label)),
+            })
+        },
+        BindGroupLayoutType::MouseUniform => {
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+                label: Some(&format!("{} Mouse Uniform Layout", label)),
             })
         },
         BindGroupLayoutType::AtomicBuffer => {
@@ -279,6 +296,8 @@ pub struct ComputeShader {
     pub external_texture_bind_group_layout: Option<wgpu::BindGroupLayout>,
     pub external_texture_bind_group: Option<wgpu::BindGroup>,
     pub config: Option<ComputeShaderConfig>,
+    pub mouse_bind_group: Option<wgpu::BindGroup>,
+    pub mouse_bind_group_index: Option<u32>,
 }
 
 impl ComputeShader {
@@ -434,6 +453,10 @@ impl ComputeShader {
         
         // Create pipeline layout
         let mut bind_group_layouts: Vec<&wgpu::BindGroupLayout> = vec![&time_bind_group_layout, &storage_texture_layout];
+
+        if let Some(ref mouse_layout) = config.mouse_bind_group_layout {
+            bind_group_layouts.push(mouse_layout);
+        }
         
         if let Some(layout) = &external_texture_bind_group_layout {
             bind_group_layouts.push(layout);
@@ -482,7 +505,19 @@ impl ComputeShader {
             external_texture_bind_group_layout,
             external_texture_bind_group,
             config: Some(config),
+            mouse_bind_group: None,
+            mouse_bind_group_index: None,
         }
+    }
+    pub fn add_mouse_uniform_binding(
+        &mut self,
+        mouse_bind_group: &wgpu::BindGroup,
+        bind_group_index: u32
+    ) {
+        self.mouse_bind_group = Some(mouse_bind_group.clone());
+        self.mouse_bind_group_index = Some(bind_group_index);
+        
+        info!("Added mouse uniform binding at group {} for compute shader", bind_group_index);
     }
     
     // Recreate compute resources after window resize or texture changes
@@ -652,14 +687,23 @@ impl ComputeShader {
             compute_pass.set_bind_group(0, &self.time_uniform.bind_group, &[]);
             compute_pass.set_bind_group(1, &self.storage_bind_group, &[]);
             
+            if let (Some(mouse_bind_group), Some(bind_idx)) = (&self.mouse_bind_group, self.mouse_bind_group_index) {
+                compute_pass.set_bind_group(bind_idx, mouse_bind_group, &[]);
+            }
+            
             // If this is a multi-stage compute shader with external textures
             if let Some(external_bind_group) = &self.external_texture_bind_group {
-                compute_pass.set_bind_group(2, external_bind_group, &[]);
+                let external_idx = if self.mouse_bind_group_index == Some(2) { 3 } else { 2 };
+                compute_pass.set_bind_group(external_idx, external_bind_group, &[]);
             }
             
             // If atomic buffer is used
             if let Some(atomic_buffer) = &self.atomic_buffer {
-                let bind_idx = if self.external_texture_bind_group.is_some() { 3 } else { 2 };
+                let mut bind_idx = if self.external_texture_bind_group.is_some() { 3 } else { 2 };
+                if self.mouse_bind_group_index == Some(2) {
+                    bind_idx = if self.external_texture_bind_group.is_some() { 4 } else { 3 };
+                }
+                
                 compute_pass.set_bind_group(bind_idx, &atomic_buffer.bind_group, &[]);
             }
             
@@ -769,14 +813,24 @@ impl ComputeShader {
         compute_pass.set_bind_group(0, &self.time_uniform.bind_group, &[]);
         compute_pass.set_bind_group(1, &self.storage_bind_group, &[]);
         
+        if let (Some(mouse_bind_group), Some(bind_idx)) = (&self.mouse_bind_group, self.mouse_bind_group_index) {
+            compute_pass.set_bind_group(bind_idx, mouse_bind_group, &[]);
+        }
+        
         // If this is a multi-stage compute shader with external textures
         if let Some(external_bind_group) = &self.external_texture_bind_group {
-            compute_pass.set_bind_group(2, external_bind_group, &[]);
+            let external_idx = if self.mouse_bind_group_index == Some(2) { 3 } else { 2 };
+            compute_pass.set_bind_group(external_idx, external_bind_group, &[]);
         }
         
         // If atomic buffer is used
         if let Some(atomic_buffer) = &self.atomic_buffer {
-            let bind_idx = if self.external_texture_bind_group.is_some() { 3 } else { 2 };
+            let mut bind_idx = if self.external_texture_bind_group.is_some() { 3 } else { 2 };
+            
+            if self.mouse_bind_group_index == Some(2) {
+                bind_idx = if self.external_texture_bind_group.is_some() { 4 } else { 3 };
+            }
+            
             compute_pass.set_bind_group(bind_idx, &atomic_buffer.bind_group, &[]);
         }
         
