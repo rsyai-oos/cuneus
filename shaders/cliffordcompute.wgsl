@@ -143,6 +143,31 @@ fn aces_tonemap(color: v3) -> v3 {
     var b = v * (0.983729 * v + 0.4329510) + 0.238081;
     return m2 * (a / b);
 }
+//just for fun presentation for my exports
+fn smoothOsc(
+    min: f32,    
+    max: f32,    
+    interval: f32,
+    pause_min: f32,
+    pause_max: f32,
+    t: f32           
+) -> f32 {
+    let c_t = 2.0 * interval + pause_min + pause_max;
+    let cycle_pos = fract(t / c_t) * c_t;
+    if (cycle_pos < interval) {
+        let phase_pos = cycle_pos / interval;
+        let ease = phase_pos * phase_pos * (3.0 - 2.0 * phase_pos);
+        return mix(max, min, ease);
+    } else if (cycle_pos < interval + pause_min) {
+        return min;
+    } else if (cycle_pos < 2.0 * interval + pause_min) {
+        let phase_pos = (cycle_pos - interval - pause_min) / interval;
+        let ease = phase_pos * phase_pos * (3.0 - 2.0 * phase_pos);
+        return mix(min, max, ease);
+    } else {
+        return max;
+    }
+}
 
 // First compute pass: Generate and splat particles
 @compute @workgroup_size(256, 1, 1)
