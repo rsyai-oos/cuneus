@@ -3,14 +3,14 @@
 <img src="https://github.com/user-attachments/assets/590dbd91-5eaa-4c04-b3f9-d579924fa4c3" alt="cuneus sdf" width="320" height="120" />
 
 
-A tool for experimenting with WGSL shaders, it uses `wgpu` for rendering, `egui` for the UI, `winit` for windowing, and `notify` for hot-reload. :-)
+A tool for experimenting with WGSL shaders, it uses `wgpu` for rendering, `egui` for the UI and `winit` for windowing :-)
 
 ### Current Features
 
 - Hot shader reloading
 - Compute & Fragment shader support 
 - Multi-pass, atomics etc
-- Interactive parameter adjustment, ez Texture loading through egui
+- Interactive parameter adjustment, ez media imports through egui
 - Easily use your own videos as textures (thanks to the `gstreamer`)
 - Audio/Visual synchronization: Spectrum and BPM detection via `gstreamer`
 - Export HQ frames via egui
@@ -66,6 +66,3 @@ A tool for experimenting with WGSL shaders, it uses `wgpu` for rendering, `egui`
 | **Poe2:loading** | **tree** | **voronoi** |
 |:---:|:---:|:---:|
 | <a href="https://github.com/user-attachments/assets/fa588334-dd8d-492d-9caa-1aaeaecf024b"><img src="https://github.com/user-attachments/assets/fa588334-dd8d-492d-9caa-1aaeaecf024b" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/poe2.rs) | <a href="https://github.com/user-attachments/assets/2f0bdc7c-d226-4091-bae7-b96561c1fb4f"><img src="https://github.com/user-attachments/assets/2f0bdc7c-d226-4091-bae7-b96561c1fb4f" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/tree.rs) | <a href="https://github.com/user-attachments/assets/6c68d718-872c-4e14-bccb-f2339cf121d2"><img src="https://github.com/user-attachments/assets/6c68d718-872c-4e14-bccb-f2339cf121d2" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/voronoi.rs) |
-
-
-
