@@ -662,7 +662,7 @@ impl ShaderManager for FFTShader {
                     style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(0, 0, 0, 180);
                 });
                 
-                egui::Window::new("FFT Image Processing")
+                egui::Window::new("fourier workflow")
                     .collapsible(true)
                     .resizable(false)
                     .default_width(250.0)
@@ -695,7 +695,7 @@ impl ShaderManager for FFTShader {
                                 
                                 ui.separator();
                                 ui.label("View Mode:");
-                                changed |= ui.radio_value(&mut params.show_freqs, 0, "Filtered Image").changed();
+                                changed |= ui.radio_value(&mut params.show_freqs, 0, "Filtered").changed();
                                 changed |= ui.radio_value(&mut params.show_freqs, 1, "Frequency Domain").changed();
                                 
                                 ui.separator();
@@ -705,9 +705,9 @@ impl ShaderManager for FFTShader {
                             .default_open(true)
                             .show(ui, |ui| {
                                 ui.label("Filter Type:");
-                                changed |= ui.radio_value(&mut params.filter_type, 0, "Low-pass").changed();
-                                changed |= ui.radio_value(&mut params.filter_type, 1, "High-pass").changed();
-                                changed |= ui.radio_value(&mut params.filter_type, 2, "Band-pass").changed();
+                                changed |= ui.radio_value(&mut params.filter_type, 0, "LP").changed();
+                                changed |= ui.radio_value(&mut params.filter_type, 1, "HP").changed();
+                                changed |= ui.radio_value(&mut params.filter_type, 2, "BP").changed();
                                 changed |= ui.radio_value(&mut params.filter_type, 3, "Directional").changed();
                                 
                                 ui.separator();
