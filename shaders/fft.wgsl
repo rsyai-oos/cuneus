@@ -1,0 +1,517 @@
+// 2D FFT implementation with workgroup memory
+
+// The radix to use for the FFT: 2 or 4
+const RADIX = 4;
+
+// Time uniform
+struct TimeUniform {
+    time: f32,
+    delta: f32,
+    frame: u32,
+    _padding: u32,
+};
+@group(0) @binding(0) var<uniform> time_data: TimeUniform;
+
+struct FFTParams {
+    filter_type: i32,     
+    filter_strength: f32, 
+    filter_direction: f32,
+    filter_radius: f32,   
+    show_freqs: i32,      
+    resolution: u32,      
+    _padding1: u32,
+    _padding2: u32,
+};
+@group(1) @binding(0) var<uniform> params: FFTParams;
+
+// Textures
+@group(2) @binding(0) var input_texture: texture_2d<f32>;
+@group(2) @binding(1) var tex_sampler: sampler;
+@group(2) @binding(2) var output: texture_storage_2d<rgba16float, write>;
+
+// Storage buffer for FFT data
+@group(3) @binding(0) var<storage, read_write> image_data: array<vec2f>;
+
+// Constants
+const PI = 3.1415927;
+const LOG2_N_MAX = 11;
+const N_MAX = 2048;
+const N_CHANNELS = 3u;  // RGB
+// Workgroup memory for FFT
+var<workgroup> X: array<vec2f, 2048>;
+
+fn mul(x: vec2f, y: vec2f) -> vec2f {
+    return vec2(x.x * y.x - x.y * y.y, x.x * y.y + x.y * y.x);
+}
+
+fn cis(x: f32) -> vec2f {
+    return vec2(cos(x), sin(x));
+}
+
+fn index(channel: u32, y: u32, x: u32) -> u32 {
+    let N = params.resolution;
+    return channel * N * N + y * N + x;
+}
+
+fn reverse_bits(x: u32, bits: u32) -> u32 {
+    var ret = 0u;
+    var val = x;
+    
+    for(var i = 0u; i < bits; i++) {
+        ret = (ret << 1u) | (val & 1u);
+        val = val >> 1u;
+    }
+    
+    return ret;
+}
+
+fn reverse_digits_base_4(x: u32, n: u32) -> u32 {
+    var v = x;
+    var y = 0u;
+    
+    for (var i = 0u; i < n; i++) {
+        y = (y << 2u) | (v & 3u);
+        v >>= 2u;
+    }
+    
+    return y;
+}
+
+// Initialize data from input texture
+@compute @workgroup_size(16, 16, 1)
+fn initialize_data(@builtin(global_invocation_id) id: vec3u) {
+    let N = params.resolution;
+    
+    if (any(id.xy >= vec2(N))) {
+        return;
+    }
+    
+    let uv = (vec2f(id.xy) + 0.5) / f32(N);
+    var color = textureSampleLevel(input_texture, tex_sampler, uv, 0.0).rgb;
+    
+    for (var i = 0u; i < N_CHANNELS; i++) {
+        image_data[index(i, id.y, id.x)] = vec2(color[i], 0.0);
+    }
+}
+
+//  FFT on rows
+@compute @workgroup_size(256, 1, 1)
+fn fft_horizontal(@builtin(workgroup_id) workgroup_id: vec3u, @builtin(local_invocation_index) local_index: u32) {
+    let LOG2_N = firstLeadingBit(params.resolution);
+    let LOG4_N = LOG2_N / 2u;
+    let N = params.resolution;
+    
+    let row = workgroup_id.x;
+    if (row >= N) { return; }
+    
+    for (var ch = 0u; ch < N_CHANNELS; ch++) {
+        // Load data with bit-reversal permutation
+        for (var i = 0u; i < N / 256u; i++) {
+            let j = local_index + i * 256u;
+            
+            var k: u32;
+            if (RADIX == 2) {
+                k = reverse_bits(j, LOG2_N);
+            } else {
+                k = reverse_digits_base_4(j >> (LOG2_N & 1u), LOG4_N);
+                k |= (j & (LOG2_N & 1u)) << (LOG2_N - 1u);
+            }
+            
+            X[k] = image_data[index(ch, row, j)];
+        }
+        
+        workgroupBarrier();
+        
+        // Radix-4 FFT passes
+        for (var p = 0u; RADIX == 4 && p < LOG4_N; p++) {
+            let s = 1u << (2u * p);
+            
+            for (var i = 0u; i < N / 256u / 4u; i++) {
+                let j = local_index + i * 256u;
+                let k = j & (s - 1u);
+                let t = -2.0 * PI / f32(s * 4u) * f32(k);
+                let k0 = ((j >> (2u * p)) << (2u * p + 2u)) + k;
+                let k1 = k0 + 1u * s;
+                let k2 = k0 + 2u * s;
+                let k3 = k0 + 3u * s;
+                
+                let x0 = X[k0];
+                let x1 = mul(cis(t), X[k1]);
+                let x2 = mul(cis(t * 2.0), X[k2]);
+                let x3 = mul(cis(t * 3.0), X[k3]);
+                
+                X[k0] = x0 + x1 + x2 + x3;
+                X[k1] = x0 - mul(vec2(0.0, 1.0), x1) - x2 + mul(vec2(0.0, 1.0), x3);
+                X[k2] = x0 - x1 + x2 - x3;
+                X[k3] = x0 + mul(vec2(0.0, 1.0), x1) - x2 - mul(vec2(0.0, 1.0), x3);
+            }
+            
+            workgroupBarrier();
+        }
+        
+        // Radix-2 FFT passes
+        for (var p = select(0u, 2u * LOG4_N, RADIX == 4); p < LOG2_N; p++) {
+            let s = 1u << p;
+            
+            for (var i = 0u; i < N / 256u / 2u; i++) {
+                let j = local_index + i * 256u;
+                let k = j & (s - 1u);
+                let k0 = ((j >> p) << (p + 1u)) + k;
+                let k1 = k0 + s;
+                
+                let x0 = X[k0];
+                let x1 = mul(cis(-2.0 * PI / f32(s * 2u) * f32(k)), X[k1]);
+                
+                X[k0] = x0 + x1;
+                X[k1] = x0 - x1;
+            }
+            
+            workgroupBarrier();
+        }
+        
+        // Store results back to storage
+        for (var i = 0u; i < N / 256u; i++) {
+            let j = local_index + i * 256u;
+            image_data[index(ch, row, j)] = X[j];
+        }
+    }
+}
+
+//cols
+@compute @workgroup_size(256, 1, 1)
+fn fft_vertical(@builtin(workgroup_id) workgroup_id: vec3u, @builtin(local_invocation_index) local_index: u32) {
+    let LOG2_N = firstLeadingBit(params.resolution);
+    let LOG4_N = LOG2_N / 2u;
+    let N = params.resolution;
+    
+    let col = workgroup_id.x;
+    if (col >= N) { return; }
+    
+    for (var ch = 0u; ch < N_CHANNELS; ch++) {
+        // Load data with bit-reversal permutation
+        for (var i = 0u; i < N / 256u; i++) {
+            let j = local_index + i * 256u;
+            
+            var k: u32;
+            if (RADIX == 2) {
+                k = reverse_bits(j, LOG2_N);
+            } else {
+                k = reverse_digits_base_4(j >> (LOG2_N & 1u), LOG4_N);
+                k |= (j & (LOG2_N & 1u)) << (LOG2_N - 1u);
+            }
+            
+            X[k] = image_data[index(ch, j, col)];
+        }
+        
+        workgroupBarrier();
+        
+        // Radix-4 FFT passes
+        for (var p = 0u; RADIX == 4 && p < LOG4_N; p++) {
+            let s = 1u << (2u * p);
+            
+            for (var i = 0u; i < N / 256u / 4u; i++) {
+                let j = local_index + i * 256u;
+                let k = j & (s - 1u);
+                let t = -2.0 * PI / f32(s * 4u) * f32(k);
+                let k0 = ((j >> (2u * p)) << (2u * p + 2u)) + k;
+                let k1 = k0 + 1u * s;
+                let k2 = k0 + 2u * s;
+                let k3 = k0 + 3u * s;
+                
+                let x0 = X[k0];
+                let x1 = mul(cis(t), X[k1]);
+                let x2 = mul(cis(t * 2.0), X[k2]);
+                let x3 = mul(cis(t * 3.0), X[k3]);
+                
+                X[k0] = x0 + x1 + x2 + x3;
+                X[k1] = x0 - mul(vec2(0.0, 1.0), x1) - x2 + mul(vec2(0.0, 1.0), x3);
+                X[k2] = x0 - x1 + x2 - x3;
+                X[k3] = x0 + mul(vec2(0.0, 1.0), x1) - x2 - mul(vec2(0.0, 1.0), x3);
+            }
+            
+            workgroupBarrier();
+        }
+        
+        // Radix-2 FFT passes
+        for (var p = select(0u, 2u * LOG4_N, RADIX == 4); p < LOG2_N; p++) {
+            let s = 1u << p;
+            
+            for (var i = 0u; i < N / 256u / 2u; i++) {
+                let j = local_index + i * 256u;
+                let k = j & (s - 1u);
+                let k0 = ((j >> p) << (p + 1u)) + k;
+                let k1 = k0 + s;
+                
+                let x0 = X[k0];
+                let x1 = mul(cis(-2.0 * PI / f32(s * 2u) * f32(k)), X[k1]);
+                
+                X[k0] = x0 + x1;
+                X[k1] = x0 - x1;
+            }
+            
+            workgroupBarrier();
+        }
+        
+        // Store results back to storage
+        for (var i = 0u; i < N / 256u; i++) {
+            let j = local_index + i * 256u;
+            image_data[index(ch, j, col)] = X[j];
+        }
+    }
+}
+
+// frequency domain thingies
+@compute @workgroup_size(16, 16, 1)
+fn modify_frequencies(@builtin(global_invocation_id) id: vec3u) {
+    let N = params.resolution;
+    
+    if (any(id.xy >= vec2(N))) {
+        return;
+    }
+    
+    // get frequency coordinates (shifted to have DC at center)
+    let freq_coords = vec2f(vec2i(id.xy + N / 2u) % vec2i(N) - vec2i(N / 2u));
+    let f = length(freq_coords); // Distance from DC
+    
+    var scale = 1.0;
+    let t = params.filter_strength;
+    
+    switch params.filter_type {
+        // Low
+        case 0: {
+            scale = exp(-f * f * t * 0.001);
+            break;
+        }
+        // High-pass
+        case 1: {
+            scale = 1.0 - exp(-f * f * t * 0.001);
+            break;
+        }
+        // Band-pass
+        case 2: {
+            let f_adjusted = f * 0.05;
+            scale = exp(-pow(f_adjusted - params.filter_radius, 2.0) * t);
+            break;
+        }
+        // Directional
+        case 3: {
+            let angle = atan2(freq_coords.y, freq_coords.x);
+            let direction = params.filter_direction;
+            scale = exp(-pow(sin(angle - direction) * f, 2.0) * t * 0.001);
+            break;
+        }
+        default: {
+            scale = 1.0;
+        }
+    }
+    
+    for (var i = 0u; i < N_CHANNELS; i++) {
+        image_data[index(i, id.y, id.x)] *= scale;
+    }
+}
+
+// inverse FFT on rows
+@compute @workgroup_size(256, 1, 1)
+fn ifft_horizontal(@builtin(workgroup_id) workgroup_id: vec3u, @builtin(local_invocation_index) local_index: u32) {
+    let LOG2_N = firstLeadingBit(params.resolution);
+    let LOG4_N = LOG2_N / 2u;
+    let N = params.resolution;
+    
+    let row = workgroup_id.x;
+    if (row >= N) { return; }
+    
+    for (var ch = 0u; ch < N_CHANNELS; ch++) {
+        // Load data with bit-reversal permutation
+        for (var i = 0u; i < N / 256u; i++) {
+            let j = local_index + i * 256u;
+            
+            var k: u32;
+            if (RADIX == 2) {
+                k = reverse_bits(j, LOG2_N);
+            } else {
+                k = reverse_digits_base_4(j >> (LOG2_N & 1u), LOG4_N);
+                k |= (j & (LOG2_N & 1u)) << (LOG2_N - 1u);
+            }
+            
+            X[k] = image_data[index(ch, row, j)];
+        }
+        
+        workgroupBarrier();
+        
+        // Radix-4 FFT passes (inverse)
+        for (var p = 0u; RADIX == 4 && p < LOG4_N; p++) {
+            let s = 1u << (2u * p);
+            
+            for (var i = 0u; i < N / 256u / 4u; i++) {
+                let j = local_index + i * 256u;
+                let k = j & (s - 1u);
+                let t = 2.0 * PI / f32(s * 4u) * f32(k);
+                let k0 = ((j >> (2u * p)) << (2u * p + 2u)) + k;
+                let k1 = k0 + 1u * s;
+                let k2 = k0 + 2u * s;
+                let k3 = k0 + 3u * s;
+                
+                let x0 = X[k0];
+                let x1 = mul(cis(t), X[k1]);
+                let x2 = mul(cis(t * 2.0), X[k2]);
+                let x3 = mul(cis(t * 3.0), X[k3]);
+                
+                X[k0] = x0 + x1 + x2 + x3;
+                X[k1] = x0 + mul(vec2(0.0, 1.0), x1) - x2 - mul(vec2(0.0, 1.0), x3);
+                X[k2] = x0 - x1 + x2 - x3;
+                X[k3] = x0 - mul(vec2(0.0, 1.0), x1) - x2 + mul(vec2(0.0, 1.0), x3);
+            }
+            
+            workgroupBarrier();
+        }
+        
+        // Radix-2 FFT passes (inverse)
+        for (var p = select(0u, 2u * LOG4_N, RADIX == 4); p < LOG2_N; p++) {
+            let s = 1u << p;
+            
+            for (var i = 0u; i < N / 256u / 2u; i++) {
+                let j = local_index + i * 256u;
+                let k = j & (s - 1u);
+                let k0 = ((j >> p) << (p + 1u)) + k;
+                let k1 = k0 + s;
+                
+                let x0 = X[k0];
+                let x1 = mul(cis(2.0 * PI / f32(s * 2u) * f32(k)), X[k1]);
+                
+                X[k0] = x0 + x1;
+                X[k1] = x0 - x1;
+            }
+            
+            workgroupBarrier();
+        }
+        
+        for (var i = 0u; i < N / 256u; i++) {
+            let j = local_index + i * 256u;
+            image_data[index(ch, row, j)] = X[j] / f32(N);
+        }
+    }
+}
+
+// now on columns inverse... 
+@compute @workgroup_size(256, 1, 1)
+fn ifft_vertical(@builtin(workgroup_id) workgroup_id: vec3u, @builtin(local_invocation_index) local_index: u32) {
+    let LOG2_N = firstLeadingBit(params.resolution);
+    let LOG4_N = LOG2_N / 2u;
+    let N = params.resolution;
+    
+    let col = workgroup_id.x;
+    if (col >= N) { return; }
+    
+    for (var ch = 0u; ch < N_CHANNELS; ch++) {
+        for (var i = 0u; i < N / 256u; i++) {
+            let j = local_index + i * 256u;
+            
+            var k: u32;
+            if (RADIX == 2) {
+                k = reverse_bits(j, LOG2_N);
+            } else {
+                k = reverse_digits_base_4(j >> (LOG2_N & 1u), LOG4_N);
+                k |= (j & (LOG2_N & 1u)) << (LOG2_N - 1u);
+            }
+            
+            X[k] = image_data[index(ch, j, col)];
+        }
+        
+        workgroupBarrier();
+        
+        for (var p = 0u; RADIX == 4 && p < LOG4_N; p++) {
+            let s = 1u << (2u * p);
+            
+            for (var i = 0u; i < N / 256u / 4u; i++) {
+                let j = local_index + i * 256u;
+                let k = j & (s - 1u);
+                let t = 2.0 * PI / f32(s * 4u) * f32(k);
+                let k0 = ((j >> (2u * p)) << (2u * p + 2u)) + k;
+                let k1 = k0 + 1u * s;
+                let k2 = k0 + 2u * s;
+                let k3 = k0 + 3u * s;
+                
+                let x0 = X[k0];
+                let x1 = mul(cis(t), X[k1]);
+                let x2 = mul(cis(t * 2.0), X[k2]);
+                let x3 = mul(cis(t * 3.0), X[k3]);
+                
+                X[k0] = x0 + x1 + x2 + x3;
+                X[k1] = x0 + mul(vec2(0.0, 1.0), x1) - x2 - mul(vec2(0.0, 1.0), x3);
+                X[k2] = x0 - x1 + x2 - x3;
+                X[k3] = x0 - mul(vec2(0.0, 1.0), x1) - x2 + mul(vec2(0.0, 1.0), x3);
+            }
+            
+            workgroupBarrier();
+        }
+        
+        for (var p = select(0u, 2u * LOG4_N, RADIX == 4); p < LOG2_N; p++) {
+            let s = 1u << p;
+            
+            for (var i = 0u; i < N / 256u / 2u; i++) {
+                let j = local_index + i * 256u;
+                let k = j & (s - 1u);
+                let k0 = ((j >> p) << (p + 1u)) + k;
+                let k1 = k0 + s;
+                
+                let x0 = X[k0];
+                let x1 = mul(cis(2.0 * PI / f32(s * 2u) * f32(k)), X[k1]);
+                
+                X[k0] = x0 + x1;
+                X[k1] = x0 - x1;
+            }
+            
+            workgroupBarrier();
+        }
+        
+        for (var i = 0u; i < N / 256u; i++) {
+            let j = local_index + i * 256u;
+            image_data[index(ch, j, col)] = X[j] / f32(N);
+        }
+    }
+}
+
+//render
+@compute @workgroup_size(16, 16, 1)
+fn main_image(@builtin(global_invocation_id) id: vec3u) {
+    let dimensions = vec2u(textureDimensions(output));
+    
+    if (any(id.xy >= dimensions)) {
+        return;
+    }
+    
+    let N = params.resolution;
+    let center = dimensions / 2u;
+    
+    // Calculate position in FFT image (centered)
+    var p = vec2i(id.xy) - vec2i(dimensions) / 2 + vec2i(N / 2u);
+    
+    // Check if position is within the FFT image bounds
+    if (any((p < vec2i(0)) | (p >= vec2i(N)))) {
+        textureStore(output, id.xy, vec4(0.0, 0.0, 0.0, 1.0));
+        return;
+    }
+    
+    var color = vec3(0.0);
+    
+    if (params.show_freqs == 1) {
+        // with log scaling for better vis
+        for (var i = 0u; i < N_CHANNELS; i++) {
+            let data = image_data[index(i, u32(p.y), u32(p.x))];
+            let amplitude = length(data);
+            color[i] = log(1.0 + amplitude * 10.0) / log(11.0);
+        }
+    } else {
+        // spatial domain
+        for (var i = 0u; i < N_CHANNELS; i++) {
+            let data = image_data[index(i, u32(p.y), u32(p.x))];
+            color[i] = length(data); // Real component after IFFT
+        }
+    }
+    
+    if (N_CHANNELS == 1u) {
+        color = vec3(color.r);
+    }
+    
+    textureStore(output, id.xy, vec4(color, 1.0));
+}
