@@ -272,7 +272,6 @@ fn fft_vertical(@builtin(workgroup_id) workgroup_id: vec3u, @builtin(local_invoc
     }
 }
 
-// Butterworth filter of order n (I will use 7 todo: I will add slider for that)
 fn butterworth(f: f32, cutoff: f32, order: f32, highpass: bool) -> f32 {
     let ratio = f / cutoff;
     var result: f32;
@@ -308,21 +307,21 @@ fn modify_frequencies(@builtin(global_invocation_id) id: vec3u) {
     let f = length(freq_coords) / f32(N / 2u);
     
     var scale = 1.0;
-    let t = params.filter_strength;
+    let t = 1.0 - params.filter_strength;
     let order = 7.0; //I generally use 7.0 :-P
-    
+    let safe_t = max(t, 0.01);
     switch params.filter_type {
         // LSF
         case 0: {
             // Butterworth low-pass
-            let cutoff = 0.5 * t;
+            let cutoff = 0.5 * safe_t;
             scale = butterworth(f, cutoff, order, false);
             break;
         }
         // HSF
         case 1: {
             // Butterworth high-pass
-            let cutoff = 0.1 + 0.3 * t;
+            let cutoff = 0.1 + 0.3 * (1.0 - safe_t);
             scale = butterworth(f, cutoff, order, true);
             break;
         }
@@ -330,7 +329,7 @@ fn modify_frequencies(@builtin(global_invocation_id) id: vec3u) {
         case 2: {
             // Center frequency (radius) and bandwidth
             let center = params.filter_radius / 6.28;
-            let bandwidth = 0.1 * t;
+            let bandwidth = 0.05 + 0.2 * safe_t;
             // Gaussian band-pass
             scale = exp(-pow((f - center) / bandwidth, 2.0));
             break;
@@ -339,7 +338,7 @@ fn modify_frequencies(@builtin(global_invocation_id) id: vec3u) {
         case 3: {
             let angle = atan2(freq_coords.y, freq_coords.x);
             let direction = params.filter_direction;
-            let angular_width = max(0.1, t);
+             let angular_width = 0.1 + 1.0 * safe_t;
             scale = exp(-pow(sin(angle - direction) / angular_width, 2.0));
             break;
         }
