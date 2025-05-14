@@ -77,7 +77,18 @@ fn reverse_digits_base_4(x: u32, n: u32) -> u32 {
     return y;
 }
 
-// Initialize data from input texture
+fn magnitude(z: vec2f) -> f32 {
+    return sqrt(z.x * z.x + z.y * z.y);
+}
+
+fn phase(z: vec2f) -> f32 {
+    return atan2(z.y, z.x);
+}
+
+fn fftshift(i: u32, N: u32) -> u32 {
+    return (i + N / 2u) % N;
+}
+
 @compute @workgroup_size(16, 16, 1)
 fn initialize_data(@builtin(global_invocation_id) id: vec3u) {
     let N = params.resolution;
@@ -90,11 +101,12 @@ fn initialize_data(@builtin(global_invocation_id) id: vec3u) {
     var color = textureSampleLevel(input_texture, tex_sampler, uv, 0.0).rgb;
     
     for (var i = 0u; i < N_CHANNELS; i++) {
+        // Initialize with real values, imaginary part is 0
         image_data[index(i, id.y, id.x)] = vec2(color[i], 0.0);
     }
 }
 
-//  FFT on rows
+// FFT on rows
 @compute @workgroup_size(256, 1, 1)
 fn fft_horizontal(@builtin(workgroup_id) workgroup_id: vec3u, @builtin(local_invocation_index) local_index: u32) {
     let LOG2_N = firstLeadingBit(params.resolution);
@@ -177,7 +189,7 @@ fn fft_horizontal(@builtin(workgroup_id) workgroup_id: vec3u, @builtin(local_inv
     }
 }
 
-//cols
+// FFT on columns
 @compute @workgroup_size(256, 1, 1)
 fn fft_vertical(@builtin(workgroup_id) workgroup_id: vec3u, @builtin(local_invocation_index) local_index: u32) {
     let LOG2_N = firstLeadingBit(params.resolution);
@@ -260,7 +272,21 @@ fn fft_vertical(@builtin(workgroup_id) workgroup_id: vec3u, @builtin(local_invoc
     }
 }
 
-// frequency domain thingies
+// Butterworth filter of order n (I will use 7 todo: I will add slider for that)
+fn butterworth(f: f32, cutoff: f32, order: f32, highpass: bool) -> f32 {
+    let ratio = f / cutoff;
+    var result: f32;
+    
+    if (highpass) {
+        result = 1.0 / (1.0 + pow(cutoff / max(f, 0.001), 2.0 * order));
+    } else {
+        result = 1.0 / (1.0 + pow(ratio, 2.0 * order));
+    }
+    
+    return result;
+}
+
+// Frequency domain operations
 @compute @workgroup_size(16, 16, 1)
 fn modify_frequencies(@builtin(global_invocation_id) id: vec3u) {
     let N = params.resolution;
@@ -269,35 +295,52 @@ fn modify_frequencies(@builtin(global_invocation_id) id: vec3u) {
         return;
     }
     
-    // get frequency coordinates (shifted to have DC at center)
-    let freq_coords = vec2f(vec2i(id.xy + N / 2u) % vec2i(N) - vec2i(N / 2u));
-    let f = length(freq_coords); // Distance from DC
+    // Calculate shifted coordinates for centered frequency representation
+    let shifted_x = (id.x + N / 2u) % N;
+    let shifted_y = (id.y + N / 2u) % N;
+    
+    // Calculate frequency coordinates (0,0 is DC, center of the image)
+    let freq_x = f32(shifted_x) - f32(N / 2u);
+    let freq_y = f32(shifted_y) - f32(N / 2u);
+    
+    // Normalized frequency (distance from DC). range: [0, 1]
+    let freq_coords = vec2f(freq_x, freq_y);
+    let f = length(freq_coords) / f32(N / 2u);
     
     var scale = 1.0;
     let t = params.filter_strength;
+    let order = 7.0; //I generally use 7.0 :-P
     
     switch params.filter_type {
-        // Low
+        // LSF
         case 0: {
-            scale = exp(-f * f * t * 0.001);
+            // Butterworth low-pass
+            let cutoff = 0.5 * t;
+            scale = butterworth(f, cutoff, order, false);
             break;
         }
-        // High-pass
+        // HSF
         case 1: {
-            scale = 1.0 - exp(-f * f * t * 0.001);
+            // Butterworth high-pass
+            let cutoff = 0.1 + 0.3 * t;
+            scale = butterworth(f, cutoff, order, true);
             break;
         }
-        // Band-pass
+        // Band-pass filter
         case 2: {
-            let f_adjusted = f * 0.05;
-            scale = exp(-pow(f_adjusted - params.filter_radius, 2.0) * t);
+            // Center frequency (radius) and bandwidth
+            let center = params.filter_radius / 6.28;
+            let bandwidth = 0.1 * t;
+            // Gaussian band-pass
+            scale = exp(-pow((f - center) / bandwidth, 2.0));
             break;
         }
         // Directional
         case 3: {
             let angle = atan2(freq_coords.y, freq_coords.x);
             let direction = params.filter_direction;
-            scale = exp(-pow(sin(angle - direction) * f, 2.0) * t * 0.001);
+            let angular_width = max(0.1, t);
+            scale = exp(-pow(sin(angle - direction) / angular_width, 2.0));
             break;
         }
         default: {
@@ -305,7 +348,9 @@ fn modify_frequencies(@builtin(global_invocation_id) id: vec3u) {
         }
     }
     
+    // Apply the filter to each channel
     for (var i = 0u; i < N_CHANNELS; i++) {
+        //(not shifted) position
         image_data[index(i, id.y, id.x)] *= scale;
     }
 }
@@ -495,19 +540,24 @@ fn main_image(@builtin(global_invocation_id) id: vec3u) {
     var color = vec3(0.0);
     
     if (params.show_freqs == 1) {
-        // with log scaling for better vis
+        // Frequency domain for better vis also log scaling for better dynamic rang
         for (var i = 0u; i < N_CHANNELS; i++) {
             let data = image_data[index(i, u32(p.y), u32(p.x))];
             let amplitude = length(data);
-            color[i] = log(1.0 + amplitude * 10.0) / log(11.0);
+            color[i] = log(1.0 + amplitude * 30.0) / log(31.0);
         }
     } else {
-        // spatial domain
+        // Spatial domain (filtered image)
         for (var i = 0u; i < N_CHANNELS; i++) {
             let data = image_data[index(i, u32(p.y), u32(p.x))];
-            color[i] = length(data); // Real component after IFFT
+            
+            // Use only the real component for the image - this is critical!
+            // The imaginary part should be very close to zero after IFFT
+            color[i] = data.x;
         }
     }
+    
+    color = clamp(color, vec3(0.0), vec3(1.0));
     
     if (N_CHANNELS == 1u) {
         color = vec3(color.r);

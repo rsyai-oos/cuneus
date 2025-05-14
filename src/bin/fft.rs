@@ -712,12 +712,12 @@ impl ShaderManager for FFTShader {
                                 
                                 ui.separator();
                                 
-                                changed |= ui.add(egui::Slider::new(&mut params.filter_strength, 0.0..=6.28)
+                                changed |= ui.add(egui::Slider::new(&mut params.filter_strength, 0.0..=1.0)
                                     .text("Filter Strength"))
                                     .changed();
                                 
                                 if params.filter_type == 2 {
-                                    changed |= ui.add(egui::Slider::new(&mut params.filter_radius, 1.0..=25.0)
+                                    changed |= ui.add(egui::Slider::new(&mut params.filter_radius, 0.0..=6.28)
                                         .text("Band Radius"))
                                         .changed();
                                 }
