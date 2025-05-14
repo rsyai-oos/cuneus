@@ -1,4 +1,4 @@
-// 2D FFT implementation with workgroup memory
+// 2D FFT workflow with butterworth filter
 
 // The radix to use for the FFT: 2 or 4
 const RADIX = 4;
@@ -32,11 +32,10 @@ struct FFTParams {
 // Storage buffer for FFT data
 @group(3) @binding(0) var<storage, read_write> image_data: array<vec2f>;
 
-// Constants
 const PI = 3.1415927;
 const LOG2_N_MAX = 11;
 const N_MAX = 2048;
-const N_CHANNELS = 3u;  // RGB
+const N_CHANNELS = 3u;
 // Workgroup memory for FFT
 var<workgroup> X: array<vec2f, 2048>;
 
@@ -314,14 +313,14 @@ fn modify_frequencies(@builtin(global_invocation_id) id: vec3u) {
         // LSF
         case 0: {
             // Butterworth low-pass
-            let cutoff = 0.5 * safe_t;
+            let cutoff = 0.3 * safe_t;
             scale = butterworth(f, cutoff, order, false);
             break;
         }
         // HSF
         case 1: {
             // Butterworth high-pass
-            let cutoff = 0.1 + 0.3 * (1.0 - safe_t);
+            let cutoff = 0.05 + 0.3 * (1.0 - safe_t);
             scale = butterworth(f, cutoff, order, true);
             break;
         }
