@@ -6,10 +6,9 @@
 //  SPIR-V-based Stockham + mixed-radix kernels   https://github.com/DTolm/VkFFT
 //  Moreland, K., & Angel, E. (2003). The FFT on a GPU. SIGGRAPH/EUROGRAPHICS Conference On Graphics Hardware.
 
-// The radix to use for the FFT: 2 or 4
+
 const RADIX = 4;
 
-// Time uniform
 struct TimeUniform {
     time: f32,
     delta: f32,
@@ -42,7 +41,6 @@ const PI = 3.1415927;
 const LOG2_N_MAX = 11;
 const N_MAX = 2048;
 const N_CHANNELS = 3u;
-// Workgroup memory for FFT
 var<workgroup> X: array<vec2f, 2048>;
 
 fn mul(x: vec2f, y: vec2f) -> vec2f {
@@ -106,7 +104,6 @@ fn initialize_data(@builtin(global_invocation_id) id: vec3u) {
     var color = textureSampleLevel(input_texture, tex_sampler, uv, 0.0).rgb;
     
     for (var i = 0u; i < N_CHANNELS; i++) {
-        // Initialize with real values, imaginary part is 0
         image_data[index(i, id.y, id.x)] = vec2(color[i], 0.0);
     }
 }
@@ -166,7 +163,6 @@ fn fft_horizontal(@builtin(workgroup_id) workgroup_id: vec3u, @builtin(local_inv
             workgroupBarrier();
         }
         
-        // Radix-2 FFT passes
         for (var p = select(0u, 2u * LOG4_N, RADIX == 4); p < LOG2_N; p++) {
             let s = 1u << p;
             
@@ -249,7 +245,6 @@ fn fft_vertical(@builtin(workgroup_id) workgroup_id: vec3u, @builtin(local_invoc
             workgroupBarrier();
         }
         
-        // Radix-2 FFT passes
         for (var p = select(0u, 2u * LOG4_N, RADIX == 4); p < LOG2_N; p++) {
             let s = 1u << p;
             
@@ -387,7 +382,6 @@ fn ifft_horizontal(@builtin(workgroup_id) workgroup_id: vec3u, @builtin(local_in
         
         workgroupBarrier();
         
-        // Radix-4 FFT passes (inverse)
         for (var p = 0u; RADIX == 4 && p < LOG4_N; p++) {
             let s = 1u << (2u * p);
             
@@ -414,7 +408,6 @@ fn ifft_horizontal(@builtin(workgroup_id) workgroup_id: vec3u, @builtin(local_in
             workgroupBarrier();
         }
         
-        // Radix-2 FFT passes (inverse)
         for (var p = select(0u, 2u * LOG4_N, RADIX == 4); p < LOG2_N; p++) {
             let s = 1u << p;
             
