@@ -1,4 +1,8 @@
-// 2D FFT workflow with butterworth filter
+// 2D FFT workflow with butterworth filter, Enes Altun 2025.
+//  Some FFT operations adapted from: 
+//  fadaaszhi, 2025: https://compute.toys/view/1187: Fast Fourier Transform
+//  FabriceNeyret2, 2023 https://www.shadertoy.com/view/DtGfWV : Fourier Workflow 3 / phases info 
+//  FabriceNeyret2, 2017  https://www.shadertoy.com/view/XtScWt: Fourier Workflow 2 / phases info 
 
 // The radix to use for the FFT: 2 or 4
 const RADIX = 4;
