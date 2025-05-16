@@ -59,7 +59,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     })
 }
 impl Shader {
-    fn capture_frame(&mut self, core: &Core, _time: f32) -> Result<Vec<u8>, wgpu::SurfaceError> {
+    fn capture_frame(&mut self, core: &Core, time: f32) -> Result<Vec<u8>, wgpu::SurfaceError> {
         let settings = self.base.export_manager.settings();
         let (capture_texture, output_buffer) = self.base.create_capture_texture(
             &core.device,
@@ -74,6 +74,7 @@ impl Shader {
         let mut encoder = core.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Capture Encoder"),
         });
+        self.base.time_uniform.data.time = time;
         self.base.time_uniform.update(&core.queue);
         self.base.resolution_uniform.data.dimensions = [settings.width as f32, settings.height as f32];
         self.base.resolution_uniform.update(&core.queue);
