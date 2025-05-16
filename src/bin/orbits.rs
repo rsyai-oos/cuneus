@@ -26,13 +26,11 @@ pub struct ShaderParams {
     trap_c1: f32,
     aa: i32,
 
-
     // Animation parameters
     trap_s1: f32,
     wave_speed: f32,
     fold_intensity: f32,
 }
-
 
 impl UniformProvider for ShaderParams {
     fn as_bytes(&self) -> &[u8] {
@@ -47,6 +45,11 @@ struct Shader {
     time_bind_group_layout: wgpu::BindGroupLayout,    
     resolution_bind_group_layout: wgpu::BindGroupLayout,
     params_bind_group_layout: wgpu::BindGroupLayout,
+    mouse_bind_group_layout: wgpu::BindGroupLayout,
+    mouse_dragging: bool,
+    drag_start: [f32; 2],
+    drag_start_pos: [f32; 2],
+    zoom_level: f32,
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
@@ -94,6 +97,9 @@ impl Shader {
             render_pass.set_bind_group(0, &self.base.time_uniform.bind_group, &[]);
             render_pass.set_bind_group(1, &self.base.resolution_uniform.bind_group, &[]);
             render_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
+            if let Some(mouse_uniform) = &self.base.mouse_uniform {
+                render_pass.set_bind_group(3, &mouse_uniform.bind_group, &[]);
+            }
             render_pass.draw(0..4, 0..1);
         }
         encoder.copy_texture_to_buffer( 
@@ -187,21 +193,38 @@ impl ShaderManager for Shader {
             }],
             label: Some("params_bind_group_layout"),
         });
+        let mouse_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+            label: Some("mouse_bind_group_layout"),
+        });
+
+        let initial_zoom = 0.0004;
+        let initial_x = 2.14278;
+        let initial_y = 2.14278;
 
         let params_uniform = UniformBinding::new(
             &core.device,
             "Params Uniform",
             ShaderParams {
                 base_color: [0.0, 0.5, 1.0],
-                x: 2.14278,
+                x: initial_x,
                 rim_color: [0.0, 0.5, 1.0],
-                y: 2.14278,
+                y: initial_y,
                 accent_color: [0.018, 0.018, 0.018],
                 _pad3: 0.0,
                 _pad4: 0.0,
                 iteration: 355,
                 col_ext: 2.0,
-                zoom: 0.0004,
+                zoom: initial_zoom,
                 trap_pow: 1.0,
 
                 
@@ -222,6 +245,7 @@ impl ShaderManager for Shader {
             &time_bind_group_layout,
             &resolution_bind_group_layout,
             &params_bind_group_layout,
+            &mouse_bind_group_layout,
         ];
         let vs_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Vertex Shader"),
@@ -238,13 +262,14 @@ impl ShaderManager for Shader {
             PathBuf::from("shaders/orbits.wgsl"),
         ];
 
-        let base = RenderKit::new(
+        let mut base = RenderKit::new(
             core,
             include_str!("../../shaders/vertex.wgsl"),
             include_str!("../../shaders/orbits.wgsl"),
             &bind_group_layouts,
             None,
         );
+        base.setup_mouse_uniform(core);
 
         let hot_reload = ShaderHotReload::new(
             core.device.clone(),
@@ -260,6 +285,11 @@ impl ShaderManager for Shader {
             time_bind_group_layout,
             resolution_bind_group_layout,
             params_bind_group_layout,
+            mouse_bind_group_layout,
+            mouse_dragging: false,
+            drag_start: [0.0, 0.0],
+            drag_start_pos: [initial_x, initial_y],
+            zoom_level: initial_zoom,
         }
     }
 
@@ -272,6 +302,7 @@ impl ShaderManager for Shader {
                     &self.time_bind_group_layout,
                     &self.resolution_bind_group_layout,
                     &self.params_bind_group_layout,
+                    &self.mouse_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
             });
@@ -288,6 +319,7 @@ impl ShaderManager for Shader {
         if self.base.export_manager.is_exporting() {
             self.handle_export(core);
         }
+        self.base.update_mouse_uniform(&core.queue);
         self.base.fps_tracker.update();
     }
 
@@ -304,11 +336,23 @@ impl ShaderManager for Shader {
             &core.size
         );
         controls_request.current_fps = Some(self.base.fps_tracker.fps());
+        let mouse_pos = if let Some(mouse_uniform) = &self.base.mouse_uniform {
+            mouse_uniform.data.position
+        } else {
+            [0.0, 0.0]
+        };
+        let raw_pos = self.base.mouse_tracker.raw_position;
+        let mouse_wheel = if let Some(mouse_uniform) = &self.base.mouse_uniform {
+            mouse_uniform.data.wheel
+        } else {
+            [0.0, 0.0]
+        };
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
                 ctx.style_mut(|style| {
                     style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(0, 0, 0, 180);
-                });                egui::Window::new("Mandelbrot").show(ctx, |ui| {
+                });                
+                egui::Window::new("Mandelbrot").show(ctx, |ui| {
                     // Colors
                     changed |= ui.color_edit_button_rgb(&mut params.base_color).changed();
                     ui.label("Base Color");
@@ -322,10 +366,6 @@ impl ShaderManager for Shader {
                     
                     changed |= ui.add(egui::Slider::new(&mut params.iteration, 1..=500)
                         .text("iteration")).changed();
-
-
-                        
-
                         
                     changed |= ui.add(egui::Slider::new(&mut params.wave_speed, 0.0..=12.0)
                         .text("cols")).changed();
@@ -335,36 +375,49 @@ impl ShaderManager for Shader {
                     changed |= ui.add(egui::Slider::new(&mut params.aa, 1..=8)
                     .text("AA(care!)")).changed(); 
 
+                    ui.separator();
+                    ui.heading("Mouse Controls");
+                    ui.label("Left-click + drag to pan the view");
+                    ui.label("Scroll wheel to zoom in/out");
+                    ui.label(format!("Position (normalized): {:.3}, {:.3}", mouse_pos[0], mouse_pos[1]));
+                    ui.label(format!("Position (pixels): {:.1}, {:.1}", raw_pos[0], raw_pos[1]));
+                    ui.label(format!("Wheel: {:.2}, {:.2}", mouse_wheel[0], mouse_wheel[1]));
 
                     ui.collapsing("Trap", |ui| {
                         changed |= ui.add(egui::Slider::new(&mut params.trap_x, -12.0..=12.0)
                         .text("trap_x")).changed();
                         
-                    changed |= ui.add(egui::Slider::new(&mut params.trap_y, -12.0..=12.0)
-                        .text("trap_y")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.col_ext, 0.0..=25.0)
-                    .text("c1")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.trap_pow, 0.0..=10.0)
-                    .text("Trap Power")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.trap_c1, 0.0..=6.2)
-                    .text("c1")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.trap_s1, 0.0..=6.2)
-                    .text("s1")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.trap_y, -12.0..=12.0)
+                            .text("trap_y")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.col_ext, 0.0..=25.0)
+                            .text("c1")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.trap_pow, 0.0..=10.0)
+                            .text("Trap Power")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.trap_c1, 0.0..=6.2)
+                            .text("c1")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.trap_s1, 0.0..=6.2)
+                            .text("s1")).changed();
                     });
 
 
                     ui.collapsing("Positions", |ui| {
+                        let old_zoom = params.zoom;
                         changed |= ui.add(egui::Slider::new(&mut params.zoom, 0.0001..=1.5)
                             .text("Zoom")
                             .logarithmic(true)).changed();
+                        if old_zoom != params.zoom {
+                            self.zoom_level = params.zoom;
+                        }
                         ui.horizontal(|ui| {
                             ui.label("Fine Zoom:");
                             if ui.button("÷1.1").clicked() {
                                 params.zoom = (params.zoom / 1.1).max(0.0001);
+                                self.zoom_level = params.zoom;
                                 changed = true;
                             }
                             if ui.button("×1.1").clicked() {
                                 params.zoom = (params.zoom * 1.1).min(1.5);
+                                self.zoom_level = params.zoom;
                                 changed = true;
                             }
                         });
@@ -395,7 +448,7 @@ impl ShaderManager for Shader {
                             }
                         });
                     });
-                      ui.separator();
+                    ui.separator();
                     ShaderControls::render_controls_widget(ui, &mut controls_request);
                     ui.separator();
                     should_start_export = ExportManager::render_export_ui_widget(ui, &mut export_request);
@@ -444,6 +497,10 @@ impl ShaderManager for Shader {
             render_pass.set_bind_group(0, &self.base.time_uniform.bind_group, &[]);
             render_pass.set_bind_group(1, &self.base.resolution_uniform.bind_group, &[]);
             render_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
+            if let Some(mouse_uniform) = &self.base.mouse_uniform {
+                render_pass.set_bind_group(3, &mouse_uniform.bind_group, &[]);
+            }
+            
             render_pass.draw(0..4, 0..1);
         }
 
@@ -463,6 +520,75 @@ impl ShaderManager for Shader {
         if let WindowEvent::KeyboardInput { event, .. } = event {
             return self.base.key_handler.handle_keyboard_input(core.window(), event);
         }
-        false
+        match event {
+            WindowEvent::MouseInput { state, button, .. } => {
+                if *button == MouseButton::Left {
+                    match state {
+                        ElementState::Pressed => {
+                            if let Some(mouse_uniform) = &self.base.mouse_uniform {
+                                self.mouse_dragging = true;
+                                self.drag_start = mouse_uniform.data.position;
+                                self.drag_start_pos = [self.params_uniform.data.x, self.params_uniform.data.y];
+                            }
+                            return true;
+                        },
+                        ElementState::Released => {
+                            self.mouse_dragging = false;
+                            return true;
+                        }
+                    }
+                }
+                false
+            },
+            WindowEvent::CursorMoved { .. } => {
+                if self.mouse_dragging {
+                    if let Some(mouse_uniform) = &self.base.mouse_uniform {
+                        let current_pos = mouse_uniform.data.position;
+                         let dx = (current_pos[0] - self.drag_start[0]) * 3.0 * self.zoom_level;
+                         let dy = (current_pos[1] - self.drag_start[1]) * 6.0 * self.zoom_level;
+                        let mut new_x = self.drag_start_pos[0] + dx;
+                        let mut new_y = self.drag_start_pos[1] + dy;
+                        new_x = new_x.clamp(0.0, 3.0);
+                        new_y = new_y.clamp(0.0, 6.0);
+                        self.params_uniform.data.x = new_x;
+                        self.params_uniform.data.y = new_y;
+                        self.params_uniform.update(&core.queue);
+                    }
+                }
+                self.base.handle_mouse_input(core, event, false)
+            },
+            WindowEvent::MouseWheel { delta, .. } => {
+                let zoom_delta = match delta {
+                    MouseScrollDelta::LineDelta(_, y) => *y * 0.1,
+                    MouseScrollDelta::PixelDelta(pos) => (pos.y as f32) * 0.001,
+                };
+                
+                if zoom_delta != 0.0 {
+                    if let Some(mouse_uniform) = &self.base.mouse_uniform {
+                        let mouse_pos = mouse_uniform.data.position;
+                        
+                        let center_x = self.params_uniform.data.x;
+                        let center_y = self.params_uniform.data.y;
+                        
+                        let rel_x = mouse_pos[0] - 0.5;
+                        let rel_y = mouse_pos[1] - 0.5;
+                        
+                        let zoom_factor = if zoom_delta > 0.0 { 0.9 } else { 1.1 };
+                        self.zoom_level = (self.zoom_level * zoom_factor).clamp(0.0001, 1.5);
+                        
+                        let scale_change = 1.0 - zoom_factor;
+                        let dx = rel_x * scale_change * 3.0 * self.zoom_level;
+                        let dy = rel_y * scale_change * 6.0 * self.zoom_level;
+                        self.params_uniform.data.zoom = self.zoom_level;
+                        self.params_uniform.data.x = (center_x + dx).clamp(0.0, 3.0);
+                        self.params_uniform.data.y = (center_y + dy).clamp(0.0, 6.0);
+                        self.params_uniform.update(&core.queue);
+                    }
+                }
+                self.base.handle_mouse_input(core, event, false)
+            },
+            
+            _ => self.base.handle_mouse_input(core, event, false),
+        }
     }
 }

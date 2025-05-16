@@ -11,6 +11,15 @@ struct ResolutionUniform {
 @group(0) @binding(0) var<uniform> u_time: TimeUniform;
 @group(1) @binding(0) var<uniform> u_resolution: ResolutionUniform;
 @group(2) @binding(0) var<uniform> params: Params;
+
+struct MouseUniform {
+    position: vec2<f32>,         
+    click_position: vec2<f32>,   
+    wheel: vec2<f32>,            
+    buttons: vec2<u32>,          
+};
+@group(3) @binding(0) var<uniform> u_mouse: MouseUniform;
+
 struct Params {
     base_color: vec3<f32>,
     x: f32,
@@ -86,12 +95,12 @@ fn fs_main(@builtin(position) fc: vec4<f32>) -> @location(0) vec4<f32> {
     let frag = vec2(fc.x, ss.y - fc.y);
     let AA = params.aa;
     let t = u_time.time;
-    let t01 = t * .1;
+    let t01 = t * .4;
     // cp: camera path
     let cp = vec2(sin(.0002 * t / 10.), cos(.0002 * t / 10.));
     // p: pan position
     var p = vec2(.8085, .2607);
-    if(t > 17.) { p.y += .00001 * (t - 45.); }
+    if(t > 17.) { p.y += .00001 * (t - 1.); }
     // zl: zoom level
     let zl = op(.0005, .0005, 10., 5., t01);
     // t1, t2: traps
@@ -128,7 +137,6 @@ fn fs_main(@builtin(position) fc: vec4<f32>) -> @location(0) vec4<f32> {
             }
         }
     }
-    //gamma and vignette
     col = g(col / f32(AA * AA), .4);
     let q = frag.xy / ss;
     col *= .7 + .3 * pow(16. * q.x * q.y * (1. - q.x) * (1. - q.y), .15);
