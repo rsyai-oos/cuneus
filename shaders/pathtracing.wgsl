@@ -172,7 +172,7 @@ fn create_scene(mouse_x: f32, mouse_y: f32, time: f32) -> array<Sphere, 12> {
         1u
     );
     
-    let red_pulse = 1.0 + 0.15 * sin(time * 0.7);
+    let red_pulse = 2.0 + 0.15 * sin(time * 0.7);
     spheres[4] = Sphere(
         v3(2.0 + scene_offset_x, 1.7, -2.0),
         0.4 * red_pulse,
@@ -197,7 +197,7 @@ fn create_scene(mouse_x: f32, mouse_y: f32, time: f32) -> array<Sphere, 12> {
     );
     
     spheres[7] = Sphere(
-        v3(-1.0 + scene_offset_x, 0.3, -2.5),
+        v3(-1.0 + scene_offset_x, 1.5, -1.5),
         0.3,
         5u
     );
@@ -287,7 +287,7 @@ fn get_material(id: u32, rec: HitRecord) -> Material {
             mat.glow = 1.0;
         }
         case 5u: {
-            let pure_blue = v3(0.05, 0.3, 1.0);
+            let pure_blue = v3(1.1, 0.0, 1.1);
             
             mat.albedo = v3(0.3, 0.3, 1.0);
             mat.emissive = pure_blue * 4.0;
