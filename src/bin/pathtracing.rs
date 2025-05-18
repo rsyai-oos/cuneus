@@ -455,7 +455,7 @@ impl ShaderManager for PathTracingShader {
                 samples_per_pixel: 2,
                 accumulate: 1,
                 
-                num_spheres: 8,
+                num_spheres: 15,
                 mouse_x: 0.5,
                 mouse_y: 0.5,
                 

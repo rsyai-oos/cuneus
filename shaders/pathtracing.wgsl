@@ -161,14 +161,14 @@ fn create_scene(mouse_x: f32, mouse_y: f32, time: f32) -> array<Sphere, 12> {
         6u
     );
     spheres[2] = Sphere(
-        v3(-0.2 + scene_offset_x, 0.25, -0.9),
+        v3(-0.2 + scene_offset_x, 0.5, -0.9),
         0.25,
         2u
     );
     
     spheres[3] = Sphere(
-        v3(mouse_x * 2.0 - 1.0 + scene_offset_x, mouse_y * 0.5 + 0.2, -0.5),
-        0.2,
+        v3(mouse_x * 2.0 - 1.0 + scene_offset_x, mouse_y * 0.5 + 0.0, -1.5),
+        0.1,
         1u
     );
     
