@@ -147,45 +147,42 @@ fn hit_sphere(sphere: Sphere, ray: Ray, t_min: f32, t_max: f32, rec: ptr<functio
     
     return true;
 }
+const scene_offset_x: f32 = 12.5;
+
 fn create_scene(mouse_x: f32, mouse_y: f32, time: f32) -> array<Sphere, 12> {
     var spheres: array<Sphere, 12>;
-
+    
     spheres[0] = Sphere(
-        v3(0.0, -100.5, -1.0), 
-        100.0,  
-        0u  
+        v3(0.0 + scene_offset_x, -100.5, -1.0),
+        100.0,
+        0u
     );
-    
-
     spheres[1] = Sphere(
-        v3(-1.7, 0.5, -1.3),
+        v3(-1.7 + scene_offset_x, 0.5, -1.3),
         0.5,
-        6u 
+        6u
     );
-    
-    // Glass sphere
     spheres[2] = Sphere(
-        v3(-0.2, 0.25, -0.9),
+        v3(-0.2 + scene_offset_x, 0.25, -0.9),
         0.25,
         2u
     );
     
     spheres[3] = Sphere(
-        v3(mouse_x * 2.0 - 1.0, mouse_y * 0.5 + 0.2, -0.5),
+        v3(mouse_x * 2.0 - 1.0 + scene_offset_x, mouse_y * 0.5 + 0.2, -0.5),
         0.2,
-        1u 
+        1u
     );
     
     let red_pulse = 1.0 + 0.15 * sin(time * 0.7);
     spheres[4] = Sphere(
-        v3(2.0, 1.7, -2.0),
+        v3(2.0 + scene_offset_x, 1.7, -2.0),
         0.4 * red_pulse,
-        4u 
+        4u
     );
     
-    //plastic sphere
     spheres[5] = Sphere(
-        v3(0.8, 0.15, -0.8),
+        v3(0.8 + scene_offset_x, 0.15, -0.8),
         0.15,
         7u
     );
@@ -196,31 +193,30 @@ fn create_scene(mouse_x: f32, mouse_y: f32, time: f32) -> array<Sphere, 12> {
     let orb_z = cos(orb_time) * 1.5 - 1.0;
     
     spheres[6] = Sphere(
-        v3(orb_x, orb_y, orb_z),
+        v3(orb_x + scene_offset_x, orb_y, orb_z),
         0.25,
-        14u 
+        14u
     );
     
     spheres[7] = Sphere(
-        v3(-1.0, 0.3, -2.5),
+        v3(-1.0 + scene_offset_x, 0.3, -2.5),
         0.3,
-        5u 
+        5u
     );
-    
     spheres[8] = Sphere(
-        v3(1.5, 0.4, -1.2),
+        v3(1.5 + scene_offset_x, 0.4, -1.2),
         0.4,
-        8u 
+        8u
     );
     
     spheres[9] = Sphere(
-        v3(-0.3, 0.15, -0.7),
+        v3(-0.3 + scene_offset_x, 0.15, -0.7),
         0.15,
-        9u 
+        9u
     );
     
     spheres[10] = Sphere(
-        v3(0.3, 0.6, -1.5),
+        v3(0.3 + scene_offset_x, 0.6, -1.5),
         0.2,
         10u
     );
@@ -230,14 +226,13 @@ fn create_scene(mouse_x: f32, mouse_y: f32, time: f32) -> array<Sphere, 12> {
     let pulse_size = 0.2 + 0.05 * pulse_phase;
     
     spheres[11] = Sphere(
-        v3(-0.8, 0.12, -0.3),
+        v3(-0.8 + scene_offset_x, 0.12, -0.3),
         pulse_size,
         12u
     );
     
     return spheres;
 }
-
 fn get_material(id: u32, rec: HitRecord) -> Material {
     var mat: Material;
     
