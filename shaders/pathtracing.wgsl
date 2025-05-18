@@ -287,13 +287,16 @@ fn get_material(id: u32, rec: HitRecord) -> Material {
             mat.glow = 1.0;
         }
         case 5u: {
-            let pure_blue = v3(1.1, 0.0, 1.1);
+            let position_factor = 1.0 - normalize(rec.p).y;
+            let position_boost = 1.0 + position_factor * 2.0; 
+            
+            let pure_purple = v3(1.8, 0.05, 2.2);
             
             mat.albedo = v3(0.3, 0.3, 1.0);
-            mat.emissive = pure_blue * 4.0;
+            mat.emissive = pure_purple * 7.0 * position_boost;
             mat.metallic = 0.0;
-            mat.roughness = 1.0;
-            mat.glow = 1.0;
+            mat.roughness = 0.8;
+            mat.glow = 2.5;
         }
         case 6u: {
             mat.albedo = v3(0.95, 0.95, 0.95);
