@@ -96,7 +96,6 @@ fn hash_v3() -> v3 {
     return v3(hash_f(), hash_f(), hash_f()); 
 }
 
-
 fn random_unit_vector() -> v3 {
     let a = hash_f() * 2.0 * pi;
     let z = hash_f() * 2.0 - 1.0;
@@ -110,12 +109,8 @@ fn random_in_unit_disk() -> v2 {
     return v2(r * cos(a), r * sin(a));
 }
 
-
-fn refract(uv: v3, n: v3, etai_over_etat: f32) -> v3 {
-    let cos_theta = min(dot(-uv, n), 1.0);
-    let r_out_perp = etai_over_etat * (uv + cos_theta * n);
-    let r_out_parallel = -sqrt(abs(1.0 - dot(r_out_perp, r_out_perp))) * n;
-    return r_out_perp + r_out_parallel;
+fn reflect(v: v3, n: v3) -> v3 {
+    return v - 2.0 * dot(v, n) * n;
 }
 
 fn hit_sphere(sphere: Sphere, ray: Ray, t_min: f32, t_max: f32, rec: ptr<function, HitRecord>) -> bool {
@@ -130,16 +125,18 @@ fn hit_sphere(sphere: Sphere, ray: Ray, t_min: f32, t_max: f32, rec: ptr<functio
     }
     let sqrtd = sqrt(discriminant);
     var root = (-half_b - sqrtd) / a;
+    // If this root is not in the acceptable range, try the other root
     if (root < t_min || t_max < root) {
         root = (-half_b + sqrtd) / a;
         if (root < t_min || t_max < root) {
             return false;
         }
     }
-    // Record the hit
+    // Record the hit with the closest root
     (*rec).t = root;
     (*rec).p = ray.origin + root * ray.direction;
     let outward_normal = ((*rec).p - sphere.center) / sphere.radius;
+    // Determine if we're hitting from inside or outside and set normal accordingly
     let front_face = dot(ray.direction, outward_normal) < 0.0;
     (*rec).normal = select(-outward_normal, outward_normal, front_face);
     (*rec).front_face = front_face;
@@ -147,6 +144,7 @@ fn hit_sphere(sphere: Sphere, ray: Ray, t_min: f32, t_max: f32, rec: ptr<functio
     
     return true;
 }
+
 const scene_offset_x: f32 = 12.5;
 
 fn create_scene(mouse_x: f32, mouse_y: f32, time: f32) -> array<Sphere, 12> {
@@ -233,6 +231,7 @@ fn create_scene(mouse_x: f32, mouse_y: f32, time: f32) -> array<Sphere, 12> {
     
     return spheres;
 }
+
 fn get_material(id: u32, rec: HitRecord) -> Material {
     var mat: Material;
     
@@ -266,14 +265,13 @@ fn get_material(id: u32, rec: HitRecord) -> Material {
         case 2u: {
             mat.albedo = v3(0.95, 0.95, 1.0);
             mat.emissive = v3(0.0);
-            mat.metallic = 0.0;
+            mat.metallic = 1.0;
             mat.roughness = 0.0;
             mat.ior = 1.52;
             mat.glow = 0.05;
         }
         case 3u: {
             mat.albedo = v3(1.0);
-
             mat.emissive = v3(4.0, 3.5, 2.5); 
             mat.metallic = 0.0;
             mat.roughness = 1.0;
@@ -289,7 +287,6 @@ fn get_material(id: u32, rec: HitRecord) -> Material {
             mat.glow = 1.0;
         }
         case 5u: {
-
             let pure_blue = v3(0.05, 0.3, 1.0);
             
             mat.albedo = v3(0.3, 0.3, 1.0);
@@ -329,10 +326,10 @@ fn get_material(id: u32, rec: HitRecord) -> Material {
         case 10u: {
             mat.albedo = v3(0.8, 0.8, 0.9);
             mat.emissive = v3(0.0);
-            mat.metallic = 0.0;
-            mat.roughness = 0.3;
+            mat.metallic = 1.0;
+            mat.roughness = 0.1;
             mat.ior = 1.4;
-            mat.subsurface = 0.2;
+            mat.subsurface = 0.0;
         }
         case 11u: {
             let scale = 5.0;
@@ -350,7 +347,6 @@ fn get_material(id: u32, rec: HitRecord) -> Material {
             mat.subsurface = 0.3;
         }
         case 12u: {
-
             let t = time_data.time * 0.3;
             
             let color_phase = t + dot(rec.normal, v3(0.5, 0.3, 0.2));
@@ -390,19 +386,9 @@ fn get_material(id: u32, rec: HitRecord) -> Material {
 }
 
 fn subsurface_scatter(ray: Ray, rec: HitRecord, material: Material) -> v3 {
-    if (material.subsurface <= 0.0) {
-        return v3(0.0);
-    }
-
-    let penetration_depth = 0.05 + 0.2 * material.subsurface;
-
-    let light_dir = normalize(v3(0.5, 1.0, 0.5)); 
-    
-    let transmittance = material.subsurface * max(0.0, dot(-rec.normal, light_dir));
-    
-    let subsurface_color = mix(material.albedo, v3(0.9, 0.2, 0.1), 0.3 * material.subsurface);
-    
-    return subsurface_color * transmittance * material.subsurface * 0.5;
+    // COMPLETELY DISABLE subsurface scattering
+    // no light passes through any object
+    return v3(0.0);
 }
 
 fn scatter(ray: Ray, rec: HitRecord, attenuation_out: ptr<function, v3>, scattered_out: ptr<function, Ray>) -> bool {
@@ -410,55 +396,47 @@ fn scatter(ray: Ray, rec: HitRecord, attenuation_out: ptr<function, v3>, scatter
     
     if (length(material.emissive) > 0.0) {
         *attenuation_out = material.emissive;
-        return false; // Don't scatter
+        return false; // Don't scatter for light sources
     }
 
     let subsurface = subsurface_scatter(ray, rec, material);
     
     var scatter_direction: v3;
+    let unit_direction = normalize(ray.direction);
     
-    if (rec.material == 2u || rec.material == 10u) { 
-        let unit_direction = normalize(ray.direction);
-        
-        let refraction_ratio = select(material.ior, 1.0/material.ior, rec.front_face);
-        
-        let cos_theta = min(dot(-unit_direction, rec.normal), 1.0);
-        let sin_theta = sqrt(1.0 - cos_theta * cos_theta);
-        let cannot_refract = refraction_ratio * sin_theta > 1.0;
-        
-        let r0 = pow((1.0 - refraction_ratio) / (1.0 + refraction_ratio), 2.0);
-        let reflectance = r0 + (1.0 - r0) * pow(1.0 - cos_theta, 5.0);
-        
-        if (cannot_refract || reflectance > hash_f()) {
-            scatter_direction = reflect(unit_direction, rec.normal);
-        } else {
-            scatter_direction = refract(unit_direction, rec.normal, refraction_ratio);
-            
-            if (rec.material == 10u) {
-                scatter_direction = normalize(scatter_direction + material.roughness * random_unit_vector());
-            }
-        }
-    } else if (material.metallic > 0.5) {
-        let reflected = reflect(normalize(ray.direction), rec.normal);
+    // ALL materials will either reflect (if metallic) or diffuse (if not)
+    // No refraction will ever happen
+    if (material.metallic > 0.3 || rec.material == 2u || rec.material == 10u) {
+        // Metal reflection (or forced reflection for former glass materials)
+        let reflected = reflect(unit_direction, rec.normal);
         scatter_direction = reflected + material.roughness * random_unit_vector();
+        
         if (dot(scatter_direction, rec.normal) < 0.0) {
             scatter_direction = rec.normal;
         }
     } else {
-        // Lambertian reflection
+        // Lambertian (diffuse) reflection
         scatter_direction = rec.normal + random_unit_vector();
+        // Avoid zero vector
         if (length(scatter_direction) < 0.001) {
             scatter_direction = rec.normal;
         }
     }
     
-    (*scattered_out).origin = rec.p;
-    (*scattered_out).direction = scatter_direction;
-    *attenuation_out = material.albedo + subsurface;
+    // IMPORTANT: Add significant offset to prevent rays from leaking through surfaces
+    (*scattered_out).origin = rec.p + rec.normal * 0.002;
+    (*scattered_out).direction = normalize(scatter_direction);
+    
+    // Set attenuation based on material properties
+    if (rec.material == 2u || rec.material == 10u) {
+        // Override for previously glass materials - make them mirror-like
+        *attenuation_out = v3(0.9);
+    } else {
+        *attenuation_out = material.albedo + subsurface;
+    }
     
     return true;
 }
-
 
 fn trace_ray(ray: Ray, max_bounces: u32) -> v3 {
     var current_ray = ray;
@@ -471,11 +449,12 @@ fn trace_ray(ray: Ray, max_bounces: u32) -> v3 {
         var rec: HitRecord;
         rec.t = 1000.0; 
         var hit_anything = false;
-        let closest_so_far = 1000.0;
+        var closest_so_far = rec.t;
 
         for (var i: u32 = 0; i < min(params.num_spheres, 12u); i++) {
             if (hit_sphere(spheres[i], current_ray, 0.001, closest_so_far, &rec)) {
                 hit_anything = true;
+                closest_so_far = rec.t;
             }
         }
         
@@ -483,23 +462,42 @@ fn trace_ray(ray: Ray, max_bounces: u32) -> v3 {
             var scattered: Ray;
             var attenuation: v3;
             
-
             let material = get_material(rec.material, rec);
             
             final_color += current_attenuation * material.emissive;
             
-            if (scatter(current_ray, rec, &attenuation, &scattered)) {
+            // Always scatter (be opaque) for non-emissive materials
+            var should_scatter = true;
+            
+            // For emissive materials, don't scatter if they're really bright
+            if (length(material.emissive) > 0.0) {
+                should_scatter = false;
+            }
+            
+            if (should_scatter) {
+                // Force scatter - NEVER allow refraction
+                if (!scatter(current_ray, rec, &attenuation, &scattered)) {
+                    break;
+                }
+                
+                if (rec.material == 2u || rec.material == 10u) {
+                    attenuation = v3(0.9, 0.9, 0.9);
+                }
+                
                 current_attenuation *= attenuation;
-                current_ray = scattered;
+                
+                current_ray.origin = rec.p + rec.normal * 0.002;
+                current_ray.direction = scattered.direction;
             } else {
                 break;
             }
         } else {
-
+            //bg
             final_color += current_attenuation * v3(0.0, 0.0, 0.0);
             break;
         }
-        // Russian roulette
+        
+        // Russian roulette for path termination
         if (bounce > 2) {
             let p_continue = min(0.95, max(current_attenuation.r, max(current_attenuation.g, current_attenuation.b)));
             if (hash_f() > p_continue) {
