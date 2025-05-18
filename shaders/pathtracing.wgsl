@@ -319,12 +319,7 @@ fn get_material(id: u32, rec: HitRecord) -> Material {
         }
         case 9u: { // Ruby-like
             mat.albedo = v3(0.9, 0.1, 0.2);
-            mat.emissive = v3(0.5, 0.0, 0.0);
-            mat.metallic = 0.2;
-            mat.roughness = 0.1;
-            mat.ior = 1.77;
-            mat.subsurface = 0.3;
-            mat.glow = 0.3;
+            mat.subsurface = 1.0;
         }
         case 10u: {
             mat.albedo = v3(0.8, 0.8, 0.9);
@@ -350,19 +345,19 @@ fn get_material(id: u32, rec: HitRecord) -> Material {
             mat.subsurface = 0.3;
         }
         case 12u: {
-            let t = time_data.time * 0.3;
+            let t = time_data.time * 10.3;
             
-            let color_phase = t + dot(rec.normal, v3(0.5, 0.3, 0.2));
+            let color_phase = t + dot(rec.normal, v3(0.5, 0.3, 1.2));
             let r = 0.5 + 0.5 * sin(color_phase);
             let g = 0.5 + 0.5 * sin(color_phase + 2.1);
             let b = 0.5 + 0.5 * sin(color_phase + 4.2);
             
             mat.albedo = v3(r, g, b);
-            mat.emissive = mat.albedo * 2.5;
-            mat.metallic = 0.0;
-            mat.roughness = 0.1;
-            mat.subsurface = 0.5;
-            mat.glow = 0.8;
+            mat.emissive = mat.albedo * 11.5;
+            mat.metallic = 1.0;
+            mat.roughness = 10.1;
+            mat.subsurface = 1.0;
+            mat.glow = 10.8;
         }
         case 14u: {
             let t = time_data.time * 0.3;
