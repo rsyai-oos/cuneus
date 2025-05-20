@@ -2,6 +2,7 @@ use cuneus::{Core, ShaderManager, UniformProvider, UniformBinding, RenderKit, Sh
 use cuneus::compute::{ BindGroupLayoutType, create_bind_group_layout, create_external_texture_bind_group};
 use std::path::PathBuf;
 use winit::event::WindowEvent;
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct ColorProjectionParams {
@@ -528,7 +529,9 @@ impl ShaderManager for ColorProjection {
         
         // Extract video info before entering the closure
         let using_video_texture = self.base.using_video_texture;
+        let using_hdri_texture = self.base.using_hdri_texture;
         let video_info = self.base.get_video_info();
+        let hdri_info = self.base.get_hdri_info();
         
         // Render UI
         controls_request.current_fps = Some(self.base.fps_tracker.fps());
@@ -543,14 +546,14 @@ impl ShaderManager for ColorProjection {
                     .resizable(false)
                     .default_width(250.0)
                     .show(ctx, |ui| {
-                        // Media controls
-                        ShaderControls::render_media_panel(
-                            ui,
-                            &mut controls_request,
-                            using_video_texture,
-                            video_info
-                        );
-                        
+                    ShaderControls::render_media_panel(
+                        ui,
+                        &mut controls_request,
+                        using_video_texture,
+                        video_info,
+                        using_hdri_texture,
+                        hdri_info
+                    );
                         ui.separator();
                         
                         egui::CollapsingHeader::new("Visual Settings")
@@ -602,7 +605,9 @@ impl ShaderManager for ColorProjection {
         }
         self.base.apply_control_request(controls_request.clone());
         self.base.handle_video_requests(core, &controls_request);
-        
+        if self.base.handle_hdri_requests(core, &controls_request) {
+            self.recreate_compute_resources(core);
+        }
         let current_time = self.base.controls.get_time(&self.base.start_time);
         
         // Update uniforms

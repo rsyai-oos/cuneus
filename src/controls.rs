@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use crate::gst::video::VideoTextureManager;
+use crate::hdri::HdriMetadata;
 #[derive(Clone)]
 pub struct ControlsRequest {
     pub is_paused: bool,
@@ -22,8 +23,11 @@ pub struct ControlsRequest {
     pub set_volume: Option<f64>,
     pub mute_audio: Option<bool>,
     pub toggle_mute: bool,
-}
 
+    // HDRI reqs
+    pub hdri_exposure: Option<f32>,
+    pub hdri_gamma: Option<f32>,
+}
 impl Default for ControlsRequest {
     fn default() -> Self {
         Self {
@@ -47,6 +51,10 @@ impl Default for ControlsRequest {
             set_volume: None,
             mute_audio: None,
             toggle_mute: false,
+
+            // HDRI-related stuff
+            hdri_exposure: None,
+            hdri_gamma: None,
         }
     }
 }
@@ -117,6 +125,9 @@ impl ShaderControls {
             set_volume: None,
             mute_audio: None,
             toggle_mute: false,
+
+            hdri_exposure: None,
+            hdri_gamma: None,
         }
     }
     
@@ -161,12 +172,14 @@ impl ShaderControls {
             None
         }
     }
-    ///media control panel (both image and video)
+    ///media control panel (image, video, hdri)
     pub fn render_media_panel(
         ui: &mut egui::Ui, 
         request: &mut ControlsRequest,
         using_video_texture: bool,
         video_info: Option<VideoInfo>,
+        using_hdri_texture: bool, 
+       hdri_info: Option<HdriMetadata>,
     ) {
         ui.group(|ui| {
             ui.horizontal(|ui| {
@@ -177,6 +190,7 @@ impl ShaderControls {
                             .add_filter("Media Files", &["png", "jpg", "jpeg", "mp4", "avi", "mkv", "webm", "mov"])
                             .add_filter("Images", &["png", "jpg", "jpeg", "webp", "bmp", "tiff"])
                             .add_filter("Videos", &["mp4", "avi", "mkv", "webm", "mov"])
+                            .add_filter("HDRI", &["hdr"])
                             .pick_file() 
                         {
                             request.load_media_path = Some(path);
@@ -259,6 +273,31 @@ impl ShaderControls {
                                 ui.label("Audio: No");
                             }
                         });
+                    }
+                });
+            }
+        if using_hdri_texture {
+            ui.collapsing("HDRI Settings", |ui| {
+                if let Some(hdri_metadata) = &hdri_info { 
+                        ui.label(format!("Dimensions: {}x{}", hdri_metadata.width, hdri_metadata.height));
+                        ui.label("Type: High Dynamic Range Image");
+                        let mut exposure = hdri_metadata.exposure;
+                        if ui.add(egui::Slider::new(&mut exposure, 0.1..=5.0)
+                            .text("Exposure")
+                            .logarithmic(true))
+                            .changed()
+                        {
+                            request.hdri_exposure = Some(exposure);
+                        }
+                        let mut gamma = hdri_metadata.gamma;
+                        if ui.add(egui::Slider::new(&mut gamma, 1.0..=3.0)
+                            .text("Gamma"))
+                            .changed()
+                        {
+                            request.hdri_gamma = Some(gamma);
+                        }
+                    } else {
+                        ui.label("HDRI metadata not available");
                     }
                 });
             }

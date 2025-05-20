@@ -340,7 +340,9 @@ impl ShaderManager for FluidShader {
         
         // Extract video info before entering the closure to avoid borrow checker issues
         let using_video_texture = self.base.using_video_texture;
+        let using_hdri_texture = self.base.using_hdri_texture;
         let video_info = self.base.get_video_info();
+        let hdri_info = self.base.get_hdri_info();
         
         // Update video texture if one is loaded
         if self.base.using_video_texture {
@@ -357,7 +359,9 @@ impl ShaderManager for FluidShader {
                         ui,
                         &mut controls_request,
                         using_video_texture,
-                        video_info
+                        video_info,
+                        using_hdri_texture,
+                        hdri_info,
                     );
                     
                     ui.separator();
@@ -395,6 +399,7 @@ impl ShaderManager for FluidShader {
         self.base.export_manager.apply_ui_request(export_request);
         self.base.apply_control_request(controls_request.clone());
         self.base.handle_video_requests(core, &controls_request);
+        self.base.handle_hdri_requests(core, &controls_request);
         
         let current_time = self.base.controls.get_time(&self.base.start_time);
         let current_frame = self.base.controls.get_frame();
