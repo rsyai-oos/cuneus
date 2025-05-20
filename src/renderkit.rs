@@ -10,6 +10,8 @@ use crate::{Core,fps, Renderer, TextureManager, UniformProvider, UniformBinding,
 use crate::mouse::MouseUniform;
 use crate::mouse::MouseTracker;
 use winit::event::WindowEvent;
+use crate::HdriMetadata;
+use crate::load_hdri_texture;
 #[cfg(target_os = "macos")]
 pub const CAPTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8UnormSrgb;
 #[cfg(not(target_os = "macos"))]
@@ -46,7 +48,11 @@ pub struct RenderKit {
     pub mouse_tracker: MouseTracker,
     pub mouse_uniform: Option<UniformBinding<MouseUniform>>,
     pub mouse_bind_group_layout: Option<wgpu::BindGroupLayout>,
+    pub using_hdri_texture: bool,
+    pub hdri_metadata: Option<HdriMetadata>,
+    pub hdri_file_data: Option<Vec<u8>>,
 }
+
 impl RenderKit {
     pub fn new(
         core: &Core,
@@ -191,6 +197,9 @@ impl RenderKit {
             mouse_tracker,
             mouse_uniform: None,
             mouse_bind_group_layout: None,
+            using_hdri_texture: false,
+            hdri_metadata: None,
+            hdri_file_data: None,
         }
     }
 
@@ -341,6 +350,32 @@ impl RenderKit {
                     Ok(())
                 } else {
                     Err(anyhow::anyhow!("Failed to open image"))
+                }
+            },
+            Some(ext) if ext == "hdr" => {
+                info!("Loading HDRI: {:?}", path_ref);
+                let file_data = std::fs::read(path_ref)?;
+                self.hdri_file_data = Some(file_data.clone());
+                let default_exposure = 1.0;
+                match load_hdri_texture(
+                    &core.device,
+                    &core.queue,
+                    &file_data,
+                    &self.texture_bind_group_layout,
+                    default_exposure
+                ) {
+                    Ok((texture_manager, metadata)) => {
+                        self.texture_manager = Some(texture_manager);
+                        self.using_video_texture = false;
+                        self.using_hdri_texture = true;
+                        self.hdri_metadata = Some(metadata);
+                        self.video_texture_manager = None;
+                        Ok(())
+                    },
+                    Err(e) => {
+                        error!("Failed to load HDRI: {}", e);
+                        Err(anyhow::anyhow!("Failed to load HDRI: {}", e))
+                    }
                 }
             },
             Some(ext) if ["mp4", "avi", "mkv", "mov", "webm"].contains(&ext.as_str()) => {
@@ -513,6 +548,55 @@ impl RenderKit {
             if let Some(vm) = &mut self.video_texture_manager {
                 let _ = vm.toggle_mute();
             }
+        }
+    }
+    pub fn handle_hdri_requests(&mut self, core: &Core, request: &ControlsRequest) -> bool {
+        if !self.using_hdri_texture {
+            return false;
+        }
+        let mut updated = false;
+        let mut new_exposure = None;
+        let mut new_gamma = None;
+        if let (Some(exposure), Some(hdri_meta)) = (request.hdri_exposure, &mut self.hdri_metadata) {
+            if (exposure - hdri_meta.exposure).abs() > 0.001 {
+                hdri_meta.exposure = exposure;
+                new_exposure = Some(exposure);
+                updated = true;
+            }
+        }
+        if let (Some(gamma), Some(hdri_meta)) = (request.hdri_gamma, &mut self.hdri_metadata) {
+            if (gamma - hdri_meta.gamma).abs() > 0.001 {
+                hdri_meta.gamma = gamma;
+                new_gamma = Some(gamma);
+                updated = true;
+            }
+        }
+        if updated {
+            if let (Some(hdri_data), Some(texture_manager)) = (&self.hdri_file_data, &mut self.texture_manager) {
+                let exposure = new_exposure.unwrap_or_else(|| {
+                    self.hdri_metadata.map(|meta| meta.exposure).unwrap_or(1.0)
+                });
+                if let Err(e) = crate::update_hdri_exposure(
+                    &core.device,
+                    &core.queue,
+                    hdri_data,
+                    &self.texture_bind_group_layout,
+                    texture_manager,
+                    exposure,
+                    new_gamma
+                ) {
+                    error!("Failed to update HDRI parameters: {}", e);
+                }
+            }
+        }
+        updated
+    }
+
+    pub fn get_hdri_info(&self) -> Option<HdriMetadata> {
+        if self.using_hdri_texture {
+            self.hdri_metadata.clone()
+        } else {
+            None
         }
     }
     pub fn create_compute_shader(
