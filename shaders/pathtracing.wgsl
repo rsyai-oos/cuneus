@@ -31,6 +31,8 @@ struct PathTracingParams {
 @group(1) @binding(0) var<uniform> params: PathTracingParams;
 
 @group(2) @binding(0) var output: texture_storage_2d<rgba16float, write>;
+@group(2) @binding(1) var background_texture: texture_2d<f32>;
+@group(2) @binding(2) var background_sampler: sampler;
 @group(3) @binding(0) var<storage, read_write> atomic_buffer: array<atomic<u32>>;
 
 alias v4 = vec4<f32>;
@@ -435,7 +437,13 @@ fn scatter(ray: Ray, rec: HitRecord, attenuation_out: ptr<function, v3>, scatter
     
     return true;
 }
-
+fn sample_background(dir: vec3<f32>) -> vec3<f32> {
+    let phi = atan2(dir.z, dir.x);
+    let theta = asin(dir.y);
+    let u = (phi + pi) / (2.0 * pi);
+    let v = 1.0 - (theta + pi/2.0) / pi; 
+    return textureSampleLevel(background_texture, background_sampler, vec2<f32>(u, v), 0.0).rgb;
+}
 fn trace_ray(ray: Ray, max_bounces: u32) -> v3 {
     var current_ray = ray;
     var current_attenuation = v3(1.0);
@@ -490,8 +498,8 @@ fn trace_ray(ray: Ray, max_bounces: u32) -> v3 {
                 break;
             }
         } else {
-            //bg
-            final_color += current_attenuation * v3(0.0, 0.0, 0.0);
+         //bg
+        final_color += current_attenuation * sample_background(normalize(current_ray.direction));
             break;
         }
         

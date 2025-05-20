@@ -13,12 +13,10 @@ struct CameraMovement {
     speed: f32,
     last_update: std::time::Instant,
     
-
     yaw: f32,
     pitch: f32,
     mouse_sensitivity: f32,
     
-
     last_mouse_x: f32,
     last_mouse_y: f32,
     mouse_initialized: bool,
@@ -70,7 +68,6 @@ impl CameraMovement {
             forward[0] * world_up[1] - forward[1] * world_up[0],
         ];
         
-
         let right_len = (right[0] * right[0] + right[1] * right[1] + right[2] * right[2]).sqrt();
         let right = [right[0] / right_len, right[1] / right_len, right[2] / right_len];
         
@@ -116,12 +113,10 @@ impl CameraMovement {
             changed = true;
         }
         
-
         params.camera_pos_x += move_vec[0];
         params.camera_pos_y += move_vec[1];
         params.camera_pos_z += move_vec[2];
         
-
         let look_distance = 1.0;
         params.camera_target_x = params.camera_pos_x + forward[0] * look_distance;
         params.camera_target_y = params.camera_pos_y + forward[1] * look_distance;
@@ -243,7 +238,6 @@ impl PathTracingShader {
             "Path Tracing Output Texture",
         );
 
-
         let buffer_size = core.size.width * core.size.height * 3;
         
         self.atomic_buffer = cuneus::AtomicBuffer::new(
@@ -252,7 +246,29 @@ impl PathTracingShader {
             &self.atomic_bind_group_layout,
         );
         
+        let background_view;
+        let background_sampler;
+        
+        if self.base.using_video_texture {
+            if let Some(ref video_manager) = self.base.video_texture_manager {
+                let texture_manager = video_manager.texture_manager();
+                background_view = &texture_manager.view;
+                background_sampler = &texture_manager.sampler;
+            } else if let Some(ref texture_manager) = self.base.texture_manager {
+                background_view = &texture_manager.view;
+                background_sampler = &texture_manager.sampler;
+            } else {
+                panic!("No texture available for background");
+            }
+        } else if let Some(ref texture_manager) = self.base.texture_manager {
+            background_view = &texture_manager.view;
+            background_sampler = &texture_manager.sampler;
+        } else {
+            panic!("No texture available for background");
+        }
+        
         let view_output = self.output_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        
         self.compute_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Path Tracing Compute Bind Group"),
             layout: &self.compute_bind_group_layout,
@@ -260,6 +276,14 @@ impl PathTracingShader {
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: wgpu::BindingResource::TextureView(&view_output),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(background_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(background_sampler),
                 },
             ],
         });
@@ -426,6 +450,22 @@ impl ShaderManager for PathTracingShader {
                     },
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
             ],
             label: Some("pathtracing_compute_output_layout"),
         });
@@ -545,6 +585,14 @@ impl ShaderManager for PathTracingShader {
                     binding: 0,
                     resource: wgpu::BindingResource::TextureView(&view_output),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&base.texture_manager.as_ref().unwrap().view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&base.texture_manager.as_ref().unwrap().sampler),
+                },
             ],
             label: Some("Path Tracing Compute Bind Group"),
         });
@@ -599,6 +647,12 @@ impl ShaderManager for PathTracingShader {
             self.should_reset_accumulation = true;
         }
         
+        if self.base.using_video_texture {
+            if self.base.update_video_texture(core, &core.queue) {
+                self.recreate_compute_resources(core);
+            }
+        }
+        
         if self.base.export_manager.is_exporting() {
             self.handle_export(core);
         }
@@ -634,6 +688,11 @@ impl ShaderManager for PathTracingShader {
         
         let current_fps = self.base.fps_tracker.fps();
         
+        let using_video_texture = self.base.using_video_texture;
+        let using_hdri_texture = self.base.using_hdri_texture;
+        let video_info = self.base.get_video_info();
+        let hdri_info = self.base.get_hdri_info();
+        
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
                 ctx.style_mut(|style| {
@@ -652,6 +711,16 @@ impl ShaderManager for PathTracingShader {
                         ui.label("Right Click - Toggle mouse look");
                         ui.label("Space - Toggle progressive rendering");
                         ui.separator();
+                        ShaderControls::render_media_panel(
+                            ui,
+                            &mut controls_request,
+                            using_video_texture,
+                            video_info,
+                            using_hdri_texture,
+                            hdri_info
+                        );
+                        ui.separator();
+                        
                         egui::CollapsingHeader::new("Render Settings")
                             .default_open(true)
                             .show(ui, |ui| {
@@ -708,9 +777,11 @@ impl ShaderManager for PathTracingShader {
         if controls_request.should_clear_buffers || self.should_reset_accumulation {
             self.clear_atomic_buffer(core);
         }
-        
-        self.base.apply_control_request(controls_request);
-        
+        self.base.apply_control_request(controls_request.clone());
+        self.base.handle_video_requests(core, &controls_request);
+        if self.base.handle_hdri_requests(core, &controls_request) {
+            self.recreate_compute_resources(core);
+        }
         let current_time = self.base.controls.get_time(&self.base.start_time);
         
         self.base.time_uniform.data.time = current_time;
@@ -853,6 +924,15 @@ impl ShaderManager for PathTracingShader {
                 }
             }
         }
+        if let WindowEvent::DroppedFile(path) = event {
+            if let Err(e) = self.base.load_media(core, path) {
+                eprintln!("Failed to load dropped file: {:?}", e);
+            } else {
+                // Media was loaded successfully, recreate resources and reset
+                self.recreate_compute_resources(core);
+            }
+            return true;
+        }
         
         if let WindowEvent::KeyboardInput { event, .. } = event {
             if self.base.key_handler.handle_keyboard_input(core.window(), event) {
@@ -865,6 +945,7 @@ impl ShaderManager for PathTracingShader {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    cuneus::gst::init()?;
     env_logger::init();
     let (app, event_loop) = cuneus::ShaderApp::new("Path Tracer", 800, 600);
     
