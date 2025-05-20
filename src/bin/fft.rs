@@ -653,7 +653,9 @@ impl ShaderManager for FFTShader {
         );
 
         let using_video_texture = self.base.using_video_texture;
+        let using_hdri_texture = self.base.using_hdri_texture;
         let video_info = self.base.get_video_info();
+        let hdri_info = self.base.get_hdri_info();
         
         controls_request.current_fps = Some(self.base.fps_tracker.fps());
         let full_output = if self.base.key_handler.show_ui {
@@ -672,7 +674,9 @@ impl ShaderManager for FFTShader {
                             ui,
                             &mut controls_request,
                             using_video_texture,
-                            video_info
+                            video_info,
+                            using_hdri_texture,
+                            hdri_info,
                         );
                         
                         ui.separator();
@@ -749,7 +753,9 @@ impl ShaderManager for FFTShader {
         }
         self.base.apply_control_request(controls_request.clone());
         self.base.handle_video_requests(core, &controls_request);
-        
+        if self.base.handle_hdri_requests(core, &controls_request) {
+            self.recreate_compute_resources(core);
+        }
         let current_time = self.base.controls.get_time(&self.base.start_time);
         
         self.base.time_uniform.data.time = current_time;
