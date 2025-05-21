@@ -773,13 +773,16 @@ impl ShaderManager for PathTracingShader {
         };
         
         self.base.export_manager.apply_ui_request(export_request);
-        
         if controls_request.should_clear_buffers || self.should_reset_accumulation {
             self.clear_atomic_buffer(core);
-            self.recreate_compute_resources(core);
+            self.should_reset_accumulation = false;
         }
+        let was_media_loaded = controls_request.load_media_path.is_some();
         self.base.apply_control_request(controls_request.clone());
         self.base.handle_video_requests(core, &controls_request);
+        if was_media_loaded {
+            self.recreate_compute_resources(core);
+        }
         if self.base.handle_hdri_requests(core, &controls_request) {
             self.recreate_compute_resources(core);
         }

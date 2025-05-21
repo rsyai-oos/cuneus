@@ -681,6 +681,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     atomicStore(&atomic_buffer[pixel_idx * 3], u32(pixel_color.r * 1000.0));
     atomicStore(&atomic_buffer[pixel_idx * 3 + 1], u32(pixel_color.g * 1000.0));
     atomicStore(&atomic_buffer[pixel_idx * 3 + 2], u32(pixel_color.b * 1000.0));
-    
+    pixel_color = pow(pixel_color, v3(1.0 / 0.5));
     textureStore(output, vec2<i32>(global_id.xy), vec4<f32>(pixel_color, 1.0));
 }
