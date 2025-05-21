@@ -352,7 +352,7 @@ impl RenderKit {
                     Err(anyhow::anyhow!("Failed to open image"))
                 }
             },
-            Some(ext) if ext == "hdr" => {
+            Some(ext) if ["hdr","exr"].contains(&ext.as_str()) => {
                 info!("Loading HDRI: {:?}", path_ref);
                 let file_data = std::fs::read(path_ref)?;
                 self.hdri_file_data = Some(file_data.clone());

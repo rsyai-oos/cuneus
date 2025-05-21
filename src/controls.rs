@@ -190,7 +190,7 @@ impl ShaderControls {
                             .add_filter("Media Files", &["png", "jpg", "jpeg", "mp4", "avi", "mkv", "webm", "mov"])
                             .add_filter("Images", &["png", "jpg", "jpeg", "webp", "bmp", "tiff"])
                             .add_filter("Videos", &["mp4", "avi", "mkv", "webm", "mov"])
-                            .add_filter("HDRI", &["hdr"])
+                            .add_filter("HDRI", &["hdr","exr"])
                             .pick_file() 
                         {
                             request.load_media_path = Some(path);
@@ -282,7 +282,7 @@ impl ShaderControls {
                         ui.label(format!("Dimensions: {}x{}", hdri_metadata.width, hdri_metadata.height));
                         ui.label("Type: High Dynamic Range Image");
                         let mut exposure = hdri_metadata.exposure;
-                        if ui.add(egui::Slider::new(&mut exposure, 0.1..=5.0)
+                        if ui.add(egui::Slider::new(&mut exposure, 0.1..=6.28)
                             .text("Exposure")
                             .logarithmic(true))
                             .changed()
@@ -290,7 +290,7 @@ impl ShaderControls {
                             request.hdri_exposure = Some(exposure);
                         }
                         let mut gamma = hdri_metadata.gamma;
-                        if ui.add(egui::Slider::new(&mut gamma, 1.0..=3.0)
+                        if ui.add(egui::Slider::new(&mut gamma, 0.1..=6.28)
                             .text("Gamma"))
                             .changed()
                         {
