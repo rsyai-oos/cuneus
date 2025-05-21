@@ -1,5 +1,5 @@
 use image::codecs::hdr::HdrDecoder;
-use image::RgbaImage;
+use image::{RgbaImage,ImageDecoder};
 use std::io::Cursor;
 use crate::TextureManager;
 
@@ -29,8 +29,12 @@ pub fn load_hdri_texture(
     layout: &wgpu::BindGroupLayout,
     exposure: f32,
 ) -> Result<(TextureManager, HdriMetadata), String> {
+    let format = detect_format(data)?;
     let gamma = 2.2;
-    let hdri_image = hdr_to_rgba8(data, exposure, Some(gamma))?;
+    let hdri_image = match format {
+        HdriFormat::Hdr => hdr_to_rgba8(data, exposure, Some(gamma))?,
+        HdriFormat::Exr => exr_to_rgba8(data, exposure, Some(gamma))?,
+    };
     let dimensions = hdri_image.dimensions();
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("HDRI Texture"),
@@ -108,6 +112,24 @@ pub fn load_hdri_texture(
     ))
 }
 
+enum HdriFormat {
+    Hdr,
+    Exr,
+}
+
+fn detect_format(data: &[u8]) -> Result<HdriFormat, String> {
+    if data.len() >= 4 && data[0] == 0x76 && data[1] == 0x2f && data[2] == 0x31 && data[3] == 0x01 {
+        return Ok(HdriFormat::Exr);
+    }
+    let start_bytes = if data.len() >= 10 { &data[0..10] } else { data };
+    let start_str = String::from_utf8_lossy(start_bytes);
+    if start_str.starts_with("#?RADIANCE") || start_str.starts_with("#?RGBE") {
+        return Ok(HdriFormat::Hdr);
+    }
+    // I know looks NOT good to you :-P. This could be improved with more robust format detection
+    Ok(HdriFormat::Hdr)
+}
+
 fn hdr_to_rgba8(hdr_data: &[u8], exposure: f32, gamma: Option<f32>) -> Result<RgbaImage, String> {
     let cursor = Cursor::new(hdr_data);
     let decoder = HdrDecoder::new(cursor).map_err(|e| e.to_string())?;
@@ -129,6 +151,36 @@ fn hdr_to_rgba8(hdr_data: &[u8], exposure: f32, gamma: Option<f32>) -> Result<Rg
     }
     Ok(rgba8_image)
 }
+
+fn exr_to_rgba8(exr_data: &[u8], exposure: f32, gamma: Option<f32>) -> Result<RgbaImage, String> {
+    use image::codecs::openexr::OpenExrDecoder;
+    
+    let cursor = Cursor::new(exr_data);
+    let decoder = OpenExrDecoder::new(cursor).map_err(|e| format!("Failed to decode EXR: {}", e))?;
+    let (width, height) = decoder.dimensions();
+    let dynamic_img = image::DynamicImage::from_decoder(decoder)
+        .map_err(|e| format!("Failed to create DynamicImage from EXR: {}", e))?;
+    let rgba_float = dynamic_img.to_rgba32f();
+    let mut rgba8_image = RgbaImage::new(width, height);
+    let gamma_value = gamma.unwrap_or(2.2);
+    let gamma_correction = 1.0 / gamma_value;
+    for (x, y, pixel) in rgba_float.enumerate_pixels() {
+        let r_linear = pixel[0] * exposure;
+        let g_linear = pixel[1] * exposure;
+        let b_linear = pixel[2] * exposure;
+        let a = pixel[3];
+        
+        let r = ((r_linear.powf(gamma_correction)).min(1.0) * 255.0) as u8;
+        let g = ((g_linear.powf(gamma_correction)).min(1.0) * 255.0) as u8;
+        let b = ((b_linear.powf(gamma_correction)).min(1.0) * 255.0) as u8;
+        let a = (a.min(1.0) * 255.0) as u8;
+        
+        rgba8_image.put_pixel(x, y, image::Rgba([r, g, b, a]));
+    }
+    
+    Ok(rgba8_image)
+}
+
 pub fn update_hdri_exposure(
     _device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -138,7 +190,11 @@ pub fn update_hdri_exposure(
     new_exposure: f32,
     gamma: Option<f32>,
 ) -> Result<(), String> {
-    let rgba_image = hdr_to_rgba8(data, new_exposure, gamma)?;
+    let format = detect_format(data)?;
+    let rgba_image = match format {
+        HdriFormat::Hdr => hdr_to_rgba8(data, new_exposure, gamma)?,
+        HdriFormat::Exr => exr_to_rgba8(data, new_exposure, gamma)?,
+    };
     texture_manager.update(queue, &rgba_image);
     Ok(())
 }
