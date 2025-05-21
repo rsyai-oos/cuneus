@@ -776,6 +776,7 @@ impl ShaderManager for PathTracingShader {
         
         if controls_request.should_clear_buffers || self.should_reset_accumulation {
             self.clear_atomic_buffer(core);
+            self.recreate_compute_resources(core);
         }
         self.base.apply_control_request(controls_request.clone());
         self.base.handle_video_requests(core, &controls_request);

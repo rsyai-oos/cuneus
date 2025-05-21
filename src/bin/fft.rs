@@ -753,6 +753,13 @@ impl ShaderManager for FFTShader {
         }
         self.base.apply_control_request(controls_request.clone());
         self.base.handle_video_requests(core, &controls_request);
+        if controls_request.load_media_path.is_some() {
+            self.recreate_compute_resources(core);
+            self.should_initialize = true;
+        }
+        if self.base.handle_hdri_requests(core, &controls_request) {
+            self.recreate_compute_resources(core);
+        }
         if self.base.handle_hdri_requests(core, &controls_request) {
             self.recreate_compute_resources(core);
         }
@@ -770,6 +777,9 @@ impl ShaderManager for FFTShader {
         if changed {
             self.params_uniform.data = params;
             self.params_uniform.update(&core.queue);
+            
+            // Add this line - it's the key fix:
+            self.should_initialize = true;
         }
         
         if should_start_export {
