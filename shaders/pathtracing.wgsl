@@ -279,15 +279,47 @@ fn get_material(id: u32, rec: HitRecord) -> Material {
             mat.roughness = 1.0;
             mat.glow = 1.0;
         }
-        case 4u: {
-            let pure_red = v3(1.0, 0.0, 1.0);
-            
-            mat.albedo = v3(1.0, 0.0, 0.0);
-            mat.emissive = pure_red * 24.0; 
-            mat.metallic = 0.0;
-            mat.roughness = 0.0;
-            mat.glow = 1.0;
-        }
+    case 4u: {
+        let sphere_center = v3(2.0 + scene_offset_x, 1.7, -2.0);
+        let local_pos = normalize(rec.p - sphere_center);
+        let world_pos = rec.p;
+        let vertical_gradient = 1.0 - (local_pos.y + 1.0) * 0.5;
+        let bubble_scale = 5.0;
+        let time_offset = time_data.time * 0.5;
+        let bubble1 = sin(world_pos.x * bubble_scale + time_offset) * 
+                    cos(world_pos.y * bubble_scale - time_offset * 0.7) *
+                    sin(world_pos.z * bubble_scale + time_offset * 0.3);
+                    
+        let bubble2 = cos(world_pos.x * bubble_scale * 1.7 - time_offset * 0.8) * 
+                    sin(world_pos.y * bubble_scale * 1.3 + time_offset) *
+                    cos(world_pos.z * bubble_scale * 1.5 - time_offset * 0.6);
+        
+        let bubble_pattern = 0.5 + 0.25 * (bubble1 + bubble2);
+        let temp_zone = pow(vertical_gradient, 1.5) + bubble_pattern * 0.3;
+        let cool_color = v3(0.3, 0.0, 0.0);
+        let warm_color = v3(0.8, 0.1, 0.0);
+        let hot_color = v3(1.0, 0.4, 0.0);
+        let white_hot = v3(1.0, 0.95, 0.8);
+        var lava_color = cool_color;
+        lava_color = mix(lava_color, warm_color, smoothstep(0.0, 0.3, temp_zone));
+        lava_color = mix(lava_color, hot_color, smoothstep(0.2, 0.6, temp_zone));
+        lava_color = mix(lava_color, white_hot, smoothstep(0.5, 1.0, temp_zone));
+        let bubble_intensity = bubble_pattern * bubble_pattern * 10.0;
+        let base_glow = 15.0;
+        let bottom_boost = vertical_gradient * vertical_gradient * 25.0;
+        let crust_pattern = smoothstep(0.3, 0.4, bubble_pattern);
+        let intensity_modifier = mix(0.2, 1.0, crust_pattern);
+        let breathe = 0.9 + 0.1 * sin(time_data.time * 2.0 + bubble1 * 3.0);
+        
+        let total_intensity = (base_glow + bubble_intensity + bottom_boost) * 
+                            intensity_modifier * breathe;
+        mat.albedo = lava_color * 0.1;
+        mat.emissive = lava_color * total_intensity;
+        mat.metallic = 0.0;
+        mat.roughness = 0.1;
+        mat.glow = 0.5 + temp_zone * 1.5;
+    }
+
         case 5u: {
             let position_factor = 1.0 - normalize(rec.p).y;
             let position_boost = 1.0 + position_factor * 2.0; 
