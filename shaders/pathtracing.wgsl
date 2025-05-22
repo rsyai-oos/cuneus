@@ -187,14 +187,14 @@ fn create_scene(mouse_x: f32, mouse_y: f32, time: f32) -> array<Sphere, 12> {
         7u
     );
     
-    let orb_time = time * 0.2;
-    let orb_x = sin(orb_time) * 1.5;
+    let orb_time = time * 0.1;
+    let orb_x = sin(orb_time) * 3.5;
     let orb_y = 0.7 + 0.3 * sin(orb_time * 0.7);
     let orb_z = cos(orb_time) * 1.5 - 1.0;
     
     spheres[6] = Sphere(
         v3(orb_x + scene_offset_x, orb_y, orb_z),
-        0.25,
+        0.1,
         14u
     );
     
@@ -280,28 +280,32 @@ fn get_material(id: u32, rec: HitRecord) -> Material {
             mat.glow = 1.0;
         }
         case 4u: {
-            let pure_red = v3(1.0, 0.05, 0.02);
+            let pure_red = v3(1.0, 0.0, 1.0);
             
-            mat.albedo = v3(1.0, 0.2, 0.2);
-            mat.emissive = pure_red * 4.0; 
+            mat.albedo = v3(1.0, 0.0, 0.0);
+            mat.emissive = pure_red * 24.0; 
             mat.metallic = 0.0;
-            mat.roughness = 1.0;
+            mat.roughness = 0.0;
             mat.glow = 1.0;
         }
         case 5u: {
             let position_factor = 1.0 - normalize(rec.p).y;
             let position_boost = 1.0 + position_factor * 2.0; 
+            let t = time_data.time * 1.3;
+
+            let color_phase = t + dot(rec.normal, v3(0.5, 0.3, 1.2));
+            let r = 0.5 + 0.5 * sin(color_phase);
+            let g = 0.5 + 0.5 * sin(color_phase + 2.1);
+            let b = 0.5 + 0.5 * sin(color_phase + 4.2);
             
-            let pure_purple = v3(1.8, 0.05, 2.2);
-            
-            mat.albedo = v3(0.3, 0.3, 1.0);
-            mat.emissive = pure_purple * 7.0 * position_boost;
-            mat.metallic = 0.0;
-            mat.roughness = 0.8;
-            mat.glow = 2.5;
+            mat.albedo = v3(r, g, b);
+            mat.metallic = 1.0;
+            mat.roughness = 0.0;
+            mat.ior = 0.1;
+            mat.glow = 1.05;
         }
         case 6u: {
-            mat.albedo = v3(0.95, 0.95, 0.95);
+            mat.albedo = v3(1.95, 0.95, 0.95);
             mat.emissive = v3(0.0);
             mat.metallic = 1.0;
             mat.roughness = 0.0;
@@ -355,24 +359,27 @@ fn get_material(id: u32, rec: HitRecord) -> Material {
             let b = 0.5 + 0.5 * sin(color_phase + 4.2);
             
             mat.albedo = v3(r, g, b);
-            mat.emissive = mat.albedo * 11.5;
+            mat.emissive = v3(0.0);
             mat.metallic = 1.0;
-            mat.roughness = 10.1;
-            mat.subsurface = 1.0;
-            mat.glow = 10.8;
+            mat.roughness = 0.0;
+            mat.ior = 0.1;
+            mat.glow = 0.05;
         }
         case 14u: {
-            let t = time_data.time * 0.3;
+            let position_factor = 1.0 - normalize(rec.p).y;
+            let position_boost = 1.0 + position_factor * 2.0; 
+            let t = time_data.time * 1.3;
 
-            let color1 = v3(1.0, 0.7, 0.0);
-            let color2 = v3(0.0, 0.9, 1.0);
-            let blend = (sin(t) * 0.5 + 0.5);
-
-            mat.albedo = v3(1.0);
-            mat.emissive = mix(color1, color2, blend) * 5.0;
-            mat.metallic = 0.0;
-            mat.roughness = 1.0;
-            mat.glow = 1.0;
+            let color_phase = t + dot(rec.normal, v3(0.5, 0.3, 1.2));
+            let r = 0.5 + 0.5 * sin(color_phase);
+            let g = 0.5 + 0.5 * sin(color_phase + 2.1);
+            let b = 0.5 + 0.5 * sin(color_phase + 4.2);
+            
+            mat.albedo = v3(r, g, b);
+            mat.metallic = 1.0;
+            mat.roughness = 0.0;
+            mat.ior = 0.1;
+            mat.glow = 1.05;
         }
         default: {
             mat.albedo = v3(1.0, 0.0, 1.0);
