@@ -401,7 +401,7 @@ impl ShaderManager for ParticleShader {
                             .default_open(true)
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.animation_speed, 0.0..=1.0).text("Animation Speed")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.feedback_decay, 0.0..=4.0).text("lights")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.feedback_decay, 0.0..=2.5).text("Feedback Decay")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.feedback_mix, 0.0..=1.0).text("Feedback Mix")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.color_shift_speed, 0.0..=1.0).text("Color Shift Speed")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.color_scale, 0.0..=3.24).text("Color Scale")).changed();

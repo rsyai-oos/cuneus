@@ -116,7 +116,7 @@ fn main_image(@builtin(global_invocation_id) id: vec3<u32>) {
     }
 
     color = clamp(color, v3(0.0), v3(1.0));
-    color = sqrt(color) * params.feedback_decay - 1.0;
+    color = sqrt(color) * 2.0 - 1.0;
 
     let idx = id.x + screen_size.x * id.y;
     let r = f32(atomicLoad(&atomic_buffer[idx])) / 255.0;
