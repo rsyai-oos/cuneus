@@ -63,6 +63,9 @@ struct Neural2Shader {
     
     // Hot reload for shader
     hot_reload: cuneus::ShaderHotReload,
+    
+    export_time: Option<f32>,
+    export_frame: Option<u32>,
 }
 
 impl Neural2Shader {
@@ -96,7 +99,7 @@ impl Neural2Shader {
         });
     }
     
-    fn capture_frame(&mut self, core: &Core, time: f32) -> Result<Vec<u8>, wgpu::SurfaceError> {
+    fn capture_frame(&mut self, core: &Core, time: f32, frame: u32) -> Result<Vec<u8>, wgpu::SurfaceError> {
         let settings = self.base.export_manager.settings();
         let (capture_texture, output_buffer) = self.base.create_capture_texture(
             &core.device,
@@ -112,7 +115,44 @@ impl Neural2Shader {
             label: Some("Capture Encoder"),
         });
         self.base.time_uniform.data.time = time;
+        self.base.time_uniform.data.frame = frame;
         self.base.time_uniform.update(&core.queue);
+        
+        self.compute_time_uniform.data.time = time;
+        self.compute_time_uniform.data.frame = frame;
+        self.compute_time_uniform.update(&core.queue);
+        self.atomic_buffer = cuneus::AtomicBuffer::new(
+            &core.device,
+            settings.width * settings.height * 2,
+            &self.atomic_bind_group_layout,
+        );
+        {
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("Export Particle Generation Pass"),
+                timestamp_writes: None,
+            });
+            compute_pass.set_pipeline(&self.compute_pipeline_splat);
+            compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
+            compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
+            compute_pass.set_bind_group(2, &self.compute_bind_group, &[]);
+            compute_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]);
+            compute_pass.dispatch_workgroups(2048, 1, 1);
+        }
+        {
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("Export Render Pass"),
+                timestamp_writes: None,
+            });
+            compute_pass.set_pipeline(&self.compute_pipeline_render);
+            compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
+            compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
+            compute_pass.set_bind_group(2, &self.compute_bind_group, &[]);
+            compute_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]);
+            let width = settings.width.div_ceil(16);
+            let height = settings.height.div_ceil(16);
+            compute_pass.dispatch_workgroups(width, height, 1);
+        }
+        
         {
             let mut render_pass = cuneus::Renderer::begin_render_pass(
                 &mut encoder,
@@ -125,6 +165,7 @@ impl Neural2Shader {
             render_pass.set_bind_group(0, &self.output_texture.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
         }
+        
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
                 texture: &capture_texture,
@@ -163,16 +204,23 @@ impl Neural2Shader {
         Ok(unpadded_data)
     }
     
-    fn handle_export(&mut self, core: &Core) {
+    fn handle_export(&mut self, core: &Core) -> bool {
         if let Some((frame, time)) = self.base.export_manager.try_get_next_frame() {
-            if let Ok(data) = self.capture_frame(core, time) {
+            self.export_time = Some(time);
+            self.export_frame = Some(frame);
+            
+            if let Ok(data) = self.capture_frame(core, time, frame) {
                 let settings = self.base.export_manager.settings();
                 if let Err(e) = cuneus::save_frame(data, frame, settings) {
                     eprintln!("Error saving frame: {:?}", e);
                 }
             }
+            true
         } else {
+            self.export_time = None;
+            self.export_frame = None;
             self.base.export_manager.complete_export();
+            false
         }
     }
 }
@@ -367,6 +415,8 @@ impl ShaderManager for Neural2Shader {
             atomic_buffer,
             frame_count: 0,
             hot_reload,
+            export_time: None,
+            export_frame: None,
         };
         
         result.recreate_compute_resources(core);
@@ -522,15 +572,20 @@ impl ShaderManager for Neural2Shader {
         }
         self.base.apply_control_request(controls_request);
         
-        let current_time = self.base.controls.get_time(&self.base.start_time);
+        let (current_time, current_frame) = if let (Some(export_time), Some(export_frame)) = (self.export_time, self.export_frame) {
+            (export_time, export_frame)
+        } else {
+            let current_time = self.base.controls.get_time(&self.base.start_time);
+            (current_time, self.frame_count)
+        };
         
         self.base.time_uniform.data.time = current_time;
-        self.base.time_uniform.data.frame = self.frame_count;
+        self.base.time_uniform.data.frame = current_frame;
         self.base.time_uniform.update(&core.queue);
         
         self.compute_time_uniform.data.time = current_time;
         self.compute_time_uniform.data.delta = 1.0/60.0;
-        self.compute_time_uniform.data.frame = self.frame_count;
+        self.compute_time_uniform.data.frame = current_frame;
         self.compute_time_uniform.update(&core.queue);
         
         if changed {
@@ -542,36 +597,38 @@ impl ShaderManager for Neural2Shader {
             self.base.export_manager.start_export();
         }
         
-        {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Particle Generation Pass"),
-                timestamp_writes: None,
-            });
+        if self.export_time.is_none() {
+            {
+                let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("Particle Generation Pass"),
+                    timestamp_writes: None,
+                });
+                
+                compute_pass.set_pipeline(&self.compute_pipeline_splat);
+                compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
+                compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
+                compute_pass.set_bind_group(2, &self.compute_bind_group, &[]);
+                compute_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]);
+                
+                compute_pass.dispatch_workgroups(2048, 1, 1);
+            }
             
-            compute_pass.set_pipeline(&self.compute_pipeline_splat);
-            compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(2, &self.compute_bind_group, &[]);
-            compute_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]);
-            
-            compute_pass.dispatch_workgroups(2048, 1, 1);
-        }
-        
-        {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Render Pass"),
-                timestamp_writes: None,
-            });
-            
-            compute_pass.set_pipeline(&self.compute_pipeline_render);
-            compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(2, &self.compute_bind_group, &[]);
-            compute_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]);
-            
-            let width = core.size.width.div_ceil(16);
-            let height = core.size.height.div_ceil(16);
-            compute_pass.dispatch_workgroups(width, height, 1);
+            {
+                let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("Render Pass"),
+                    timestamp_writes: None,
+                });
+                
+                compute_pass.set_pipeline(&self.compute_pipeline_render);
+                compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
+                compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
+                compute_pass.set_bind_group(2, &self.compute_bind_group, &[]);
+                compute_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]);
+                
+                let width = core.size.width.div_ceil(16);
+                let height = core.size.height.div_ceil(16);
+                compute_pass.dispatch_workgroups(width, height, 1);
+            }
         }
         
         {
@@ -592,7 +649,9 @@ impl ShaderManager for Neural2Shader {
         self.base.handle_render_output(core, &view, full_output, &mut encoder);
         core.queue.submit(Some(encoder.finish()));
         output.present();
-        self.frame_count = self.frame_count.wrapping_add(1);
+        if self.export_time.is_none() {
+            self.frame_count = self.frame_count.wrapping_add(1);
+        }
         
         Ok(())
     }
