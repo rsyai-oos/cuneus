@@ -672,7 +672,7 @@ impl ShaderManager for WaterShader {
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.cloud_coverage, 0.0..=1.0).text("Intensity")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.cloud_speed, 0.05..=0.5).text("Animation Speed")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.cloud_height, 0.5..=2.0).text("Height")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.cloud_height, -3.2..=3.2).text("Height")).changed();
                             });
 
                         egui::CollapsingHeader::new("Vis Settings")
