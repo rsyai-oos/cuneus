@@ -1,7 +1,7 @@
 // Arctic Night Ocean 2025, Enes Altun; MIT License
 // REFERENCES and Inspirations:
-// Note that, I did not use any of these shaders directly but as a reference for my own implementation. But 
-// still if you want to port this shader please give credits to these authors, my code is under MIT License.
+// But please:
+// still if you want to port/use this shader please give credits to these authors, my code is under MIT License.
 // Waves: procedural ocean: https://www.shadertoy.com/view/MdXyzX;  afl_ext (2017) : MIT License
 // Aurora: https://www.shadertoy.com/view/XtGGRt nimitz, (2017): CC 3.0 BY-NC
 // Cheap Stars: https://www.shadertoy.com/view/lsfGWH urraka (2013): ShaderToy Default License
