@@ -3,7 +3,6 @@
 <img src="https://github.com/user-attachments/assets/590dbd91-5eaa-4c04-b3f9-d579924fa4c3" alt="cuneus sdf" width="320" height="120" />
 
 
-
 A tool for experimenting with WGSL shaders, it uses `wgpu` for rendering, `egui` for the UI and `winit` for windowing :-)
 
 ### Current Features
@@ -64,7 +63,7 @@ A tool for experimenting with WGSL shaders, it uses `wgpu` for rendering, `egui`
 
 | **water** | **path tracer** | **audio visualizer** |
 |:---:|:---:|:---:|
-| <a href="https://github.com/user-attachments/assets/5c33811e-ad4e-4c59-9da8-4d532cf9af9f"><img src="https://github.com/user-attachments/assets/488c0052-80cf-474e-8cbe-9616676484a0" width="250" height ="200"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/water.rs) | <a href="https://github.com/user-attachments/assets/f837bc1d-c729-46b6-a5c0-953e3b68ed03"><img src="https://github.com/user-attachments/assets/f837bc1d-c729-46b6-a5c0-953e3b68ed03" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/pathtracing.rs) | <a href="https://github.com/user-attachments/assets/3eda9c33-7961-4dd4-aad1-170ae32640e7"><img src="https://github.com/user-attachments/assets/3eda9c33-7961-4dd4-aad1-170ae32640e7" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/audiovis.rs) |
+| <a href="https://github.com/user-attachments/assets/465dae75-2bbc-4b4e-8384-054cfdf9f129"><img src="https://github.com/user-attachments/assets/dbcc8c37-4cf0-4c46-99f0-2f33ceed395b" width="250" height ="200"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/water.rs) | <a href="https://github.com/user-attachments/assets/f837bc1d-c729-46b6-a5c0-953e3b68ed03"><img src="https://github.com/user-attachments/assets/f837bc1d-c729-46b6-a5c0-953e3b68ed03" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/pathtracing.rs) | <a href="https://github.com/user-attachments/assets/3eda9c33-7961-4dd4-aad1-170ae32640e7"><img src="https://github.com/user-attachments/assets/3eda9c33-7961-4dd4-aad1-170ae32640e7" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/audiovis.rs) |
 
 | **Poe2:loading** | **tree** | **voronoi** |
 |:---:|:---:|:---:|
