@@ -227,12 +227,12 @@ fn aurora(ro: v3, rd: v3, q: f32) -> v4 {
     
     if (ai < .05 || rd.y <= 0.0) { return col; }
     
-    let iter = i32(mix(10.0, 20.0, q));
+    let iter = i32(params.cloud_height);
     
     for (var i = 0; i < iter; i++) {
         let fi = f32(i);
-        let off = .006 * params.cloud_height * h21(ro.xz + rd.xz * fi) * smoothstep(0.0, 15.0, fi);
-        let pt = ((.8 + pow(fi, 1.4) * .002 * params.cloud_height) - ro.y) / (rd.y * 2.0 + .4);
+        let off = .006 * 1.0 * h21(ro.xz + rd.xz * fi) * smoothstep(0.0, 15.0, fi);
+        let pt = ((.8 + pow(fi, 1.4) * .002 * 1.0) - ro.y) / (rd.y * 2.0 + .4);
         let bp = ro + (pt - off) * rd;
         let rzt = tnoise(bp.xz * .8, asp * .8);
         var c2 = v4(0.0, 0.0, 0.0, rzt);

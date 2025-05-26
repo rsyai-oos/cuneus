@@ -423,7 +423,7 @@ impl ShaderManager for WaterShader {
                 
                 cloud_coverage: 0.4,
                 cloud_speed: 0.15, 
-                cloud_height: 1.0, 
+                cloud_height: 30.0, 
                 
                 night_sky_r: 0.008,
                 night_sky_g: 0.012,
@@ -672,7 +672,7 @@ impl ShaderManager for WaterShader {
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.cloud_coverage, 0.0..=1.0).text("Intensity")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.cloud_speed, 0.05..=0.5).text("Animation Speed")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.cloud_height, -3.2..=3.2).text("Height")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.cloud_height, 1.0..=150.0).text("Aurora qual")).changed();
                             });
 
                         egui::CollapsingHeader::new("Vis Settings")
