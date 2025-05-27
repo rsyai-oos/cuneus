@@ -1,5 +1,35 @@
 use std::sync::Arc;
 use winit::window::Window;
+
+pub use wgpu;
+pub use winit;
+pub use egui;
+pub use bytemuck;
+pub use anyhow;
+
+pub use winit::event::WindowEvent;
+pub use wgpu::SurfaceError;
+pub use bytemuck::{Pod, Zeroable};
+
+mod renderer;
+mod shader;
+mod texture;
+mod uniforms;
+mod app;
+mod renderkit;
+mod feedback; 
+mod keyinputs;
+mod export;
+mod hot;
+mod controls;
+mod atomic;
+pub mod gst;
+pub mod compute;
+mod spectrum;
+mod fps;
+mod mouse;
+pub mod hdri;
+
 pub use renderer::*;
 pub use shader::*;
 pub use texture::*;
@@ -14,6 +44,39 @@ pub use controls::{ControlsRequest, ShaderControls};
 pub use atomic::AtomicBuffer;
 pub use mouse::*;
 pub use hdri::*;
+
+pub mod prelude {
+    pub use crate::{
+        Core, ShaderApp, ShaderManager,
+        UniformProvider, UniformBinding, 
+        RenderKit, ShaderControls, ExportManager, ShaderHotReload,
+        TextureManager, Renderer, AtomicBuffer,
+        KeyInputHandler, ControlsRequest,
+        gst, save_frame
+    };
+    
+    pub use crate::wgpu;
+    pub use crate::winit;
+    pub use crate::egui;
+    pub use crate::bytemuck::{Pod, Zeroable};
+    pub use crate::anyhow;
+    
+    pub use crate::WindowEvent;
+    pub use crate::SurfaceError;
+    
+    pub use wgpu::{
+        Device, Queue, Surface, SurfaceConfiguration,
+        TextureFormat, RenderPipeline, ComputePipeline,
+        BindGroup, BindGroupLayout, Buffer,
+        ShaderModule, TextureView,
+    };
+    
+    pub use winit::{
+        event_loop::EventLoop,
+        window::Window,
+        dpi::PhysicalSize,
+    };
+}
 
 pub struct Core {
     pub surface: wgpu::Surface<'static>,
@@ -100,22 +163,3 @@ impl Core {
         }
     }
 }
-
-mod renderer;
-mod shader;
-mod texture;
-mod uniforms;
-mod app;
-mod renderkit;
-mod feedback; 
-mod keyinputs;
-mod export;
-mod hot;
-mod controls;
-mod atomic;
-pub mod gst;
-pub mod compute;
-mod spectrum;
-mod fps;
-mod mouse;
-pub mod hdri;
