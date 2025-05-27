@@ -4,10 +4,10 @@ use winit::window::Window;
 pub use wgpu;
 pub use winit;
 pub use egui;
-pub use bytemuck;
 pub use anyhow;
 pub use env_logger;
 
+pub extern crate bytemuck;
 pub use winit::event::WindowEvent;
 pub use wgpu::SurfaceError;
 pub use bytemuck::{Pod, Zeroable};
@@ -59,14 +59,14 @@ pub mod prelude {
     pub use crate::wgpu;
     pub use crate::winit;
     pub use crate::egui;
-    pub use crate::bytemuck;
     pub use crate::anyhow;
     
     pub use env_logger;
+    pub use crate::bytemuck;
     pub use crate::WindowEvent;
     pub use crate::SurfaceError;
     
-    pub use bytemuck::{Pod, Zeroable, bytes_of, cast_slice};
+    pub use crate::bytemuck::{Pod, Zeroable, bytes_of, cast_slice};
     pub use wgpu::{
         Device, Queue, Surface, SurfaceConfiguration,
         TextureFormat, RenderPipeline, ComputePipeline,
