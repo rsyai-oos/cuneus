@@ -27,7 +27,7 @@ pub struct ShaderHotReload {
     last_update_times: HashMap<PathBuf, Instant>,
     debounce_duration: Duration,
     shader_type: ShaderType,
-    entry_point: Option<String>, // 4 compute shaders
+    entry_point: Option<String>,
 }
 
 impl ShaderHotReload {
