@@ -40,6 +40,7 @@ alias v3 = vec3<f32>;
 alias v2 = vec2<f32>;
 alias m3 = mat3x3<f32>;
 const pi = 3.14159265359;
+const EPSILON = 0.0001;
 
 var<private> R: v2;
 var<private> seed: u32;
@@ -55,6 +56,7 @@ struct HitRecord {
     t: f32, 
     front_face: bool, 
     material: u32,
+    uv: v2,
 }
 
 // Material definition
@@ -71,6 +73,15 @@ struct Material {
 struct Sphere {
     center: v3,
     radius: f32,
+    material: u32,
+}
+
+// mirror
+struct Rect {
+    center: v3,
+    u: v3,
+    v: v3,
+    normal: v3,
     material: u32,
 }
 
@@ -143,6 +154,42 @@ fn hit_sphere(sphere: Sphere, ray: Ray, t_min: f32, t_max: f32, rec: ptr<functio
     (*rec).normal = select(-outward_normal, outward_normal, front_face);
     (*rec).front_face = front_face;
     (*rec).material = sphere.material;
+    
+    return true;
+}
+
+fn hit_rect(rect: Rect, ray: Ray, t_min: f32, t_max: f32, rec: ptr<function, HitRecord>) -> bool {
+    let denom = dot(rect.normal, ray.direction);
+    if (abs(denom) < EPSILON) {
+        return false;
+    }
+    
+    let t = dot(rect.center - ray.origin, rect.normal) / denom;
+    if (t < t_min || t > t_max) {
+        return false;
+    }
+    
+    let hit_point = ray.origin + t * ray.direction;
+    let offset = hit_point - rect.center;
+    
+    let u_proj = dot(offset, normalize(rect.u));
+    let v_proj = dot(offset, normalize(rect.v));
+    let u_half = length(rect.u) * 0.5;
+    let v_half = length(rect.v) * 0.5;
+    
+    if (abs(u_proj) > u_half || abs(v_proj) > v_half) {
+        return false;
+    }
+    
+    (*rec).t = t;
+    (*rec).p = hit_point;
+    (*rec).normal = rect.normal;
+    (*rec).front_face = dot(ray.direction, rect.normal) < 0.0;
+    if (!(*rec).front_face) {
+        (*rec).normal = -(*rec).normal;
+    }
+    (*rec).material = rect.material;
+    (*rec).uv = v2((u_proj + u_half) / (2.0 * u_half), (v_proj + v_half) / (2.0 * v_half));
     
     return true;
 }
@@ -234,6 +281,28 @@ fn create_scene(mouse_x: f32, mouse_y: f32, time: f32) -> array<Sphere, 12> {
     return spheres;
 }
 
+fn create_mirrors() -> array<Rect, 2> {
+    var mirrors: array<Rect, 2>;
+    
+    mirrors[0] = Rect(
+        v3(9.0, 1.5, -1.5),          
+        v3(0.0, 0.0, 2.5),           
+        v3(0.0, 2.5, 0.0),           
+        v3(1.0, 0.0, 0.0),        
+        20u                          
+    );
+    
+    mirrors[1] = Rect(
+        v3(16.0, 1.5, -1.5),  
+        v3(0.0, 0.0, 2.5),  
+        v3(0.0, 2.5, 0.0), 
+        v3(-1.0, 0.0, 0.0),   
+        20u 
+    );
+    
+    return mirrors;
+}
+
 fn get_material(id: u32, rec: HitRecord) -> Material {
     var mat: Material;
     
@@ -279,47 +348,46 @@ fn get_material(id: u32, rec: HitRecord) -> Material {
             mat.roughness = 1.0;
             mat.glow = 1.0;
         }
-    case 4u: {
-        let sphere_center = v3(2.0 + scene_offset_x, 1.7, -2.0);
-        let local_pos = normalize(rec.p - sphere_center);
-        let world_pos = rec.p;
-        let vertical_gradient = 1.0 - (local_pos.y + 1.0) * 0.5;
-        let bubble_scale = 5.0;
-        let time_offset = time_data.time * 0.5;
-        let bubble1 = sin(world_pos.x * bubble_scale + time_offset) * 
-                    cos(world_pos.y * bubble_scale - time_offset * 0.7) *
-                    sin(world_pos.z * bubble_scale + time_offset * 0.3);
-                    
-        let bubble2 = cos(world_pos.x * bubble_scale * 1.7 - time_offset * 0.8) * 
-                    sin(world_pos.y * bubble_scale * 1.3 + time_offset) *
-                    cos(world_pos.z * bubble_scale * 1.5 - time_offset * 0.6);
-        
-        let bubble_pattern = 0.5 + 0.25 * (bubble1 + bubble2);
-        let temp_zone = pow(vertical_gradient, 1.5) + bubble_pattern * 0.3;
-        let cool_color = v3(0.3, 0.0, 0.0);
-        let warm_color = v3(0.8, 0.1, 0.0);
-        let hot_color = v3(1.0, 0.4, 0.0);
-        let white_hot = v3(1.0, 0.95, 0.8);
-        var lava_color = cool_color;
-        lava_color = mix(lava_color, warm_color, smoothstep(0.0, 0.3, temp_zone));
-        lava_color = mix(lava_color, hot_color, smoothstep(0.2, 0.6, temp_zone));
-        lava_color = mix(lava_color, white_hot, smoothstep(0.5, 1.0, temp_zone));
-        let bubble_intensity = bubble_pattern * bubble_pattern * 10.0;
-        let base_glow = 15.0;
-        let bottom_boost = vertical_gradient * vertical_gradient * 25.0;
-        let crust_pattern = smoothstep(0.3, 0.4, bubble_pattern);
-        let intensity_modifier = mix(0.2, 1.0, crust_pattern);
-        let breathe = 0.9 + 0.1 * sin(time_data.time * 2.0 + bubble1 * 3.0);
-        
-        let total_intensity = (base_glow + bubble_intensity + bottom_boost) * 
-                            intensity_modifier * breathe;
-        mat.albedo = lava_color * 0.1;
-        mat.emissive = lava_color * total_intensity;
-        mat.metallic = 0.0;
-        mat.roughness = 0.1;
-        mat.glow = 0.5 + temp_zone * 1.5;
-    }
-
+        case 4u: {
+            let sphere_center = v3(2.0 + scene_offset_x, 1.7, -2.0);
+            let local_pos = normalize(rec.p - sphere_center);
+            let world_pos = rec.p;
+            let vertical_gradient = 1.0 - (local_pos.y + 1.0) * 0.5;
+            let bubble_scale = 5.0;
+            let time_offset = time_data.time * 0.5;
+            let bubble1 = sin(world_pos.x * bubble_scale + time_offset) * 
+                        cos(world_pos.y * bubble_scale - time_offset * 0.7) *
+                        sin(world_pos.z * bubble_scale + time_offset * 0.3);
+                        
+            let bubble2 = cos(world_pos.x * bubble_scale * 1.7 - time_offset * 0.8) * 
+                        sin(world_pos.y * bubble_scale * 1.3 + time_offset) *
+                        cos(world_pos.z * bubble_scale * 1.5 - time_offset * 0.6);
+            
+            let bubble_pattern = 0.5 + 0.25 * (bubble1 + bubble2);
+            let temp_zone = pow(vertical_gradient, 1.5) + bubble_pattern * 0.3;
+            let cool_color = v3(0.3, 0.0, 0.0);
+            let warm_color = v3(0.8, 0.1, 0.0);
+            let hot_color = v3(1.0, 0.4, 0.0);
+            let white_hot = v3(1.0, 0.95, 0.8);
+            var lava_color = cool_color;
+            lava_color = mix(lava_color, warm_color, smoothstep(0.0, 0.3, temp_zone));
+            lava_color = mix(lava_color, hot_color, smoothstep(0.2, 0.6, temp_zone));
+            lava_color = mix(lava_color, white_hot, smoothstep(0.5, 1.0, temp_zone));
+            let bubble_intensity = bubble_pattern * bubble_pattern * 10.0;
+            let base_glow = 15.0;
+            let bottom_boost = vertical_gradient * vertical_gradient * 25.0;
+            let crust_pattern = smoothstep(0.3, 0.4, bubble_pattern);
+            let intensity_modifier = mix(0.2, 1.0, crust_pattern);
+            let breathe = 0.9 + 0.1 * sin(time_data.time * 2.0 + bubble1 * 3.0);
+            
+            let total_intensity = (base_glow + bubble_intensity + bottom_boost) * 
+                                intensity_modifier * breathe;
+            mat.albedo = lava_color * 0.1;
+            mat.emissive = lava_color * total_intensity;
+            mat.metallic = 0.0;
+            mat.roughness = 0.1;
+            mat.glow = 0.5 + temp_zone * 1.5;
+        }
         case 5u: {
             let position_factor = 1.0 - normalize(rec.p).y;
             let position_boost = 1.0 + position_factor * 2.0; 
@@ -413,6 +481,12 @@ fn get_material(id: u32, rec: HitRecord) -> Material {
             mat.ior = 0.1;
             mat.glow = 1.05;
         }
+        case 20u: {
+            mat.albedo = v3(0.95, 0.95, 0.95);
+            mat.emissive = v3(0.0);
+            mat.metallic = 1.0;
+            mat.roughness = 0.0;
+        }
         default: {
             mat.albedo = v3(1.0, 0.0, 1.0);
             mat.emissive = v3(0.0);
@@ -445,8 +519,8 @@ fn scatter(ray: Ray, rec: HitRecord, attenuation_out: ptr<function, v3>, scatter
     
     // ALL materials will either reflect (if metallic) or diffuse (if not)
     // No refraction will ever happen
-    if (material.metallic > 0.3 || rec.material == 2u || rec.material == 10u) {
-        // Metal reflection (or forced reflection for former glass materials)
+    if (material.metallic > 0.3 || rec.material == 2u || rec.material == 10u || rec.material == 20u) {
+        // Metal reflection with mirrors
         let reflected = reflect(unit_direction, rec.normal);
         scatter_direction = reflected + material.roughness * random_unit_vector();
         
@@ -467,8 +541,7 @@ fn scatter(ray: Ray, rec: HitRecord, attenuation_out: ptr<function, v3>, scatter
     (*scattered_out).direction = normalize(scatter_direction);
     
     // Set attenuation based on material properties
-    if (rec.material == 2u || rec.material == 10u) {
-        // Override for previously glass materials - make them mirror-like
+    if (rec.material == 2u || rec.material == 10u || rec.material == 20u) {
         *attenuation_out = v3(0.9);
     } else {
         *attenuation_out = material.albedo + subsurface;
@@ -489,6 +562,7 @@ fn trace_ray(ray: Ray, max_bounces: u32) -> v3 {
     var final_color = v3(0.0);
     
     let spheres = create_scene(params.mouse_x, params.mouse_y, time_data.time);
+    let mirrors = create_mirrors();
     
     for (var bounce: u32 = 0; bounce < max_bounces; bounce++) {
         var rec: HitRecord;
@@ -498,6 +572,13 @@ fn trace_ray(ray: Ray, max_bounces: u32) -> v3 {
 
         for (var i: u32 = 0; i < min(params.num_spheres, 12u); i++) {
             if (hit_sphere(spheres[i], current_ray, 0.001, closest_so_far, &rec)) {
+                hit_anything = true;
+                closest_so_far = rec.t;
+            }
+        }
+        
+        for (var i: u32 = 0; i < 2u; i++) {
+            if (hit_rect(mirrors[i], current_ray, 0.001, closest_so_far, &rec)) {
                 hit_anything = true;
                 closest_so_far = rec.t;
             }
@@ -525,7 +606,7 @@ fn trace_ray(ray: Ray, max_bounces: u32) -> v3 {
                     break;
                 }
                 
-                if (rec.material == 2u || rec.material == 10u) {
+                if (rec.material == 2u || rec.material == 10u || rec.material == 20u) {
                     attenuation = v3(0.9, 0.9, 0.9);
                 }
                 
@@ -537,8 +618,8 @@ fn trace_ray(ray: Ray, max_bounces: u32) -> v3 {
                 break;
             }
         } else {
-         //bg
-        final_color += current_attenuation * sample_background(normalize(current_ray.direction));
+            //bg
+            final_color += current_attenuation * sample_background(normalize(current_ray.direction));
             break;
         }
         
@@ -576,7 +657,6 @@ fn color_preserving_tonemap(input_color: v3) -> v3 {
         -0.07367, -0.00605,  1.07602
     );
 
-
     var tone_mapped_intensity = intensity;
     
     tone_mapped_intensity = (tone_mapped_intensity * (0.15 * tone_mapped_intensity + 0.05)) / 
@@ -598,9 +678,7 @@ fn color_preserving_tonemap(input_color: v3) -> v3 {
     return mix(full_aces, colorized, blend_factor * saturation_preservation);
 }
 
-
 fn aces_tonemap(input_color: v3) -> v3 {
-
     var color = input_color * 1.4;
 
     const m1 = mat3x3<f32>(
