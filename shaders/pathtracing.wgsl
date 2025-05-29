@@ -281,22 +281,51 @@ fn create_scene(mouse_x: f32, mouse_y: f32, time: f32) -> array<Sphere, 12> {
     return spheres;
 }
 
-fn create_mirrors() -> array<Rect, 2> {
-    var mirrors: array<Rect, 2>;
+fn create_mirrors() -> array<Rect, 5> {
+    var mirrors: array<Rect, 5>;
     
+    // Left mirror
     mirrors[0] = Rect(
-        v3(9.0, 1.5, -1.5),          
-        v3(0.0, 0.0, 2.5),           
-        v3(0.0, 2.5, 0.0),           
-        v3(1.0, 0.0, 0.0),        
-        20u                          
+        v3(9.0, 1.5, -1.5),           // center (left side)
+        v3(0.0, 0.0, 2.5),            // width (along z)
+        v3(0.0, 2.5, 0.0),            // height (along y)
+        v3(1.0, 0.0, 0.0),            // normal (facing right)
+        20u                           // mirror material
     );
     
+    // Right mirror  
     mirrors[1] = Rect(
-        v3(16.0, 1.5, -1.5),  
+        v3(16.0, 1.5, -1.5), 
         v3(0.0, 0.0, 2.5),  
         v3(0.0, 2.5, 0.0), 
-        v3(-1.0, 0.0, 0.0),   
+        v3(-1.0, 0.0, 0.0),
+        20u 
+    );
+    
+    // Back wall mirror
+    mirrors[2] = Rect(
+        v3(12.5, 1.5, -3.5),
+        v3(4.0, 0.0, 0.0),
+        v3(0.0, 2.5, 0.0), 
+        v3(0.0, 0.0, 1.0),   
+        20u       
+    );
+    
+    // Floor 
+    mirrors[3] = Rect(
+        v3(12.5, -0.3, -1.5), 
+        v3(3.5, 0.0, 0.0),
+        v3(0.0, 0.0, 2.0),
+        v3(0.0, 1.0, 0.0),
+        20u
+    );
+    
+    // Ceiling mirror
+    mirrors[4] = Rect(
+        v3(12.5, 3.3, -1.5), 
+        v3(3.5, 0.0, 0.0),         
+        v3(0.0, 0.0, 2.0), 
+        v3(0.0, -1.0, 0.0),
         20u 
     );
     
@@ -577,7 +606,7 @@ fn trace_ray(ray: Ray, max_bounces: u32) -> v3 {
             }
         }
         
-        for (var i: u32 = 0; i < 2u; i++) {
+        for (var i: u32 = 0; i < 5u; i++) {
             if (hit_rect(mirrors[i], current_ray, 0.001, closest_so_far, &rec)) {
                 hit_anything = true;
                 closest_so_far = rec.t;
