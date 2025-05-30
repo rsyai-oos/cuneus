@@ -569,7 +569,7 @@ impl ShaderManager for MandelbulbShader {
 
                 egui::Window::new("Mandelbulb PathTracer")
                     .collapsible(true)
-                    .resizable(false)
+                    .resizable(true)
                     .default_width(350.0)
                     .show(ctx, |ui| {
                         ui.label("Mouse Controls:");
