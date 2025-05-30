@@ -46,6 +46,7 @@ A tool for experimenting with WGSL shaders, it uses `wgpu` for rendering, `egui`
 
 
 
+
 # Gallery
 
 | **Sinh** | **vertices** | **Satan** |
@@ -68,7 +69,7 @@ A tool for experimenting with WGSL shaders, it uses `wgpu` for rendering, `egui`
 
 | **water** | **path tracer** | **audio visualizer** |
 |:---:|:---:|:---:|
-| <a href="https://github.com/user-attachments/assets/465dae75-2bbc-4b4e-8384-054cfdf9f129"><img src="https://github.com/user-attachments/assets/dbcc8c37-4cf0-4c46-99f0-2f33ceed395b" width="250" height ="200"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/water.rs) | <a href="https://github.com/user-attachments/assets/f837bc1d-c729-46b6-a5c0-953e3b68ed03"><img src="https://github.com/user-attachments/assets/f837bc1d-c729-46b6-a5c0-953e3b68ed03" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/pathtracing.rs) | <a href="https://github.com/user-attachments/assets/3eda9c33-7961-4dd4-aad1-170ae32640e7"><img src="https://github.com/user-attachments/assets/3eda9c33-7961-4dd4-aad1-170ae32640e7" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/audiovis.rs) |
+| <a href="https://github.com/user-attachments/assets/465dae75-2bbc-4b4e-8384-054cfdf9f129"><img src="https://github.com/user-attachments/assets/dbcc8c37-4cf0-4c46-99f0-2f33ceed395b" width="250" height ="200"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/water.rs) | <a href="https://github.com/user-attachments/assets/f837bc1d-c729-46b6-a5c0-953e3b68ed03"><img src="https://github.com/user-attachments/assets/45b8f532-f3fb-453c-b356-1d3c153d614a" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/pathtracing.rs) | <a href="https://github.com/user-attachments/assets/3eda9c33-7961-4dd4-aad1-170ae32640e7"><img src="https://github.com/user-attachments/assets/3eda9c33-7961-4dd4-aad1-170ae32640e7" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/audiovis.rs) |
 
 | **Poe2:loading** | **tree** | **voronoi** |
 |:---:|:---:|:---:|
