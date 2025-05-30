@@ -1,3 +1,14 @@
+// Path tracer for Mandelbulb, Enes Altun, 2025. CC 3.0 
+// This shader uses various techniques, citations and inspirations:
+// - Hash functions (hash22, hash12): Dave_Hoskins https://www.shadertoy.com/view/4djSRW
+// - Random unit disk sampling (rnd_unit2): iq https://www.shadertoy.com/view/tl23Rm
+// - Spectrum palette function: iq https://www.shadertoy.com/view/ll2GD3
+// - Path tracing setup and lighting: yx https://www.shadertoy.com/view/ts2cWm
+// - Biased sampling technique: yx http://blog.hvidtfeldts.net/index.php/2015/01/path-tracing-3d-fractals/
+// - Additional path tracing reference: demofox https://www.shadertoy.com/view/WsBBR3
+// - Surface offset technique: https://www.shadertoy.com/view/lsXGzH
+// - The idea for path tracing for 3D fractals: Kleinian Seahorse: https://www.shadertoy.com/view/Ns2fzy by tdhooper; 
+// - http://blog.hvidtfeldts.net/index.php/2015/01/path-tracing-3d-fractals/ 
 struct TimeUniform {
     time: f32,
     delta: f32,
