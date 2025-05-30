@@ -45,17 +45,15 @@ A tool for experimenting with WGSL shaders, it uses `wgpu` for rendering, `egui`
      `cargo run --example tui_browser`
 
 
-
-
 # Gallery
 
 | **Sinh** | **vertices** | **Satan** |
 |:---:|:---:|:---:|
 | <a href="https://github.com/user-attachments/assets/a80d2415-fbb2-4335-bbc3-b74b7a8170ad"><img src="https://github.com/user-attachments/assets/823a3def-b822-42ed-906b-e419fa490634" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/sinh.rs) | <a href="https://github.com/user-attachments/assets/1847c374-5719-4fee-b74d-3418e5fa4d7b"><img src="https://github.com/user-attachments/assets/1847c374-5719-4fee-b74d-3418e5fa4d7b" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/sdvert.rs) | <a href="https://github.com/user-attachments/assets/8f86a3b4-8d31-499f-b9fa-8b23266291ae"><img src="https://github.com/user-attachments/assets/8f86a3b4-8d31-499f-b9fa-8b23266291ae" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/satan.rs) |
 
-| **Mandelbulb** | **Lich** | **Galaxy** |
+| **PathTracing Mandelbulb** | **Lich** | **Galaxy** |
 |:---:|:---:|:---:|
-| <a href="https://github.com/user-attachments/assets/2405334c-f13e-4d8d-863f-bab7dcc676ab"><img src="https://github.com/user-attachments/assets/2405334c-f13e-4d8d-863f-bab7dcc676ab" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/mandelbulb.rs) | <a href="https://github.com/user-attachments/assets/9589d2ec-43b8-4373-8dce-9cd2c74d862f"><img src="https://github.com/user-attachments/assets/9589d2ec-43b8-4373-8dce-9cd2c74d862f" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/lich.rs) | <a href="https://github.com/user-attachments/assets/a2647904-55bd-4912-9713-4558203ee6aa"><img src="https://github.com/user-attachments/assets/a2647904-55bd-4912-9713-4558203ee6aa" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/galaxy.rs) |
+| <a href="https://github.com/user-attachments/assets/24083cae-7e96-4726-8509-fb3d5973308a"><img src="https://github.com/user-attachments/assets/e454b395-a1a0-4b91-a776-9afd1a789d23" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/mandelbulb.rs) | <a href="https://github.com/user-attachments/assets/9589d2ec-43b8-4373-8dce-9cd2c74d862f"><img src="https://github.com/user-attachments/assets/9589d2ec-43b8-4373-8dce-9cd2c74d862f" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/lich.rs) | <a href="https://github.com/user-attachments/assets/a2647904-55bd-4912-9713-4558203ee6aa"><img src="https://github.com/user-attachments/assets/a2647904-55bd-4912-9713-4558203ee6aa" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/src/bin/galaxy.rs) |
 
 | **Buddhabrot** | **Droste** | **Clifford** |
 |:---:|:---:|:---:|
