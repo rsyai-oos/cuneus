@@ -768,7 +768,7 @@ fn get_camera_ray(uv: v2) -> Ray {
 }
 
 fn has_animation() -> bool {
-    return params.rotation_speed > 0.01;
+    return params.rotation_speed > 1.0;
 }
 @compute @workgroup_size(16, 16, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
