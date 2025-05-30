@@ -53,7 +53,7 @@ pub mod prelude {
         RenderKit, ShaderControls, ExportManager, ShaderHotReload,
         TextureManager, Renderer, AtomicBuffer,
         KeyInputHandler, ControlsRequest,
-        gst, save_frame
+        gst, save_frame, compute::create_bind_group_layout,compute::BindGroupLayoutType
     };
     
     pub use crate::wgpu;

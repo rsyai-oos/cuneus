@@ -1,246 +1,460 @@
-// MIT License Enes Altun, 2025
 struct TimeUniform {
     time: f32,
+    delta: f32,
+    frame: u32,
+    _padding: u32,
 };
-struct ResolutionUniform {
-    dimensions: vec2<f32>,
-    _padding: vec2<f32>,
-};
-@group(0) @binding(0) var<uniform> u_time: TimeUniform;
-@group(1) @binding(0) var<uniform> u_resolution: ResolutionUniform;
-@group(2) @binding(0) var<uniform> params: Params;
-struct Params {
-    color_core: vec3<f32>,
-    power: f32,
-    color_bulb1: vec3<f32>,
-    distant: f32,
-    color_bulb2: vec3<f32>,
-    radius: f32,
-    color_detail: vec3<f32>,
-    _pad4: f32,
-    glow_color: vec3<f32>,
-    _pad5: f32,
-    color_bulb3: vec3<f32>,
-    _pad6: f32,
-    iterations: i32,
-    max_steps: i32,
-    max_dist: f32,
-    min_dist: f32,
-};
+@group(0) @binding(0) var<uniform> time_data: TimeUniform;
 
-const PI: f32 = 3.14159265358979323846;
-struct Ray {
-    origin: vec3<f32>,
-    direction: vec3<f32>,
-};
-struct OrbitTrap {
-    minRadius: f32,
-    xPlane: f32,
-    yPlane: f32,
-    zPlane: f32,
-    bulbFactor: f32,
-};
-fn oscWithPause(minValue: f32, maxValue: f32, interval: f32, pauseDuration: f32, time: f32) -> f32 {
-    let normalizedTime = time / (interval + pauseDuration);
-    let timeWithinCycle = fract(normalizedTime) * (interval + pauseDuration);
+struct MandelbulbParams {
+    mouse_x: f32,
+    mouse_y: f32,
+    power: f32,
+    max_bounces: u32,
+    samples_per_pixel: u32,
+    accumulate: u32,
     
-    if (timeWithinCycle < interval) {
-        return minValue + (maxValue - minValue) * 0.5 * (1.0 + sin(2.0 * PI * timeWithinCycle / interval));
+    animation_speed: f32,
+    hold_duration: f32,
+    transition_duration: f32,
+    
+    exposure: f32,
+    focal_length: f32,
+    dof_strength: f32,
+    
+    palette_a_r: f32,
+    palette_a_g: f32,
+    palette_a_b: f32,
+    palette_b_r: f32,
+    palette_b_g: f32,
+    palette_b_b: f32,
+    palette_c_r: f32,
+    palette_c_g: f32,
+    palette_c_b: f32,
+    palette_d_r: f32,
+    palette_d_g: f32,
+    palette_d_b: f32,
+    
+    manual_rotation_x: f32,
+    manual_rotation_y: f32,
+    manual_rotation_z: f32,
+    use_mouse_rotation: u32,
+    
+    gamma: f32,
+    zoom: f32,
+    
+    background_r: f32,
+    background_g: f32,
+    background_b: f32,
+    sun_color_r: f32,
+    sun_color_g: f32,
+    sun_color_b: f32,
+    fog_color_r: f32,
+    fog_color_g: f32,
+    fog_color_b: f32,
+    glow_color_r: f32,
+    glow_color_g: f32,
+    glow_color_b: f32,
+}
+@group(1) @binding(0) var<uniform> params: MandelbulbParams;
+
+@group(2) @binding(0) var output: texture_storage_2d<rgba16float, write>;
+@group(3) @binding(0) var<storage, read_write> atomic_buffer: array<atomic<u32>>;
+
+alias v4 = vec4<f32>;
+alias v3 = vec3<f32>;
+alias v2 = vec2<f32>;
+alias m3 = mat3x3<f32>;
+const pi = 3.14159265359;
+const tau = 6.28318530718;
+const sqrt3 = 1.7320508075688772;
+
+var<private> R: v2;
+var<private> seed: u32;
+
+fn hash_u(_a: u32) -> u32 { 
+    var a = _a; 
+    a ^= a >> 16;
+    a *= 0x7feb352du;
+    a ^= a >> 15;
+    a *= 0x846ca68bu;
+    a ^= a >> 16;
+    return a; 
+}
+
+fn hash_f() -> f32 { 
+    var s = hash_u(seed); 
+    seed = s;
+    return (f32(s) / f32(0xffffffffu)); 
+}
+
+fn hash_v2() -> v2 { 
+    return v2(hash_f(), hash_f()); 
+}
+
+fn hash22(p: v2) -> v2 {
+    var p_mod = p + 1.61803398875;
+    var p3 = fract(v3(p_mod.x, p_mod.y, p_mod.x) * v3(0.1031, 0.1030, 0.0973));
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.xx + p3.yz) * p3.zy);
+}
+
+fn hash12(p: v2) -> f32 {
+    var p3 = fract(v3(p.x, p.y, p.x) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+
+fn rotation_x(angle: f32) -> m3 {
+    let c = cos(angle);
+    let s = sin(angle);
+    return m3(1.0, 0.0, 0.0, 0.0, c, -s, 0.0, s, c);
+}
+
+fn rotation_y(angle: f32) -> m3 {
+    let c = cos(angle);
+    let s = sin(angle);
+    return m3(c, 0.0, s, 0.0, 1.0, 0.0, -s, 0.0, c);
+}
+
+fn rotation_z(angle: f32) -> m3 {
+    let c = cos(angle);
+    let s = sin(angle);
+    return m3(c, -s, 0.0, s, c, 0.0, 0.0, 0.0, 1.0);
+}
+
+fn pal(t: f32, a: v3, b: v3, c: v3, d: v3) -> v3 {
+    return a + b * cos(tau * (c * t + d));
+}
+
+fn spectrum(n: f32) -> v3 {
+    let a = v3(params.palette_a_r, params.palette_a_g, params.palette_a_b);
+    let b = v3(params.palette_b_r, params.palette_b_g, params.palette_b_b);
+    let c = v3(params.palette_c_r, params.palette_c_g, params.palette_c_b);
+    let d = v3(params.palette_d_r, params.palette_d_g, params.palette_d_b);
+    return pal(n, a, b, c, d);
+}
+
+fn smootherstep(edge0: f32, edge1: f32, x: f32) -> f32 {
+    let t = clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0);
+    return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
+}
+
+fn animation_phase(time: f32, hold_duration: f32, transition_duration: f32) -> f32 {
+    let total_cycle = hold_duration + transition_duration;
+    let cycle_time = time % total_cycle;
+    
+    if (cycle_time < hold_duration) {
+        return 0.0;
+    } else {
+        let transition_progress = (cycle_time - hold_duration) / transition_duration;
+        return smootherstep(0.0, 1.0, transition_progress);
     }
-    return minValue;
 }
-fn getPowerValue(time: f32) -> f32 {
-    return params.power;
-}
-fn getOrbitColor(trap: OrbitTrap, iterationRatio: f32) -> vec3<f32> {
-    let radiusFactor = smoothstep(0.0, 2.0, trap.minRadius);
-    let planeFactor = smoothstep(0.0, 1.0, (trap.xPlane + trap.yPlane + trap.zPlane) / 2.0);
-    let bulbIntensity = smoothstep(0.5, 1.0, trap.bulbFactor);
-    
-    var baseColor = mix(params.color_bulb3, params.color_bulb1, radiusFactor * (1.0 + 0.2 * sin(iterationRatio * 6.28)));
-    baseColor = mix(baseColor, params.color_bulb2, planeFactor * (1.0 + 0.5 * cos(iterationRatio * 3.14)));
-    
-    let detailColor = mix(baseColor, params.color_detail, 
-                         trap.xPlane * trap.yPlane * trap.zPlane * 
-                         (0.0 + 0.4 * sin(iterationRatio * 3.42)));
-    
-    let bloomColor = mix(detailColor, params.color_detail, 
-                        bulbIntensity * iterationRatio * 
-                        (1.0 + 0.5 * sin(trap.minRadius * 5.0)));
-    
-    return mix(bloomColor, params.glow_color, 
-              pow(iterationRatio, 2.0) * bulbIntensity * 
-              (0.0 + 0.2 * sin(trap.zPlane * 8.0)));
-}
-fn map(pos: vec3<f32>, orbitColor: ptr<function, vec3<f32>>) -> f32 {
+
+fn mandelbulb(pos: v3, power: f32) -> v4 {
     var z = pos;
     var dr = 1.0;
     var r = 0.0;
+    var trap = v4(abs(z), dot(z, z));
     
-    let POWER = getPowerValue(u_time.time);
-    
-    var trap: OrbitTrap;
-    trap.minRadius = 1000.0;
-    trap.xPlane = 1000.0;
-    trap.yPlane = 1000.0;
-    trap.zPlane = 1000.0;
-    trap.bulbFactor = 0.0;
-    
-    var iterations = 0;
-    
-    for(var i = 0; i < params.iterations; i = i + 1) {
-        iterations = i;
+    for (var i = 0; i < 15; i++) {
         r = length(z);
-        if(r > 2.0) { break; }
+        if (r > 2.0) { break; }
         
-        trap.minRadius = min(trap.minRadius, r);
-        trap.xPlane = min(trap.xPlane, abs(z.x));
-        trap.yPlane = min(trap.yPlane, abs(z.y));
-        trap.zPlane = min(trap.zPlane, abs(z.z));
-        
-        let prevR = r;
-        
-        let theta = acos(z.z/r);
+        let theta = acos(z.z / r);
         let phi = atan2(z.y, z.x);
-        dr = pow(r, POWER-1.0) * POWER * dr + 0.0;
+        dr = pow(r, power - 1.0) * power * dr + 1.0;
         
-        let zr = pow(r, POWER);
-        let newTheta = theta * POWER;
-        let newPhi = phi * POWER + u_time.time * 2.1;
+        let zr = pow(r, power);
+        let new_theta = theta * power;
+        let new_phi = phi * power;
         
-        z = zr * vec3<f32>(sin(newTheta)*cos(newPhi), sin(newPhi)*sin(newTheta), cos(newTheta));
-        z = z + pos;
+        z = zr * v3(sin(new_theta) * cos(new_phi), sin(new_phi) * sin(new_theta), cos(new_theta));
+        z += pos;
         
-        let newR = length(z);
-        trap.bulbFactor = max(trap.bulbFactor, abs(newR - prevR));
+        trap = min(trap, v4(abs(z), dot(z, z)));
     }
     
-    let iterationRatio = f32(iterations) / f32(params.iterations);
-    *orbitColor = getOrbitColor(trap, iterationRatio);
-    return 0.25 * log(r) * r / dr;
+    return v4(0.5 * log(r) * r / dr, trap.yzw);
 }
-fn calcNormal(pos: vec3<f32>, t: f32) -> vec3<f32> {
-    let e = vec2<f32>(-1.0, 1.0) * 0.1 * params.distant;
-    var unusedColor: vec3<f32>;
-    
-    return normalize(
-        e.xyy * map(pos + e.xyy, &unusedColor) +
-        e.yyx * map(pos + e.yyx, &unusedColor) +
-        e.yxy * map(pos + e.yxy, &unusedColor) +
-        e.xxx * map(pos + e.xxx, &unusedColor)
-    );
+
+struct Model {
+    d: f32,
+    uvw: v3,
+    albedo: v3,
+    id: i32,
 }
-fn softshadow(ro: vec3<f32>, rd: vec3<f32>, mint: f32, maxt: f32, k: f32) -> f32 {
-    var res = 25.0;
-    var t = mint;
-    var ph = 1e10;
-    var unusedColor: vec3<f32>;
-    
-    for(var i = 0; i < 16; i = i + 1) {
-        let h = map(ro + rd*t, &unusedColor);
-        let y = h*h/(2.0*ph);
-        let d = sqrt(h*h-y*y);
-        res = min(res, k*d/max(0.0,t-y));
-        ph = h;
-        t = t + h * 0.5;
-        if(res < 0.001 || t > maxt) { break; }
+
+struct Material {
+    albedo: v3,
+    specular: f32,
+    roughness: f32,
+}
+
+fn shade_model(model: Model) -> Material {
+    let color_val = length(model.albedo.xy) * 0.3 + length(model.uvw) * 0.1;
+    let col = spectrum(clamp(color_val, 0.0, 1.0)) * mix(0.8, 1.5, smoothstep(0.0, 0.5, color_val));
+    return Material(col, 0.0, 0.0);
+}
+
+fn map_scene(p: v3, rotation: m3, power: f32) -> Model {
+    let rotated_pos = rotation * p;
+    let scaled_pos = rotated_pos * 1.5;
+    let res = mandelbulb(scaled_pos, power);
+    let d = res.x / 1.2;
+    let orbit_trap = res.yzw;
+    return Model(d, p, orbit_trap, 1);
+}
+
+fn calc_normal(p: v3, rotation: m3, power: f32) -> v3 {
+    let eps = 0.0001;
+    let h = v2(eps, 0.0);
+    return normalize(v3(
+        map_scene(p + v3(h.x, h.y, h.y), rotation, power).d - map_scene(p - v3(h.x, h.y, h.y), rotation, power).d,
+        map_scene(p + v3(h.y, h.x, h.y), rotation, power).d - map_scene(p - v3(h.y, h.x, h.y), rotation, power).d,
+        map_scene(p + v3(h.y, h.y, h.x), rotation, power).d - map_scene(p - v3(h.y, h.y, h.x), rotation, power).d
+    ));
+}
+
+struct Hit {
+    model: Model,
+    pos: v3,
+    ray_length: f32,
+}
+
+fn march(origin: v3, ray_direction: v3, max_dist: f32, understep: f32, rotation: m3, power: f32) -> Hit {
+    var ray_position = origin;
+    var ray_length = 0.0;
+    var model: Model;
+
+    for (var i = 0; i < 200; i++) {
+        model = map_scene(ray_position, rotation, power);
+        ray_length += model.d * understep;
+        ray_position = origin + ray_direction * ray_length;
+
+        if (model.d < 0.001) { break; }
+
+        if (ray_length > max_dist) {
+            model.id = 0;
+            break;
+        }
     }
     
-    return clamp(res * 0.6 + 0.4, 0.0, 1.0);
+    return Hit(model, ray_position, ray_length);
 }
-fn rayMarch(ray: Ray, orbitColor: ptr<function, vec3<f32>>) -> vec2<f32> {
-    var t = 0.0;
+
+fn ortho(a: v3) -> v3 {
+    let b = cross(v3(-1.0, -1.0, 0.5), a);
+    return b;
+}
+
+fn get_sample_biased(dir: v3, power: f32, rnd: v2) -> v3 {
+    let normalized_dir = normalize(dir);
+    let o1 = normalize(ortho(normalized_dir));
+    let o2 = normalize(cross(normalized_dir, o1));
+    var r = rnd;
+    r.x = r.x * tau;
+    r.y = pow(r.y, 1.0 / (power + 1.0));
+    let oneminus = sqrt(1.0 - r.y * r.y);
+    return cos(r.x) * oneminus * o1 + sin(r.x) * oneminus * o2 + r.y * normalized_dir;
+}
+
+fn get_cone_sample(dir: v3, extent: f32, rnd: v2) -> v3 {
+    let normalized_dir = normalize(dir);
+    let o1 = normalize(ortho(normalized_dir));
+    let o2 = normalize(cross(normalized_dir, o1));
+    var r = rnd;
+    r.x = r.x * tau;
+    r.y = 1.0 - r.y * extent;
+    let oneminus = sqrt(1.0 - r.y * r.y);
+    return cos(r.x) * oneminus * o1 + sin(r.x) * oneminus * o2 + r.y * normalized_dir;
+}
+
+fn rnd_unit2(rnd: v2) -> v2 {
+    let h = rnd * v2(1.0, tau);
+    let phi = h.y;
+    let r = sqrt(h.x);
+    return r * v2(sin(phi), cos(phi));
+}
+
+fn env(dir: v3) -> v3 {
+    let glow_color = v3(params.glow_color_r, params.glow_color_g, params.glow_color_b);
+    let background_color = v3(params.background_r, params.background_g, params.background_b);
+    return mix(background_color * 0.2, glow_color, 
+               smoothstep(-0.2, 0.2, dot(dir, normalize(v3(0.5, 1.0, -0.5)))));
+}
+
+fn sample_direct(hit: Hit, nor: v3, throughput: v3, rnd: v2, rotation: m3, power: f32) -> v3 {
+    let sun_pos = normalize(v3(-0.2, 1.2, -0.8)) * 100.0;
+    let sun_color = v3(params.sun_color_r, params.sun_color_g, params.sun_color_b);
     
-    for(var i = 0; i < params.max_steps; i = i + 1) {
-        let pos = ray.origin + t * ray.direction;
-        let h = map(pos, orbitColor);
-        if(h < params.min_dist) { return vec2<f32>(t, 1.0); }
-        t = t + h;
-        if(t > params.max_dist) { break; }
+    var col = v3(0.0);
+    let light_dir = sun_pos - hit.pos;
+    let light_sample_dir = get_cone_sample(light_dir, 0.001, rnd);
+    let diffuse = dot(nor, light_sample_dir);
+    let shadow_origin = hit.pos + nor * (0.0002 / abs(dot(light_sample_dir, nor)));
+    
+    if (diffuse > 0.0) {
+        let sh = march(shadow_origin, light_sample_dir, 1.0, 2.0, rotation, power);
+        if (sh.model.id == 0) {
+            col += throughput * sun_color * diffuse;
+        }
     }
-    return vec2<f32>(-1.0, 0.0);
+    return col;
 }
-fn render(ray: Ray) -> vec3<f32> {
-    var orbitColor: vec3<f32>;
-    let res = rayMarch(ray, &orbitColor);
+
+fn aces_tonemap(x: v3) -> v3 {
+    let a = 2.51;
+    let b = 0.03;
+    let c = 2.43;
+    let d = 0.59;
+    let e = 0.14;
+    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), v3(0.0), v3(1.0));
+}
+
+fn draw(frag_coord: v2, frame: u32) -> v4 {
+    let p = (-R + 2.0 * frag_coord) / R.y;
     
-    if(res.x > 0.0) {
-        let pos = ray.origin + res.x * ray.direction;
-        let normal = calcNormal(pos, res.x);
-        
-        let lightDir1 = normalize(vec3<f32>(1.0, 1.0, -0.5));
-        let lightDir2 = normalize(vec3<f32>(-1.0, 0.5, 1.0));
-        
-        let lightColor1 = orbitColor * 1.2;
-        let lightColor2 = orbitColor * 0.8;
-        
-        let diff1 = max(dot(normal, lightDir1), -4.0);
-        let diff2 = max(dot(normal, lightDir2), -4.0);
-        let shadow1 = softshadow(pos, lightDir1, 0.02, 2.5, 8.0);
-        let shadow2 = softshadow(pos, lightDir2, 0.02, 2.5, 8.0);
-        
-        let ao = clamp(0.3 + 0.2 * normal.y, 0.0, 1.0);
-        
-        var col = orbitColor * (0.1 + 0.8 * diff1) * shadow1;
-        col = col + orbitColor * (0.5 + 0.3 * diff2) * shadow2;
-        
-        let spec1 = pow(max(dot(reflect(-lightDir1, normal), -ray.direction), 0.4), 16.0);
-        let spec2 = pow(max(dot(reflect(-lightDir2, normal), -ray.direction), 0.4), 16.0);
-        
-        col = col + params.glow_color * (spec1 * shadow1 + spec2 * shadow2) * 0.8;
-        col = col + orbitColor * ao * 0.4;
-        
-        let fresnel = pow(0.0 - max(dot(normal, -ray.direction), 1.0), 2.0);
-        col = mix(col, params.glow_color * orbitColor, fresnel * 0.4);
-        
-        return col;
+    seed = u32(frag_coord.x) + u32(frag_coord.y) * u32(R.x) + frame * 719393;
+    let initial_seed = hash22(frag_coord + f32(frame) * sqrt3);
+    
+    let jitter = 2.0 * (initial_seed - 0.5) / R;
+    let jittered_p = p + jitter;
+    let scaled_p = jittered_p * 1.5;
+
+    var col = v3(0.0);
+
+    let base_cam_pos = v3(5.1, 1.0, 2.0);
+    let cam_pos = base_cam_pos * params.zoom;
+    let focus_point = v3(-0.7, -0.25, -0.3);
+    let cam_tar = focus_point;
+    
+    var current_rotation: v3;
+    
+    if (params.use_mouse_rotation > 0) {
+        let mouse_sensitivity = 3.0;
+        current_rotation = v3(
+            (params.mouse_y - 0.5) * mouse_sensitivity,
+            (params.mouse_x - 0.5) * mouse_sensitivity,
+            0.0
+        );
+    } else {
+        current_rotation = v3(params.manual_rotation_x, params.manual_rotation_y, params.manual_rotation_z);
     }
     
-    let y = ray.direction.y * 0.5 + 0.5;
-    return mix(params.color_core * 0.4, params.glow_color, y);
+    let rotation = rotation_z(current_rotation.z) * rotation_y(current_rotation.y) * rotation_x(current_rotation.x);
+    
+    let ww = normalize(cam_tar - cam_pos);
+    let uu = normalize(cross(v3(0.0, 1.0, 0.0), ww));
+    let vv = normalize(cross(ww, uu));
+    let cam_mat = m3(-uu, vv, ww);
+    
+    let ray_dir = normalize(cam_mat * v3(scaled_p, params.focal_length));
+    var origin = cam_pos;
+    var ray_direction = ray_dir;
+    
+    // Depth of field
+    let focal_point_dist = distance(cam_pos, focus_point);
+    let focal_plane_dist = dot(cam_mat[2], ray_dir) * focal_point_dist;
+    
+    var hit = march(origin, ray_direction, focal_plane_dist, 0.5, rotation, params.power);
+    if (hit.model.id == 0) {
+        let ray_focal_point = origin + ray_direction * focal_plane_dist;
+        origin += cam_mat * v3(rnd_unit2(initial_seed), 0.0) * params.dof_strength;
+        ray_direction = normalize(ray_focal_point - origin);
+        origin = hit.pos;
+        hit = march(origin, ray_direction, 20.0, 0.5, rotation, params.power);
+    }
+
+    var throughput = v3(1.0);
+    let bg_col = v3(params.background_r, params.background_g, params.background_b);
+    var ray_length = 0.0;
+    
+    // Path tracing loop
+    for (var bounce = 0; bounce < i32(params.max_bounces); bounce++) {
+        if (bounce > 0) {
+            hit = march(origin, ray_direction, 10.0, 2.0, rotation, params.power);
+        }
+       
+        if (hit.model.id == 0) {
+            if (bounce > 0) {
+                col += env(ray_direction) * throughput;
+            }
+            if (bounce == 0) {
+                col = bg_col;
+            }
+            break;
+        }
+
+        ray_length += hit.ray_length;
+
+        let nor = calc_normal(hit.pos, rotation, params.power);
+        let material = shade_model(hit.model);
+        
+        throughput *= material.albedo;
+
+        let rnd1 = hash_v2();
+        let diffuse_ray_dir = get_sample_biased(nor, 1.0, rnd1);
+
+        let rnd2 = hash_v2();
+        col += sample_direct(hit, nor, throughput, rnd2, rotation, params.power);
+        ray_direction = diffuse_ray_dir;
+    
+        origin = hit.pos + nor * (0.0002 / abs(dot(ray_direction, nor)));
+    }
+
+    let fog_color = v3(params.fog_color_r, params.fog_color_g, params.fog_color_b);
+    let fog = 1.0 - exp((ray_length - focal_point_dist) * -1.2);
+    col = mix(col, fog_color, clamp(fog, 0.0, 1.0));
+
+    return v4(col, 1.0);
 }
-@fragment
-fn fs_main(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
-    let dimensions = u_resolution.dimensions;
-    let uv = (FragCoord.xy - 0.5 * dimensions) / dimensions.y;
-    let angle = u_time.time * 0.3;
-    let baseHeight = 1.5;
-    let maxRadius = params.radius;
+
+@compute @workgroup_size(16, 16, 1)
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let dimensions = textureDimensions(output);
+    R = v2(f32(dimensions.x), f32(dimensions.y));
     
-    let detailView = sin(angle * 0.25) * 0.5 + 0.5;
+    if (global_id.x >= dimensions.x || global_id.y >= dimensions.y) {
+        return;
+    }
     
-    let height = baseHeight + 0.3 * sin(angle * 0.5) + 
-                 0.2 * sin(angle * 0.2) * detailView;
+    let frag_coord = v2(f32(global_id.x), f32(global_id.y)) + 0.5;
+    let pixel_idx = global_id.x + dimensions.x * global_id.y;
     
-    let radius = maxRadius - 2.0 * smoothstep(0.0, 1.0, detailView) + 0.2 * cos(angle * 0.3);
+    var pixel_color = v3(0.0);
     
-    let targetD = vec3<f32>(
-        sin(angle * 0.2) * 0.3 * detailView,
-        cos(angle * 0.15) * 0.2 * detailView,
-        0.0
-    );
+    // mult samples per pixel
+    for (var s: u32 = 0; s < params.samples_per_pixel; s++) {
+        let sample_result = draw(frag_coord, time_data.frame * params.samples_per_pixel + s);
+        pixel_color += sample_result.rgb;
+    }
     
-    let camera = vec3<f32>(radius * sin(angle), height, radius * cos(angle));
-    let up = vec3<f32>(0.0, 1.0, 0.0);
+    pixel_color /= f32(params.samples_per_pixel);
+    pixel_color *= params.exposure;
     
-    let cw = normalize(targetD - camera);
-    let cu = normalize(cross(cw, up));
-    let cv = normalize(cross(cu, cw));
+    let should_accumulate = params.accumulate > 0 && time_data.frame > 0;
     
-    var ray: Ray;
-    ray.origin = camera;
-    ray.direction = normalize(uv.x * cu + uv.y * cv + (1.8 - 0.2 * detailView) * cw);
-   
-    var col = render(ray);
+    if (should_accumulate) {
+        let old_r = f32(atomicLoad(&atomic_buffer[pixel_idx * 3])) / 1000.0;
+        let old_g = f32(atomicLoad(&atomic_buffer[pixel_idx * 3 + 1])) / 1000.0;
+        let old_b = f32(atomicLoad(&atomic_buffer[pixel_idx * 3 + 2])) / 1000.0;
+        let old_color = v3(old_r, old_g, old_b);
+        
+        let max_blend_frames = 32.0;
+        let effective_frame = min(f32(time_data.frame), max_blend_frames);
+        let blend_factor = 1.0 / (effective_frame + 1.0);
+
+        pixel_color = mix(old_color, pixel_color, max(blend_factor, 0.05));
+    }
     
-    col = pow(col, vec3<f32>(0.9));
-    col = col * (1.0 - 0.15 * length(uv));
+    atomicStore(&atomic_buffer[pixel_idx * 3], u32(pixel_color.r * 1000.0));
+    atomicStore(&atomic_buffer[pixel_idx * 3 + 1], u32(pixel_color.g * 1000.0));
+    atomicStore(&atomic_buffer[pixel_idx * 3 + 2], u32(pixel_color.b * 1000.0));
     
-    col = mix(col, col * vec3<f32>(1.05, 1.0, 0.95), 0.3);
-    col = smoothstep(vec3<f32>(0.0), vec3<f32>(1.0), col);
-    col = gamma(col, 0.41);    
-    return vec4<f32>(col, 1.0);
-}
-fn gamma(color: vec3<f32>, gamma: f32) -> vec3<f32> {
-    return pow(color, vec3<f32>(1.0 / gamma));
+    pixel_color = aces_tonemap(pixel_color);
+    pixel_color = pow(pixel_color, v3(1.0 / params.gamma));
+    
+    textureStore(output, vec2<i32>(global_id.xy), v4(pixel_color, 1.0));
 }
