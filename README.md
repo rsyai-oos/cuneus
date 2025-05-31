@@ -19,8 +19,8 @@ A tool for experimenting with WGSL shaders, it uses `wgpu` for rendering, `egui`
 
 ## Current look
 
-  <a href="https://github.com/user-attachments/assets/fc12af18-9f03-451d-bbde-63eafa6d92e1">
-    <img src="https://github.com/user-attachments/assets/fc12af18-9f03-451d-bbde-63eafa6d92e1" width="300" alt="Cuneus IDE Interface"/>
+  <a href="https://github.com/user-attachments/assets/25d47df4-45f5-4455-b2cf-ba673a8c081c">
+    <img src="https://github.com/user-attachments/assets/25d47df4-45f5-4455-b2cf-ba673a8c081c" width="300" alt="Cuneus IDE Interface"/>
   </a>
 
 ## Keys
