@@ -7,7 +7,9 @@ use crossterm::{
         disable_raw_mode, enable_raw_mode, Clear, ClearType, EnterAlternateScreen,
         LeaveAlternateScreen,
     },
+    tty::IsTty,
 };
+
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout, Rect},
@@ -18,6 +20,11 @@ use ratatui::{
 };
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    
+    if !io::stdout().is_tty() {
+        eprintln!("No terminal detected. Exiting.");
+        std::process::exit(1);
+    }
     // Process command-line arguments.
     let args: Vec<String> = env::args().collect();
     let mut mode = "cargo_run"; // default mode
