@@ -1,5 +1,5 @@
-use cuneus::{Core, ShaderManager, UniformProvider, UniformBinding, RenderKit, ShaderControls, ExportManager, FontSystem};
-use cuneus::compute::{create_bind_group_layout, BindGroupLayoutType};
+use cuneus::prelude::*;
+use cuneus::FontSystem;
 use winit::event::WindowEvent;
 use std::path::PathBuf;
 
@@ -22,6 +22,12 @@ struct CNNParams {
     show_frequencies: i32,
     conv1_pool_size: f32,
     conv2_pool_size: f32,
+    mouse_x: f32,
+    mouse_y: f32,
+    mouse_click_x: f32,
+    mouse_click_y: f32,
+    mouse_buttons: u32,
+    _padding: [f32; 3],
 }
 
 impl UniformProvider for CNNParams {
@@ -34,7 +40,6 @@ struct CNNDigitRecognizer {
     base: RenderKit,
     params_uniform: UniformBinding<CNNParams>,
     compute_time_uniform: UniformBinding<cuneus::compute::ComputeTimeUniform>,
-    mouse_uniform: UniformBinding<cuneus::MouseUniform>,
     
     canvas_update_pipeline: wgpu::ComputePipeline,     
     conv_layer1_pipeline: wgpu::ComputePipeline,       
@@ -46,24 +51,23 @@ struct CNNDigitRecognizer {
     
     compute_bind_group_layout: wgpu::BindGroupLayout,
     time_bind_group_layout: wgpu::BindGroupLayout,
-    combined_params_layout: wgpu::BindGroupLayout,
+    params_bind_group_layout: wgpu::BindGroupLayout,
     storage_bind_group_layout: wgpu::BindGroupLayout,
     
     compute_bind_group: wgpu::BindGroup,
-    combined_params_bind_group: wgpu::BindGroup,
     storage_bind_group: wgpu::BindGroup,
     
     canvas_buffer: wgpu::Buffer,      
     conv1_buffer: wgpu::Buffer,       
     conv2_buffer: wgpu::Buffer,       
     fc_buffer: wgpu::Buffer,          
+    
+    font_system: FontSystem,
 
     frame_count: u32,
     hot_reload: cuneus::ShaderHotReload,
     should_initialize: bool,
-    font_system: FontSystem,
 }
-
 
 impl CNNDigitRecognizer {
     fn recreate_compute_resources(&mut self, core: &Core) {
@@ -117,10 +121,18 @@ impl CNNDigitRecognizer {
                     binding: 2,
                     resource: wgpu::BindingResource::TextureView(&output_view),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&self.font_system.atlas_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::Sampler(&self.font_system.atlas_texture.sampler),
+                },
             ],
         });
         
-        // CNN strg buffers
+        // CNN storage buffers
         let canvas_size = (28 * 28 * 4) as u64;           
         let conv1_size = (12 * 12 * 8 * 4) as u64; 
         let conv2_size = (4 * 4 * 5 * 4) as u64; 
@@ -189,33 +201,6 @@ impl CNNDigitRecognizer {
                         offset: 0,
                         size: None,
                     }),
-                },
-            ],
-        });
-        
-        self.combined_params_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Combined Params Bind Group"),
-            layout: &self.combined_params_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: self.params_uniform.buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: self.mouse_uniform.buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: self.font_system.font_uniforms.buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::TextureView(&self.font_system.atlas_texture.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: wgpu::BindingResource::Sampler(&self.font_system.atlas_texture.sampler),
                 },
             ],
         });
@@ -345,59 +330,6 @@ impl ShaderManager for CNNDigitRecognizer {
             label: Some("texture_bind_group_layout"),
         });
         
-        let combined_params_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                // custom fonts
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 3,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 4,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-            label: Some("combined_params_layout"),
-        });
-        
         let compute_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -424,6 +356,22 @@ impl ShaderManager for CNNDigitRecognizer {
                         format: wgpu::TextureFormat::Rgba16Float,
                         view_dimension: wgpu::TextureViewDimension::D2,
                     },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
             ],
@@ -496,6 +444,12 @@ impl ShaderManager for CNNDigitRecognizer {
                 show_frequencies: 0,       
                 conv1_pool_size: 12.0,   
                 conv2_pool_size: 4.0,
+                mouse_x: 0.0,
+                mouse_y: 0.0,
+                mouse_click_x: 0.0,
+                mouse_click_y: 0.0,
+                mouse_buttons: 0,
+                _padding: [0.0; 3],
             },
             &params_bind_group_layout,
             0,
@@ -511,30 +465,6 @@ impl ShaderManager for CNNDigitRecognizer {
                 _padding: 0,
             },
             &time_bind_group_layout,
-            0,
-        );
-        
-        let mouse_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-            ],
-            label: Some("mouse_bind_group_layout"),
-        });
-        
-        let mouse_uniform = UniformBinding::new(
-            &core.device,
-            "Mouse Uniform",
-            cuneus::MouseUniform::default(),
-            &mouse_bind_group_layout,
             0,
         );
         
@@ -578,10 +508,18 @@ impl ShaderManager for CNNDigitRecognizer {
                     binding: 2,
                     resource: wgpu::BindingResource::TextureView(&output_view),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&font_system.atlas_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::Sampler(&font_system.atlas_texture.sampler),
+                },
             ],
         });
         
-        //CNN storage buffers...
+        // CNN storage buffers
         let canvas_size = (28 * 28 * 4) as u64;           
         let conv1_size = (12 * 12 * 8 * 4) as u64;        
         let conv2_size = (4 * 4 * 5 * 4) as u64;          
@@ -654,33 +592,6 @@ impl ShaderManager for CNNDigitRecognizer {
             ],
         });
         
-        let combined_params_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Combined Params Bind Group"),
-            layout: &combined_params_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: params_uniform.buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: mouse_uniform.buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: font_system.font_uniforms.buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::TextureView(&font_system.atlas_texture.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: wgpu::BindingResource::Sampler(&font_system.atlas_texture.sampler),
-                },
-            ],
-        });
-        
         let shader_source = include_str!("../../shaders/cnn.wgsl");
         let cs_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("CNN Compute Shader"),
@@ -698,14 +609,14 @@ impl ShaderManager for CNNDigitRecognizer {
             label: Some("CNN Compute Pipeline Layout"),
             bind_group_layouts: &[
                 &time_bind_group_layout,
-                &combined_params_layout,
+                &params_bind_group_layout,
                 &compute_bind_group_layout,
                 &storage_bind_group_layout,
             ],
             push_constant_ranges: &[],
         });
         
-        // all CNN compute pipelines
+        // Create all CNN pipelines
         let canvas_update_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("Canvas Update Pipeline"),
             layout: Some(&compute_pipeline_layout),
@@ -756,7 +667,6 @@ impl ShaderManager for CNNDigitRecognizer {
             base,
             params_uniform,
             compute_time_uniform,
-            mouse_uniform,
             canvas_update_pipeline,
             conv_layer1_pipeline,
             conv_layer2_pipeline,
@@ -765,20 +675,18 @@ impl ShaderManager for CNNDigitRecognizer {
             output_texture,
             compute_bind_group_layout,
             time_bind_group_layout,
-            combined_params_layout,
+            params_bind_group_layout,
             storage_bind_group_layout,
             compute_bind_group,
-            combined_params_bind_group,
             storage_bind_group,
             canvas_buffer,
             conv1_buffer,
             conv2_buffer,
             fc_buffer,
+            font_system,
             frame_count: 0,
             hot_reload,
             should_initialize: true,
-            font_system,
-
         };
         
         result.recreate_compute_resources(core);
@@ -793,7 +701,7 @@ impl ShaderManager for CNNDigitRecognizer {
                 label: Some("Updated CNN Compute Pipeline Layout"),
                 bind_group_layouts: &[
                     &self.time_bind_group_layout,
-                    &self.combined_params_layout,
+                    &self.params_bind_group_layout,
                     &self.compute_bind_group_layout,
                     &self.storage_bind_group_layout,
                 ],
@@ -856,7 +764,6 @@ impl ShaderManager for CNNDigitRecognizer {
     fn resize(&mut self, core: &Core) {
         println!("Resizing to {:?}", core.size);
         self.recreate_compute_resources(core);
-        self.font_system.update_screen_size(core.size.width, core.size.height, &core.queue);
     }
     
     fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {
@@ -937,8 +844,12 @@ let full_output = if self.base.key_handler.show_ui {
         self.compute_time_uniform.data.frame = self.frame_count;
         self.compute_time_uniform.update(&core.queue);
         
-        self.mouse_uniform.data = self.base.mouse_tracker.uniform.clone();
-        self.mouse_uniform.update(&core.queue);
+        params.mouse_x = self.base.mouse_tracker.uniform.position[0];
+        params.mouse_y = self.base.mouse_tracker.uniform.position[1];
+        params.mouse_click_x = self.base.mouse_tracker.uniform.click_position[0];
+        params.mouse_click_y = self.base.mouse_tracker.uniform.click_position[1];
+        params.mouse_buttons = self.base.mouse_tracker.uniform.buttons[0];
+        changed = true;
         
         if changed {
             self.params_uniform.data = params;
@@ -961,7 +872,7 @@ let full_output = if self.base.key_handler.show_ui {
             
             compute_pass.set_pipeline(&self.canvas_update_pipeline);
             compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.combined_params_bind_group, &[]);
+            compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
             compute_pass.set_bind_group(2, &self.compute_bind_group, &[]);
             compute_pass.set_bind_group(3, &self.storage_bind_group, &[]);
             
@@ -977,7 +888,7 @@ let full_output = if self.base.key_handler.show_ui {
             
             compute_pass.set_pipeline(&self.conv_layer1_pipeline);
             compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.combined_params_bind_group, &[]);
+            compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
             compute_pass.set_bind_group(2, &self.compute_bind_group, &[]);
             compute_pass.set_bind_group(3, &self.storage_bind_group, &[]);
             
@@ -993,7 +904,7 @@ let full_output = if self.base.key_handler.show_ui {
             
             compute_pass.set_pipeline(&self.conv_layer2_pipeline);
             compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.combined_params_bind_group, &[]);
+            compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
             compute_pass.set_bind_group(2, &self.compute_bind_group, &[]);
             compute_pass.set_bind_group(3, &self.storage_bind_group, &[]);
             
@@ -1009,7 +920,7 @@ let full_output = if self.base.key_handler.show_ui {
             
             compute_pass.set_pipeline(&self.fully_connected_pipeline);
             compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.combined_params_bind_group, &[]);
+            compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
             compute_pass.set_bind_group(2, &self.compute_bind_group, &[]);
             compute_pass.set_bind_group(3, &self.storage_bind_group, &[]);
             
@@ -1025,7 +936,7 @@ let full_output = if self.base.key_handler.show_ui {
             
             compute_pass.set_pipeline(&self.visualization_pipeline);
             compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.combined_params_bind_group, &[]);
+            compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
             compute_pass.set_bind_group(2, &self.compute_bind_group, &[]);
             compute_pass.set_bind_group(3, &self.storage_bind_group, &[]);
             
@@ -1064,7 +975,6 @@ let full_output = if self.base.key_handler.show_ui {
         }
         
         if self.base.handle_mouse_input(core, event, false) {
-            self.mouse_uniform.data = self.base.mouse_tracker.uniform.clone();
             return true;
         }
         

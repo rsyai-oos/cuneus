@@ -27,16 +27,16 @@ struct CNNParams {
     show_frequencies: i32,
     conv1_pool_size: f32,
     conv2_pool_size: f32,
+    mouse_x: f32,
+    mouse_y: f32,
+    mouse_click_x: f32,
+    mouse_click_y: f32,
+    mouse_buttons: u32,
+    _padding1: f32,
+    _padding2: f32,
+    _padding3: f32,
 }
 @group(1) @binding(0) var<uniform> params: CNNParams;
-
-struct MouseUniform {
-    position: vec2<f32>,         
-    click_position: vec2<f32>,   
-    wheel: vec2<f32>,            
-    buttons: vec2<u32>,          
-};
-@group(1) @binding(1) var<uniform> mouse: MouseUniform;
 
 @group(2) @binding(0) var input_texture: texture_2d<f32>;
 @group(2) @binding(1) var input_sampler: sampler;
@@ -47,15 +47,8 @@ struct MouseUniform {
 @group(3) @binding(2) var<storage, read_write> conv2_data: array<f32>;       
 @group(3) @binding(3) var<storage, read_write> fc_data: array<f32>;
 
-struct FontUniforms {
-    atlas_size: vec2<f32>,
-    char_size: vec2<f32>,
-    screen_size: vec2<f32>,
-    _padding: vec2<f32>,
-};
-@group(1) @binding(2) var<uniform> u_font: FontUniforms;
-@group(1) @binding(3) var t_font_atlas: texture_2d<f32>;
-@group(1) @binding(4) var s_font_atlas: sampler;          
+@group(2) @binding(3) var font_atlas: texture_2d<f32>;
+@group(2) @binding(4) var font_sampler: sampler;          
 
 const INPUT_SIZE: u32 = 28u;
 const CONV1_SIZE: u32 = 12u;  
@@ -72,34 +65,31 @@ fn normalize_input(value: f32) -> f32 {
     return (value - params.normalization_mean) / params.normalization_std;
 }
 
-//please see compute_basic.wgsl for the font comments
-fn render_char_sdf(pos: vec2<f32>, char_pos: vec2<f32>, ascii: u32, size: f32) -> f32 {
-    let char_size = vec2<f32>(size, size);
-    let local_pos = pos - char_pos;
-    if (local_pos.x < 0.0 || local_pos.x >= char_size.x || 
-        local_pos.y < 0.0 || local_pos.y >= char_size.y) {
-        return 0.0;
-    }
-    let char_x = ascii % 16u;
-    let char_y = ascii / 16u;
-    let uv_local = local_pos / char_size;
-    let atlas_size = 1024.0;
-    let cell_size = 64.0;
-    let padding = 4.0;
-    let effective_cell_size = cell_size - padding * 2.0;
-    let cell_uv = (padding + uv_local * effective_cell_size) / atlas_size;
-    let char_offset = vec2<f32>(f32(char_x), f32(char_y)) * cell_size / atlas_size;
-    let final_uv = char_offset + cell_uv;
-    if (final_uv.x < 0.0 || final_uv.x >= 1.0 || 
-        final_uv.y < 0.0 || final_uv.y >= 1.0) {
-        return 0.0;
-    }
-    let atlas_coord = vec2<i32>(i32(final_uv.x * atlas_size), i32(final_uv.y * atlas_size));
-    let pixel = textureLoad(t_font_atlas, atlas_coord, 0);
-    return pixel.a;
-}
 fn render_digit(pos: vec2<f32>, char_pos: vec2<f32>, digit: u32, size: f32) -> f32 {
-    return render_char_sdf(pos, char_pos, digit + 48u, size);
+    let local_pos = pos - char_pos;
+    if (local_pos.x < 0.0 || local_pos.x >= size || 
+        local_pos.y < 0.0 || local_pos.y >= size) {
+        return 0.0;
+    }
+    
+    let uv = local_pos / size;
+    
+
+    let ascii_code = digit + 48u;
+    
+    let grid_size = 16u;
+    let grid_x = ascii_code % grid_size;
+    let grid_y = ascii_code / grid_size;
+    
+    let atlas_uv = vec2<f32>(
+        (f32(grid_x) + uv.x) / f32(grid_size),
+        (f32(grid_y) + uv.y) / f32(grid_size)
+    );
+    
+    let atlas_dimensions = textureDimensions(font_atlas);
+    let pixel_coord = vec2<i32>(atlas_uv * vec2<f32>(atlas_dimensions));
+    let font_sample = textureLoad(font_atlas, pixel_coord, 0);
+    return font_sample.a;
 }
 
 
@@ -954,7 +944,7 @@ fn canvas_update(@builtin(global_invocation_id) id: vec3<u32>) {
     if any(pos >= vec2(i32(INPUT_SIZE))) { return; }
     
     let idx = canvas_index(pos.x, pos.y);
-    let btns = mouse.buttons.x;
+    let btns = params.mouse_buttons;
     
     if params.clear_canvas == 1 || (btns & 2u) != 0u {
         canvas_data[idx] = 0.;
@@ -962,7 +952,8 @@ fn canvas_update(@builtin(global_invocation_id) id: vec3<u32>) {
     }
     
     if (btns & 1u) != 0u {
-        let canvas_pos = screen_to_canvas(mouse.position, vec2<f32>(textureDimensions(output_texture)));
+        let mouse_pos = vec2<f32>(params.mouse_x, params.mouse_y);
+        let canvas_pos = screen_to_canvas(mouse_pos, vec2<f32>(textureDimensions(output_texture)));
         if canvas_pos.x >= 0 {
             let dist = length(vec2<f32>(canvas_pos - pos));
             let radius = params.brush_size * params.input_resolution * 10.;
@@ -1129,21 +1120,18 @@ fn main_image(@builtin(global_invocation_id) id: vec3<u32>) {
         }
     }
     let pixel_pos = vec2<f32>(f32(id.x), f32(id.y));
-    let font_bar_start_x = 0.1;
-    let font_bar_spacing = 0.08;
-    let font_bar_width = 0.06;
-    let font_label_y = 0.1;
+    let label_y = 0.05;
     
     for (var digit = 0; digit < i32(NUM_CLASSES); digit++) {
-        let font_bar_x = font_bar_start_x + f32(digit) * font_bar_spacing;
+        let bar_x = bar_start.x + f32(digit) * bar_spacing;
         let digit_screen_pos = vec2<f32>(
-            font_bar_x * f32(res.x) + font_bar_width * f32(res.x) * 0.5 - 16.0,
-            font_label_y * f32(res.y)
+            bar_x * f32(res.x) + bar_dims.x * f32(res.x) * 0.5 - 16.0,
+            label_y * f32(res.y)
         );
         let digit_alpha = render_digit(pixel_pos, digit_screen_pos, u32(digit), 32.0);
         color = mix(color, vec3(1.0), digit_alpha);
     }
-    let mouse_corrected = vec2(mouse.position.x, 1. - mouse.position.y);
+    let mouse_corrected = vec2<f32>(params.mouse_x, 1.0 - params.mouse_y);
     let mouse_dist = distance(uv, mouse_corrected);
     if mouse_dist < .02 {
         let pulse = sin(time_data.time * 10.) * .5 + .5;
