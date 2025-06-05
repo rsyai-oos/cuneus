@@ -30,6 +30,7 @@ mod spectrum;
 mod fps;
 mod mouse;
 pub mod hdri;
+mod font;
 
 pub use renderer::*;
 pub use shader::*;
@@ -45,6 +46,7 @@ pub use controls::{ControlsRequest, ShaderControls};
 pub use atomic::AtomicBuffer;
 pub use mouse::*;
 pub use hdri::*;
+pub use font::{FontSystem, FontUniforms, CharInfo};
 
 pub mod prelude {
     pub use crate::{
@@ -52,7 +54,7 @@ pub mod prelude {
         UniformProvider, UniformBinding, 
         RenderKit, ShaderControls, ExportManager, ShaderHotReload,
         TextureManager, Renderer, AtomicBuffer,
-        KeyInputHandler, ControlsRequest,
+        KeyInputHandler, ControlsRequest, FontSystem, FontUniforms,
         gst, save_frame, compute::create_bind_group_layout,compute::BindGroupLayoutType
     };
     
