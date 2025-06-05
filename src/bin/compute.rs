@@ -75,6 +75,7 @@ impl ShaderManager for ComputeExample {
             sampler_filter_mode: wgpu::FilterMode::Linear,
             label: "Basic Compute".to_string(),
             mouse_bind_group_layout: Some(mouse_bind_group_layout),
+            enable_fonts: true,
         };
         
         // Create compute shader with our backend

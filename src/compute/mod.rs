@@ -1,4 +1,4 @@
-use crate::{Core, UniformProvider, UniformBinding, TextureManager, ShaderHotReload, AtomicBuffer};
+use crate::{Core, UniformProvider, UniformBinding, TextureManager, ShaderHotReload, AtomicBuffer, FontSystem};
 use std::sync::Arc;
 use std::path::PathBuf;
 use log::{info, warn};
@@ -32,7 +32,8 @@ pub struct ComputeShaderConfig {
     pub sampler_address_mode: wgpu::AddressMode,
     pub sampler_filter_mode: wgpu::FilterMode,
     pub label: String,
-    pub mouse_bind_group_layout: Option<wgpu::BindGroupLayout>,}
+    pub mouse_bind_group_layout: Option<wgpu::BindGroupLayout>,
+    pub enable_fonts: bool,}
 
 impl Default for ComputeShaderConfig {
     fn default() -> Self {
@@ -48,6 +49,7 @@ impl Default for ComputeShaderConfig {
             sampler_filter_mode: wgpu::FilterMode::Linear,
             label: "Compute Shader".to_string(),
             mouse_bind_group_layout: None,
+            enable_fonts: false,
         }
     }
 }
@@ -60,6 +62,7 @@ pub enum BindGroupLayoutType {
     AtomicBuffer,
     ExternalTexture,
     MouseUniform,
+    FontTexture,
 }
 
 pub fn create_storage_texture(
@@ -245,6 +248,42 @@ pub fn create_bind_group_layout(
                 }],
                 label: Some(&format!("{} Custom Uniform Layout", label)),
             })
+        },
+        BindGroupLayoutType::FontTexture => {
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    // Font uniforms
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    // Font atlas texture
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                        },
+                        count: None,
+                    },
+                    // Font atlas sampler
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+                label: Some(&format!("{} Font Layout", label)),
+            })
         }
     }
 }
@@ -298,6 +337,9 @@ pub struct ComputeShader {
     pub config: Option<ComputeShaderConfig>,
     pub mouse_bind_group: Option<wgpu::BindGroup>,
     pub mouse_bind_group_index: Option<u32>,
+    pub font_system: Option<FontSystem>,
+    pub font_bind_group: Option<wgpu::BindGroup>,
+    pub font_bind_group_layout: Option<wgpu::BindGroupLayout>,
 }
 
 impl ComputeShader {
@@ -405,6 +447,20 @@ impl ComputeShader {
             None
         };
         
+
+        let (font_system, font_bind_group_layout) = if config.enable_fonts {
+            let font_data = include_bytes!("../../assets/fonts/Courier Prime Bold.ttf");
+            let font_system = FontSystem::new(core, font_data);
+            let layout = create_bind_group_layout(
+                &core.device,
+                BindGroupLayoutType::FontTexture,
+                &config.label
+            );
+            (Some(font_system), Some(layout))
+        } else {
+            (None, None)
+        };
+        
         // Create atomic buffer if needed
         let atomic_buffer = if config.enable_atomic_buffer {
             let buffer_size = core.size.width * core.size.height;
@@ -457,6 +513,10 @@ impl ComputeShader {
         if let Some(ref mouse_layout) = config.mouse_bind_group_layout {
             bind_group_layouts.push(mouse_layout);
         }
+
+        if let Some(layout) = &font_bind_group_layout {
+            bind_group_layouts.push(layout);
+        }
         
         if let Some(layout) = &external_texture_bind_group_layout {
             bind_group_layouts.push(layout);
@@ -486,6 +546,29 @@ impl ComputeShader {
             pipelines.push(pipeline);
         }
         
+        let font_bind_group = if let (Some(fs), Some(layout)) = (&font_system, &font_bind_group_layout) {
+            Some(core.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: fs.font_uniforms.buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&fs.atlas_texture.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Sampler(&fs.atlas_texture.sampler),
+                    },
+                ],
+                label: Some(&format!("{} Font Bind Group", config.label)),
+            }))
+        } else {
+            None
+        };
+        
         Self {
             pipelines,
             output_texture,
@@ -507,6 +590,9 @@ impl ComputeShader {
             config: Some(config),
             mouse_bind_group: None,
             mouse_bind_group_index: None,
+            font_system,
+            font_bind_group,
+            font_bind_group_layout,
         }
     }
     pub fn add_mouse_uniform_binding(
@@ -707,6 +793,12 @@ impl ComputeShader {
                 compute_pass.set_bind_group(bind_idx, &atomic_buffer.bind_group, &[]);
             }
             
+            // If font system is used
+            if let Some(font_bind_group) = &self.font_bind_group {
+                // Font system uses bind group 3 (time=0, storage=1, mouse=2, font=3)
+                compute_pass.set_bind_group(3, font_bind_group, &[]);
+            }
+            
             compute_pass.dispatch_workgroups(
                 workgroup_count[0],
                 workgroup_count[1],
@@ -832,6 +924,12 @@ impl ComputeShader {
             }
             
             compute_pass.set_bind_group(bind_idx, &atomic_buffer.bind_group, &[]);
+        }
+        
+        // If font system is used
+        if let Some(font_bind_group) = &self.font_bind_group {
+            // Font system uses bind group 3 (time=0, storage=1, mouse=2, font=3)
+            compute_pass.set_bind_group(3, font_bind_group, &[]);
         }
         
         compute_pass.dispatch_workgroups(

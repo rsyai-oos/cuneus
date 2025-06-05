@@ -1,4 +1,4 @@
-use cuneus::{Core, ShaderManager, UniformProvider, UniformBinding, RenderKit, ShaderControls, ExportManager};
+use cuneus::{Core, ShaderManager, UniformProvider, UniformBinding, RenderKit, ShaderControls, ExportManager, FontSystem};
 use cuneus::compute::{create_bind_group_layout, BindGroupLayoutType};
 use winit::event::WindowEvent;
 use std::path::PathBuf;
@@ -61,6 +61,7 @@ struct CNNDigitRecognizer {
     frame_count: u32,
     hot_reload: cuneus::ShaderHotReload,
     should_initialize: bool,
+    font_system: FontSystem,
 }
 
 
@@ -203,6 +204,18 @@ impl CNNDigitRecognizer {
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: self.mouse_uniform.buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: self.font_system.font_uniforms.buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&self.font_system.atlas_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::Sampler(&self.font_system.atlas_texture.sampler),
                 },
             ],
         });
@@ -354,6 +367,33 @@ impl ShaderManager for CNNDigitRecognizer {
                     },
                     count: None,
                 },
+                // custom fonts
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
             ],
             label: Some("combined_params_layout"),
         });
@@ -498,6 +538,9 @@ impl ShaderManager for CNNDigitRecognizer {
             0,
         );
         
+        let font_data = include_bytes!("../../assets/fonts/Courier Prime Bold.ttf");
+        let font_system = FontSystem::new(core, font_data);
+
         let base = RenderKit::new(
             core,
             include_str!("../../shaders/vertex.wgsl"),
@@ -623,6 +666,18 @@ impl ShaderManager for CNNDigitRecognizer {
                     binding: 1,
                     resource: mouse_uniform.buffer.as_entire_binding(),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: font_system.font_uniforms.buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&font_system.atlas_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::Sampler(&font_system.atlas_texture.sampler),
+                },
             ],
         });
         
@@ -638,7 +693,7 @@ impl ShaderManager for CNNDigitRecognizer {
             cs_module.clone(),
             "main_image",
         ).expect("Failed to initialize hot reload");
-        
+
         let compute_pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("CNN Compute Pipeline Layout"),
             bind_group_layouts: &[
@@ -696,6 +751,7 @@ impl ShaderManager for CNNDigitRecognizer {
             cache: None,
         });
         
+
         let mut result = Self {
             base,
             params_uniform,
@@ -721,6 +777,7 @@ impl ShaderManager for CNNDigitRecognizer {
             frame_count: 0,
             hot_reload,
             should_initialize: true,
+            font_system,
 
         };
         
@@ -799,6 +856,7 @@ impl ShaderManager for CNNDigitRecognizer {
     fn resize(&mut self, core: &Core) {
         println!("Resizing to {:?}", core.size);
         self.recreate_compute_resources(core);
+        self.font_system.update_screen_size(core.size.width, core.size.height, &core.queue);
     }
     
     fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {

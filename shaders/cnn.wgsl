@@ -1,7 +1,6 @@
 // CNN-based digit recognition, Enes Altun, 2025 MIT License
 // I took the pre-trained values from: https://www.shadertoy.com/view/msVXWD: kishimisu, 2023. Shadertoy, default license.
-// Also, SDF fonts front: abje, 2017: https://www.shadertoy.com/view/lsjBWy; shadertoy, default license.
-// My code is Under MIT License, but the weights are from kishimisu, fonts from abje. So please be aware of that.
+// My code is Under MIT License, but the weights are from kishimisu. So please be aware of that.
 
 struct TimeUniform {
     time: f32,
@@ -46,7 +45,17 @@ struct MouseUniform {
 @group(3) @binding(0) var<storage, read_write> canvas_data: array<f32>;      
 @group(3) @binding(1) var<storage, read_write> conv1_data: array<f32>;       
 @group(3) @binding(2) var<storage, read_write> conv2_data: array<f32>;       
-@group(3) @binding(3) var<storage, read_write> fc_data: array<f32>;          
+@group(3) @binding(3) var<storage, read_write> fc_data: array<f32>;
+
+struct FontUniforms {
+    atlas_size: vec2<f32>,
+    char_size: vec2<f32>,
+    screen_size: vec2<f32>,
+    _padding: vec2<f32>,
+};
+@group(1) @binding(2) var<uniform> u_font: FontUniforms;
+@group(1) @binding(3) var t_font_atlas: texture_2d<f32>;
+@group(1) @binding(4) var s_font_atlas: sampler;          
 
 const INPUT_SIZE: u32 = 28u;
 const CONV1_SIZE: u32 = 12u;  
@@ -63,106 +72,36 @@ fn normalize_input(value: f32) -> f32 {
     return (value - params.normalization_mean) / params.normalization_std;
 }
 
-fn lineforcorner(p: vec2<f32>, rot: f32, size: f32) -> f32 {
-    return length(max(abs(p) - vec2<f32>(size * 2.0 - rot, rot), vec2<f32>(0.0)));
-}
-
-fn corner(p: vec2<f32>, size: f32) -> f32 {
-    return lineforcorner(p - size * sign(p.x + p.y + 0.0001), sign(p.x + p.y + 0.0001) * size + size, size);
-}
-
-fn line_sdf(p: vec2<f32>, a: vec2<f32>, b: vec2<f32>) -> f32 {
-    let pa = p - a;
-    let ba = b - a;
-    let h = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
-    return length(pa - ba * h);
-}
-
-fn halfdonut(p: vec2<f32>, size: f32) -> f32 {
-    var p2 = p;
-    p2.y = max(p.y, 0.0);
-    return length(vec2<f32>(abs(length(p2) - size), p.y - p2.y));
-}
-
-fn quarterdonut(p: vec2<f32>, size: f32) -> f32 {
-    let len = length(max(p, vec2<f32>(0.0))) - size + min(max(p.x, p.y), 0.0);
-    return length(vec2<f32>(len, min(min(p.x, p.y), 0.0)));
-}
-
-fn halfdonutfor3(p: vec2<f32>, size: f32) -> f32 {
-    var p2 = p;
-    p2.y = max(p.y, 0.0);
-    return length(vec2<f32>(abs(length(p2) - size), min(p.y, -size / 2.0) + size / 2.0));
-}
-
-fn num1_sdf(p: vec2<f32>, size: f32) -> f32 {
-    return length(max(abs(p) - vec2<f32>(0.0, size), vec2<f32>(0.0)));
-}
-
-fn num0_sdf(p: vec2<f32>, size: f32) -> f32 {
-    return abs(num1_sdf(p, size / 2.0) - size / 2.0);
-}
-
-fn num2_sdf(p: vec2<f32>, size: f32) -> f32 {
-    return min(min(
-        halfdonut(p - vec2<f32>(0.0, size / 2.0), size / 2.0),
-        line_sdf(p, vec2<f32>(size / 2.0, 0.0), vec2<f32>(-size / 2.0, -size))),
-        length(max(abs(p - vec2<f32>(0.0, -size)) - vec2<f32>(size / 2.0, 0.0), vec2<f32>(0.0))));
-}
-
-fn num3_sdf(p: vec2<f32>, size: f32) -> f32 {
-    return halfdonutfor3(vec2<f32>(abs(p.y) - size / 2.0, p.x), size / 2.0);
-}
-
-fn num4_sdf(p: vec2<f32>, size: f32) -> f32 {
-    return min(
-        num1_sdf(p - vec2<f32>(size / 2.0, 0.0), size),
-        corner(vec2<f32>(-p.x, p.y) - size / 4.0, size / 4.0));
-}
-
-fn num5_sdf(p: vec2<f32>, size: f32) -> f32 {
-    return min(min(
-        corner(-p - vec2<f32>(size) * vec2<f32>(0.5 / 4.0, -3.5 / 4.0), size / 8.0),
-        halfdonut(vec2<f32>(p.x, abs(p.y + size / 8.0) - size * (0.5 + 1.0 / 8.0)), size / 4.0)),
-        num1_sdf(p - vec2<f32>(size / 4.0, -size / 8.0), size * (0.5 + 1.0 / 8.0)));
-}
-
-fn num6_sdf(p: vec2<f32>, size: f32) -> f32 {
-    return min(min(
-        num0_sdf(p - vec2<f32>(0.0, -size / 2.0), size / 2.0),
-        halfdonut(p - vec2<f32>(0.0, size - size / 4.0), size / 4.0)),
-        num1_sdf(p - vec2<f32>(-size / 4.0, size / 4.0), size / 2.0));
-}
-
-fn num7_sdf(p: vec2<f32>, size: f32) -> f32 {
-    return min(
-        length(max(abs(p - vec2<f32>(0.0, size)) - vec2<f32>(size / 2.0, 0.0), vec2<f32>(0.0))),
-        line_sdf(p, vec2<f32>(size / 2.0, size), vec2<f32>(-size / 2.0, -size)));
-}
-
-fn num8_sdf(p: vec2<f32>, size: f32) -> f32 {
-    return abs(length(abs(p) - vec2<f32>(0.0, size / 2.0)) - size / 2.0);
-}
-
-fn num9_sdf(p: vec2<f32>, size: f32) -> f32 {
-    return num6_sdf(-p, size);
-}
-
-fn digit_sdf(p: vec2<f32>, size: f32, digit: i32) -> f32 {
-    switch digit {
-        case 0: { return num0_sdf(p, size); }
-        case 1: { return num1_sdf(p, size); }
-        case 2: { return num2_sdf(p, size); }
-        case 3: { return num3_sdf(p, size); }
-        case 4: { return num4_sdf(p, size); }
-        case 5: { return num5_sdf(p, size); }
-        case 6: { return num6_sdf(p, size); }
-        case 7: { return num7_sdf(p, size); }
-        case 8: { return num8_sdf(p, size); }
-        case 9: { return num9_sdf(p, size); }
-        default: { return 1.0; }
+//please see compute_basic.wgsl for the font comments
+fn render_char_sdf(pos: vec2<f32>, char_pos: vec2<f32>, ascii: u32, size: f32) -> f32 {
+    let char_size = vec2<f32>(size, size);
+    let local_pos = pos - char_pos;
+    if (local_pos.x < 0.0 || local_pos.x >= char_size.x || 
+        local_pos.y < 0.0 || local_pos.y >= char_size.y) {
+        return 0.0;
     }
+    let char_x = ascii % 16u;
+    let char_y = ascii / 16u;
+    let uv_local = local_pos / char_size;
+    let atlas_size = 1024.0;
+    let cell_size = 64.0;
+    let padding = 4.0;
+    let effective_cell_size = cell_size - padding * 2.0;
+    let cell_uv = (padding + uv_local * effective_cell_size) / atlas_size;
+    let char_offset = vec2<f32>(f32(char_x), f32(char_y)) * cell_size / atlas_size;
+    let final_uv = char_offset + cell_uv;
+    if (final_uv.x < 0.0 || final_uv.x >= 1.0 || 
+        final_uv.y < 0.0 || final_uv.y >= 1.0) {
+        return 0.0;
+    }
+    let atlas_coord = vec2<i32>(i32(final_uv.x * atlas_size), i32(final_uv.y * atlas_size));
+    let pixel = textureLoad(t_font_atlas, atlas_coord, 0);
+    return pixel.a;
 }
+fn render_digit(pos: vec2<f32>, char_pos: vec2<f32>, digit: u32, size: f32) -> f32 {
+    return render_char_sdf(pos, char_pos, digit + 48u, size);
+}
+
 
 fn canvas_index(x: i32, y: i32) -> u32 {
     return u32(y * i32(INPUT_SIZE) + x);
@@ -1186,16 +1125,24 @@ fn main_image(@builtin(global_invocation_id) id: vec3<u32>) {
                     color = mix(color, vec3(1., 1., 0.), .3 * glow);
                 }
                 
-                if bar_uv.y > .8 {
-                    let digit_pos = (bar_uv - vec2(.5, .9)) * vec2(2., 10.);
-                    let digit_dist = digit_sdf(digit_pos, .8, digit);
-                    let digit_alpha = 1. - smoothstep(0., .1, digit_dist);
-                    color = mix(color, vec3(1.), digit_alpha);
-                }
             }
         }
     }
+    let pixel_pos = vec2<f32>(f32(id.x), f32(id.y));
+    let font_bar_start_x = 0.1;
+    let font_bar_spacing = 0.08;
+    let font_bar_width = 0.06;
+    let font_label_y = 0.1;
     
+    for (var digit = 0; digit < i32(NUM_CLASSES); digit++) {
+        let font_bar_x = font_bar_start_x + f32(digit) * font_bar_spacing;
+        let digit_screen_pos = vec2<f32>(
+            font_bar_x * f32(res.x) + font_bar_width * f32(res.x) * 0.5 - 16.0,
+            font_label_y * f32(res.y)
+        );
+        let digit_alpha = render_digit(pixel_pos, digit_screen_pos, u32(digit), 32.0);
+        color = mix(color, vec3(1.0), digit_alpha);
+    }
     let mouse_corrected = vec2(mouse.position.x, 1. - mouse.position.y);
     let mouse_dist = distance(uv, mouse_corrected);
     if mouse_dist < .02 {

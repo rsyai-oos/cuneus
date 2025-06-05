@@ -379,6 +379,50 @@ then use it as you desired.
 note that, spectrum data is not raw. I process it on the rust side. If this is not suitable for you, you can fix it. Audio is not my specialty. If you have a better idea please open a PR.
 https://github.com/altunenes/cuneus/blob/main/src/spectrum.rs#L47
 
+## Font Rendering
+
+Cuneus provides built-in font rendering for text overlays, scoring systems, and creative text effects in shaders.
+
+### Basic Font Usage
+
+Enable fonts in your compute shader configuration:
+
+```rust
+let compute_config = ComputeShaderConfig {
+    enable_fonts: true,  // Enable font system
+    // ... other config
+};
+```
+
+### WGSL Font Functions
+
+Use these functions in your compute shaders:
+
+```wgsl
+// Render single character at any size
+let alpha = render_char_sized(pixel_pos, position, 'A', 64.0);
+
+// Render numbers (integers)
+let alpha = render_number(pixel_pos, position, 123u, 32.0);
+
+// Render text strings (use word arrays)
+let word: array<u32, 8> = array<u32, 8>(72u, 101u, 108u, 108u, 111u, 0u, 0u, 0u); // "Hello"
+let alpha = render_word(pixel_pos, position, word, 5u, 48.0);
+
+// Render floating point numbers
+let alpha = render_float(pixel_pos, position, 3.14, 24.0);
+```
+
+### Font System Details
+
+- **Font:** Courier Prime Bold
+- **Atlas:** 1024×1024 texture with 64×64 character cells
+- **Characters:** Full ASCII printable set (32-126)
+- **Performance:** GPU-optimized, real-time rendering
+- **Quality:** High-resolution with gamma correction
+
+The font system is fully scalable and can be positioned anywhere in your shader effects.
+
 ### Adding Interactive Controls
 1. Start with a template that includes GUI (e.g., `xmas.rs`)
 2. Define your parameters in the ShaderParams struct
