@@ -217,6 +217,9 @@ struct WaterShader {
     frame_count: u32,
     hot_reload: cuneus::ShaderHotReload,
     camera_movement: CameraMovement,
+    
+    export_time: Option<f32>,
+    export_frame: Option<u32>,
 }
 
 impl WaterShader {
@@ -246,7 +249,7 @@ impl WaterShader {
         });
     }
     
-    fn capture_frame(&mut self, core: &Core, time: f32) -> Result<Vec<u8>, wgpu::SurfaceError> {
+    fn capture_frame(&mut self, core: &Core, time: f32, frame: u32) -> Result<Vec<u8>, wgpu::SurfaceError> {
         let settings = self.base.export_manager.settings();
         let (capture_texture, output_buffer) = self.base.create_capture_texture(
             &core.device,
@@ -265,6 +268,7 @@ impl WaterShader {
         });
         
         self.base.time_uniform.data.time = time;
+        self.base.time_uniform.data.frame = frame;
         self.base.time_uniform.update(&core.queue);
         
         {
@@ -325,13 +329,20 @@ impl WaterShader {
     
     fn handle_export(&mut self, core: &Core) {
         if let Some((frame, time)) = self.base.export_manager.try_get_next_frame() {
-            if let Ok(data) = self.capture_frame(core, time) {
+            // Store export timing to freeze time during export
+            self.export_time = Some(time);
+            self.export_frame = Some(frame);
+            
+            if let Ok(data) = self.capture_frame(core, time, frame) {
                 let settings = self.base.export_manager.settings();
                 if let Err(e) = cuneus::save_frame(data, frame, settings) {
                     eprintln!("Error saving frame: {:?}", e);
                 }
             }
         } else {
+            // Clear export timing when done
+            self.export_time = None;
+            self.export_frame = None;
             self.base.export_manager.complete_export();
         }
     }
@@ -532,6 +543,8 @@ impl ShaderManager for WaterShader {
             frame_count: 0,
             hot_reload,
             camera_movement: CameraMovement::default(),
+            export_time: None,
+            export_frame: None,
         };
         
         result.recreate_compute_resources(core);
@@ -697,16 +710,20 @@ impl ShaderManager for WaterShader {
         
         self.base.export_manager.apply_ui_request(export_request);
         self.base.apply_control_request(controls_request);
-        
-        let current_time = self.base.controls.get_time(&self.base.start_time);
+        let (current_time, current_frame) = if let (Some(export_time), Some(export_frame)) = (self.export_time, self.export_frame) {
+            (export_time, export_frame)
+        } else {
+            let current_time = self.base.controls.get_time(&self.base.start_time);
+            (current_time, self.frame_count)
+        };
         
         self.base.time_uniform.data.time = current_time;
-        self.base.time_uniform.data.frame = self.frame_count;
+        self.base.time_uniform.data.frame = current_frame;
         self.base.time_uniform.update(&core.queue);
         
         self.compute_time_uniform.data.time = current_time;
         self.compute_time_uniform.data.delta = 1.0/60.0;
-        self.compute_time_uniform.data.frame = self.frame_count;
+        self.compute_time_uniform.data.frame = current_frame;
         self.compute_time_uniform.update(&core.queue);
         
         if changed {
@@ -762,7 +779,9 @@ impl ShaderManager for WaterShader {
         core.queue.submit(Some(encoder.finish()));
         output.present();
         
-        self.frame_count += 1;
+        if self.export_time.is_none() {
+            self.frame_count += 1;
+        }
         
         Ok(())
     }
