@@ -133,7 +133,7 @@ impl ShaderControls {
                     load_media_path = Some(PathBuf::from(media_dir));
                 }
                 play_video = true;
-                self.media_loaded_once = true; // Mark as loaded
+                self.media_loaded_once = true;
             }
         }
         ControlsRequest {
@@ -165,7 +165,7 @@ impl ShaderControls {
             self.pause_start = None;
             self.total_pause_duration = 0.0;
             self.current_frame = 0;
-            self.media_loaded_once = false; // Reset media flag on reset
+            self.media_loaded_once = false;
         } else if request.is_paused && !self.is_paused {
             self.pause_start = Some(std::time::Instant::now());
         } else if !request.is_paused && self.is_paused {
