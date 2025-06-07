@@ -185,13 +185,14 @@ impl ShaderManager for Shader {
             label: Some("texture_bind_group_layout"),
         });
         
-        let base = RenderKit::new(
+        let mut base = RenderKit::new(
             core,
             include_str!("../../shaders/vertex.wgsl"),
             include_str!("../../shaders/blit.wgsl"),
             &[&texture_bind_group_layout],
             None,
         );
+        base.setup_mouse_uniform(core);
 
         let time_bind_group_layout = create_bind_group_layout(
             &core.device, 
@@ -390,6 +391,8 @@ impl ShaderManager for Shader {
         if self.base.export_manager.is_exporting() {
             self.handle_export(core);
         }
+        
+        self.base.update_mouse_uniform(&core.queue);
         self.base.fps_tracker.update();
     }
     fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {
@@ -404,6 +407,17 @@ impl ShaderManager for Shader {
             &core.size
         );
         controls_request.current_fps = Some(self.base.fps_tracker.fps());
+        if self.base.mouse_tracker.uniform.buttons[0] & 1 != 0 {
+            params.rotation_x = self.base.mouse_tracker.uniform.position[0];
+            params.rotation_y = self.base.mouse_tracker.uniform.position[1];
+            params.click_state = 1;
+            changed = true;
+        } else if self.base.mouse_tracker.uniform.buttons[0] & 2 != 0 {
+            params.click_state = 0;
+        } else {
+            params.click_state = 0;
+        }
+
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
                 ctx.style_mut(|style| {
@@ -590,6 +604,10 @@ impl ShaderManager for Shader {
         let ui_handled = self.base.egui_state.on_window_event(core.window(), event).consumed;
         
         if ui_handled {
+            return true;
+        }
+
+        if self.base.handle_mouse_input(core, event, false) {
             return true;
         }
 
