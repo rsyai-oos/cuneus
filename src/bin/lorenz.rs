@@ -1,5 +1,4 @@
-use cuneus::{Core, ShaderManager, UniformProvider, UniformBinding, RenderKit, ShaderControls, ExportManager};
-use cuneus::compute::{create_bind_group_layout, BindGroupLayoutType};
+use cuneus::prelude::*;
 use winit::event::WindowEvent;
 use std::path::PathBuf;
 
@@ -11,19 +10,22 @@ struct LorenzParams {
     beta: f32,           
     step_size: f32,      
     motion_speed: f32,
-    rotation_x: f32,     
-    rotation_y: f32,     
-    click_state: i32,    
-    brightness: f32,     
-    color1_r: f32,       
-    color1_g: f32,     
-    color1_b: f32,       
-    color2_r: f32,       
+    rotation_x: f32,
+    rotation_y: f32,
+    click_state: i32,
+    brightness: f32,
+    color1_r: f32,
+    color1_g: f32,
+    color1_b: f32,
+    color2_r: f32,
     color2_g: f32,
-    color2_b: f32,       
-    scale: f32,          
-    dof_amount: f32,     
+    color2_b: f32,
+    scale: f32,
+    dof_amount: f32,
     dof_focal_dist: f32,
+    gamma: f32,
+    exposure: f32,
+    particle_count: f32,
 }
 
 impl UniformProvider for LorenzParams {
@@ -33,16 +35,15 @@ impl UniformProvider for LorenzParams {
 }
 
 struct LorenzShader {
-    // Core components
     base: RenderKit,
     params_uniform: UniformBinding<LorenzParams>,
     compute_time_uniform: UniformBinding<cuneus::compute::ComputeTimeUniform>,
     
-    // Compute pipelines
-    compute_pipeline_splat: wgpu::ComputePipeline,
-    compute_pipeline_render: wgpu::ComputePipeline,
+    mouse_look_enabled: bool,
     
-    // Output texture
+    splat_pipeline: wgpu::ComputePipeline,
+    main_image_pipeline: wgpu::ComputePipeline,
+    
     output_texture: cuneus::TextureManager,
     
     // Bind group layouts
@@ -50,17 +51,17 @@ struct LorenzShader {
     atomic_bind_group_layout: wgpu::BindGroupLayout,
     time_bind_group_layout: wgpu::BindGroupLayout,
     params_bind_group_layout: wgpu::BindGroupLayout,
+    storage_bind_group_layout: wgpu::BindGroupLayout,
     
     // Bind groups
     compute_bind_group: wgpu::BindGroup,
+    storage_bind_group: wgpu::BindGroup,
     
-    // Atomic buffer for point accumulation
+    // Storage buffers for particle data
+    particle_buffer: wgpu::Buffer,      // Position and velocity data
     atomic_buffer: cuneus::AtomicBuffer,
     
-    // Frame counter
     frame_count: u32,
-    
-    // Hot reload for shader
     hot_reload: cuneus::ShaderHotReload,
 }
 
@@ -76,12 +77,23 @@ impl LorenzShader {
             wgpu::FilterMode::Linear,
             "Lorenz Output Texture",
         );
-        let buffer_size = core.size.width * core.size.height * 2;
+        
+        // Create atomic buffer for grid accumulation
+        let buffer_size = core.size.width * core.size.height * 4;
         self.atomic_buffer = cuneus::AtomicBuffer::new(
             &core.device,
             buffer_size,
             &self.atomic_bind_group_layout,
         );
+        
+        let particle_count = 2000;
+        let particle_size = (particle_count * particle_count * 2 * 4 * 4) as u64;
+        self.particle_buffer = core.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Particle Buffer"),
+            size: particle_size,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
         let view_output = self.output_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
         self.compute_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Lorenz Compute Bind Group"),
@@ -90,6 +102,36 @@ impl LorenzShader {
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: wgpu::BindingResource::TextureView(&view_output),
+                },
+            ],
+        });
+        self.storage_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Lorenz Storage Bind Group"),
+            layout: &self.storage_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &self.particle_buffer,
+                        offset: 0,
+                        size: None,
+                    }),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &self.atomic_buffer.buffer,
+                        offset: 0,
+                        size: None,
+                    }),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &self.base.mouse_uniform.as_ref().unwrap().buffer,
+                        offset: 0,
+                        size: None,
+                    }),
                 },
             ],
         });
@@ -176,6 +218,23 @@ impl LorenzShader {
 
 impl ShaderManager for LorenzShader {
     fn init(core: &Core) -> Self {
+        let time_bind_group_layout = create_bind_group_layout(
+            &core.device, 
+            BindGroupLayoutType::TimeUniform, 
+            "Lorenz Compute Time"
+        );
+        
+        let params_bind_group_layout = create_bind_group_layout(
+            &core.device, 
+            BindGroupLayoutType::CustomUniform, 
+            "Lorenz Params"
+        );
+        
+        let atomic_bind_group_layout = create_bind_group_layout(
+            &core.device, 
+            BindGroupLayoutType::AtomicBuffer, 
+            "Lorenz Atomic"
+        );
         let texture_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -197,21 +256,6 @@ impl ShaderManager for LorenzShader {
             ],
             label: Some("texture_bind_group_layout"),
         });
-        let time_bind_group_layout = create_bind_group_layout(
-            &core.device, 
-            BindGroupLayoutType::TimeUniform, 
-            "Lorenz Compute"
-        );
-        let params_bind_group_layout = create_bind_group_layout(
-            &core.device, 
-            BindGroupLayoutType::CustomUniform, 
-            "Lorenz Params"
-        );
-        let atomic_bind_group_layout = create_bind_group_layout(
-            &core.device, 
-            BindGroupLayoutType::AtomicBuffer, 
-            "Lorenz Compute"
-        );
         let compute_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -228,36 +272,66 @@ impl ShaderManager for LorenzShader {
             label: Some("lorenz_compute_output_layout"),
         });
         
-        let buffer_size = core.config.width * core.config.height * 2;
-        let atomic_buffer = cuneus::AtomicBuffer::new(
-            &core.device,
-            buffer_size,
-            &atomic_bind_group_layout,
-        );
-        
-        // Set classic Lorenz attractor parameters
+        let storage_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+            label: Some("lorenz_storage_layout"),
+        });
         let params_uniform = UniformBinding::new(
             &core.device,
             "Lorenz Params",
             LorenzParams {
-                sigma: 20.0,          
-                rho: 50.0,            
-                beta: 9.0 / 3.0,  
-                step_size: 0.004, 
-                motion_speed: 1.5, 
-                rotation_x: 0.0,      
-                rotation_y: 0.0,      
-                click_state: 0,       
-                brightness: 0.00003,
-                color1_r: 0.0,        
-                color1_g: 0.5,        
-                color1_b: 1.0,        
-                color2_r: 1.0,        
-                color2_g: 0.2,        
-                color2_b: 0.5,        
-                scale: 0.015,
+                sigma: 10.0,          
+                rho: 28.0,            
+                beta: 8.0 / 3.0,      
+                step_size: 0.005,
+                motion_speed: 1.0,
+                rotation_x: 0.0,
+                rotation_y: 0.0,
+                click_state: 0,
+                brightness: 0.0005,
+                color1_r: 1.0,
+                color1_g: 0.5,
+                color1_b: 0.0,
+                color2_r: 0.0,
+                color2_g: 0.5,
+                color2_b: 1.0,
+                scale: 0.01,
                 dof_amount: 0.1,
                 dof_focal_dist: 0.5,
+                gamma: 2.2,
+                exposure: 1.0,
+                particle_count: 1000.0,
             },
             &params_bind_group_layout,
             0,
@@ -276,6 +350,83 @@ impl ShaderManager for LorenzShader {
             0,
         );
         
+        let base = RenderKit::new(
+            core,
+            include_str!("../../shaders/vertex.wgsl"),
+            include_str!("../../shaders/blit.wgsl"),
+            &[&texture_bind_group_layout],
+            None,
+        );
+        let mut base = base;
+        base.setup_mouse_uniform(core);
+        let output_texture = cuneus::compute::create_output_texture(
+            &core.device,
+            core.size.width,
+            core.size.height,
+            wgpu::TextureFormat::Rgba16Float,
+            &texture_bind_group_layout,
+            wgpu::AddressMode::ClampToEdge,
+            wgpu::FilterMode::Linear,
+            "Lorenz Output Texture",
+        );
+        let buffer_size = core.size.width * core.size.height * 4;
+        let atomic_buffer = cuneus::AtomicBuffer::new(
+            &core.device,
+            buffer_size,
+            &atomic_bind_group_layout,
+        );
+        
+        let particle_count = 2000;
+        let particle_size = (particle_count * particle_count * 2 * 4 * 4) as u64;
+        let particle_buffer = core.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Particle Buffer"),
+            size: particle_size,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        
+        let view_output = output_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let compute_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Lorenz Compute Bind Group"),
+            layout: &compute_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view_output),
+                },
+            ],
+        });
+        
+        let storage_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Lorenz Storage Bind Group"),
+            layout: &storage_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &particle_buffer,
+                        offset: 0,
+                        size: None,
+                    }),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &atomic_buffer.buffer,
+                        offset: 0,
+                        size: None,
+                    }),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &base.mouse_uniform.as_ref().unwrap().buffer,
+                        offset: 0,
+                        size: None,
+                    }),
+                },
+            ],
+        });
         let shader_source = include_str!("../../shaders/lorenz.wgsl");
         let cs_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Lorenz Compute Shader"),
@@ -289,26 +440,6 @@ impl ShaderManager for LorenzShader {
             "Splat",
         ).expect("Failed to initialize hot reload");
         
-        let base = RenderKit::new(
-            core,
-            include_str!("../../shaders/vertex.wgsl"),
-            include_str!("../../shaders/blit.wgsl"),
-            &[&texture_bind_group_layout],
-            None,
-        );
-        
-        // Create output texture
-        let output_texture = cuneus::compute::create_output_texture(
-            &core.device,
-            core.config.width,
-            core.config.height,
-            wgpu::TextureFormat::Rgba16Float,
-            &texture_bind_group_layout,
-            wgpu::AddressMode::ClampToEdge,
-            wgpu::FilterMode::Linear,
-            "Lorenz Output Texture",
-        );
-        
         let compute_pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Lorenz Compute Pipeline Layout"),
             bind_group_layouts: &[
@@ -320,8 +451,8 @@ impl ShaderManager for LorenzShader {
             push_constant_ranges: &[],
         });
         
-        let compute_pipeline_splat = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("Splat Compute Pipeline"),
+        let splat_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("Splat Pipeline"),
             layout: Some(&compute_pipeline_layout),
             module: &cs_module,
             entry_point: Some("Splat"),
@@ -329,8 +460,8 @@ impl ShaderManager for LorenzShader {
             cache: None,
         });
         
-        let compute_pipeline_render = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("Main Image Compute Pipeline"),
+        let main_image_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("Main Image Pipeline"),
             layout: Some(&compute_pipeline_layout),
             module: &cs_module,
             entry_point: Some("main_image"),
@@ -338,38 +469,26 @@ impl ShaderManager for LorenzShader {
             cache: None,
         });
         
-        let view_output = output_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let compute_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &compute_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&view_output),
-                },
-            ],
-            label: Some("Lorenz Compute Bind Group"),
-        });
-        
-        let mut result = Self {
+        Self {
             base,
             params_uniform,
             compute_time_uniform,
-            compute_pipeline_splat,
-            compute_pipeline_render,
+            splat_pipeline,
+            main_image_pipeline,
             output_texture,
             compute_bind_group_layout,
             atomic_bind_group_layout,
             time_bind_group_layout,
             params_bind_group_layout,
+            storage_bind_group_layout,
             compute_bind_group,
+            storage_bind_group,
+            particle_buffer,
             atomic_buffer,
             frame_count: 0,
             hot_reload,
-        };
-        
-        result.recreate_compute_resources(core);
-        
-        result
+            mouse_look_enabled: true,
+        }
     }
     
     fn update(&mut self, core: &Core) {
@@ -389,8 +508,8 @@ impl ShaderManager for LorenzShader {
                 push_constant_ranges: &[],
             });
             
-            // Create updated compute pipelines with the new shader
-            self.compute_pipeline_splat = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            // Recreate pipelines
+            self.splat_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some("Updated Splat Pipeline"),
                 layout: Some(&compute_pipeline_layout),
                 module: &new_shader,
@@ -399,7 +518,7 @@ impl ShaderManager for LorenzShader {
                 cache: None,
             });
             
-            self.compute_pipeline_render = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            self.main_image_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some("Updated Main Image Pipeline"),
                 layout: Some(&compute_pipeline_layout),
                 module: &new_shader,
@@ -446,75 +565,97 @@ impl ShaderManager for LorenzShader {
                     style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(0, 0, 0, 180);
                 });
                 
-                egui::Window::new("Lorenz Attractor")
+                egui::Window::new("Volumetric Lorenz")
                     .collapsible(true)
-                    .resizable(false)
-                    .default_width(250.0)
+                    .resizable(true)
+                    .default_width(350.0)
                     .show(ctx, |ui| {
                         egui::CollapsingHeader::new("Attractor Parameters")
                             .default_open(true)
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.sigma, 0.0..=40.0).text("Sigma (σ)")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.rho, 0.0..=100.0).text("Rho (ρ)")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.beta, 0.0..=30.0).text("Beta (β)")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.step_size, 0.001..=0.01).text("Step Size").logarithmic(true)).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.motion_speed, 0.0..=10.0).text("Flow Speed")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.beta, 0.0..=10.0).text("Beta (β)")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.step_size, 0.001..=0.02).text("Step Size").logarithmic(true)).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.motion_speed, 0.0..=5.0).text("Motion Speed")).changed();
                                 ui.separator();
-                                ui.label("Interesting presets:");
-                                if ui.button("Classic").clicked() {
-                                    params.sigma = 20.0;
-                                    params.rho = 50.0;
-                                    params.beta = 9.0 / 3.0;
-                                    changed = true;
-                                }   
-                                if ui.button("Divergent").clicked() {
-                                    params.sigma = 10.0;
-                                    params.rho = 99.96;
-                                    params.beta = 8.0 / 3.0;
-                                    changed = true;
-                                }
+                                ui.label("Presets:");
+                                ui.horizontal(|ui| {
+                                    if ui.button("Classic").clicked() {
+                                        params.sigma = 10.0;
+                                        params.rho = 28.0;
+                                        params.beta = 8.0 / 3.0;
+                                        changed = true;
+                                    }   
+                                    if ui.button("Chaotic").clicked() {
+                                        params.sigma = 10.0;
+                                        params.rho = 99.96;
+                                        params.beta = 8.0 / 3.0;
+                                        changed = true;
+                                    }
+                                    if ui.button("Stable").clicked() {
+                                        params.sigma = 10.0;
+                                        params.rho = 13.0;
+                                        params.beta = 8.0 / 3.0;
+                                        changed = true;
+                                    }
+                                });
                             });
                         
-                        egui::CollapsingHeader::new("Visual Settings")
+                        egui::CollapsingHeader::new("Rendering")
                             .default_open(true)
                             .show(ui, |ui| {
-                                changed |= ui.add(egui::Slider::new(&mut params.brightness, 0.00001..=0.0001).logarithmic(true).text("Brightness")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.scale, 0.005..=0.05).text("Scale").logarithmic(true)).changed();
-                                ui.separator();
-                                ui.label("Camera Controls:");
-                                changed |= ui.add(egui::Slider::new(&mut params.rotation_x, -1.0..=1.0).text("Rotation X")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.rotation_y, -1.0..=1.0).text("Rotation Y")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.brightness, 0.0001..=0.01).text("Brightness").logarithmic(true)).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.scale, 0.001..=0.1).text("Scale").logarithmic(true)).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.exposure, 0.1..=5.0).text("Exposure")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.gamma, 0.5..=4.0).text("Gamma")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.particle_count, 100.0..=5000.0).text("Particle Count")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.dof_amount, 0.0..=1.0).text("DOF Amount")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.dof_focal_dist, 0.0..=1.0).text("DOF Focal Distance")).changed();
                             });
-                            
-                        egui::CollapsingHeader::new("Depth of Field")
-                            .default_open(true)
-                            .show(ui, |ui| {
-                                changed |= ui.add(egui::Slider::new(&mut params.dof_amount, 0.0..=3.0).text("DOF Amount")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.dof_focal_dist, 0.0..=1.0).text("Focal Distance")).changed();
-                                params.click_state = 1;
-                            });
-                            
+                        
                         egui::CollapsingHeader::new("Colors")
                             .default_open(true)
                             .show(ui, |ui| {
+                                let mut color1 = [params.color1_r, params.color1_g, params.color1_b];
+                                let mut color2 = [params.color2_r, params.color2_g, params.color2_b];
+                                
                                 ui.horizontal(|ui| {
                                     ui.label("Color 1:");
-                                    let mut color = [params.color1_r, params.color1_g, params.color1_b];
-                                    if ui.color_edit_button_rgb(&mut color).changed() {
-                                        params.color1_r = color[0];
-                                        params.color1_g = color[1];
-                                        params.color1_b = color[2];
+                                    if ui.color_edit_button_rgb(&mut color1).changed() {
+                                        params.color1_r = color1[0];
+                                        params.color1_g = color1[1];
+                                        params.color1_b = color1[2];
                                         changed = true;
                                     }
                                 });
                                 
                                 ui.horizontal(|ui| {
                                     ui.label("Color 2:");
-                                    let mut color = [params.color2_r, params.color2_g, params.color2_b];
-                                    if ui.color_edit_button_rgb(&mut color).changed() {
-                                        params.color2_r = color[0];
-                                        params.color2_g = color[1];
-                                        params.color2_b = color[2];
+                                    if ui.color_edit_button_rgb(&mut color2).changed() {
+                                        params.color2_r = color2[0];
+                                        params.color2_g = color2[1];
+                                        params.color2_b = color2[2];
+                                        changed = true;
+                                    }
+                                });
+                                
+                                ui.separator();
+                                ui.label("Presets:");
+                                ui.horizontal(|ui| {
+                                    if ui.button("Fire").clicked() {
+                                        params.color1_r = 1.0; params.color1_g = 0.3; params.color1_b = 0.0;
+                                        params.color2_r = 1.0; params.color2_g = 1.0; params.color2_b = 0.0;
+                                        changed = true;
+                                    }
+                                    if ui.button("Ocean").clicked() {
+                                        params.color1_r = 0.0; params.color1_g = 0.3; params.color1_b = 1.0;
+                                        params.color2_r = 0.0; params.color2_g = 0.8; params.color2_b = 1.0;
+                                        changed = true;
+                                    }
+                                    if ui.button("Purple").clicked() {
+                                        params.color1_r = 0.5; params.color1_g = 0.0; params.color1_b = 1.0;
+                                        params.color2_r = 1.0; params.color2_g = 0.0; params.color2_b = 0.5;
                                         changed = true;
                                     }
                                 });
@@ -522,7 +663,20 @@ impl ShaderManager for LorenzShader {
                         
                         ui.separator();
                         
-                        ShaderControls::render_controls_widget(ui, &mut controls_request);
+                        ui.separator();
+        ui.label("💡 Controls:");
+        ui.horizontal(|ui| {
+            ui.label("• Mouse:");
+            if self.mouse_look_enabled {
+                ui.colored_label(egui::Color32::GREEN, "🔓 Active");
+            } else {
+                ui.colored_label(egui::Color32::RED, "🔒 Disabled");
+            }
+        });
+        ui.label("• Right click: Toggle mouse control");
+        ui.label("• H: Toggle UI");
+        
+        ShaderControls::render_controls_widget(ui, &mut controls_request);
                         
                         ui.separator();
                         
@@ -549,6 +703,13 @@ impl ShaderManager for LorenzShader {
         self.compute_time_uniform.data.delta = 1.0/60.0;
         self.compute_time_uniform.data.frame = self.frame_count;
         self.compute_time_uniform.update(&core.queue);
+        self.base.update_mouse_uniform(&core.queue);
+        if self.mouse_look_enabled {
+            params.rotation_x = self.base.mouse_tracker.uniform.position[0];
+            params.rotation_y = self.base.mouse_tracker.uniform.position[1];
+        }
+        params.click_state = if self.base.mouse_tracker.uniform.buttons[0] & 1 > 0 { 1 } else { 0 };
+        changed = true;
         
         if changed {
             self.params_uniform.data = params;
@@ -559,30 +720,28 @@ impl ShaderManager for LorenzShader {
             self.base.export_manager.start_export();
         }
         
-        // Pass 1: Generate and splat particles
         {
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Particle Generation Pass"),
+                label: Some("Splat Pass"),
                 timestamp_writes: None,
             });
             
-            compute_pass.set_pipeline(&self.compute_pipeline_splat);
+            compute_pass.set_pipeline(&self.splat_pipeline);
             compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
             compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
             compute_pass.set_bind_group(2, &self.compute_bind_group, &[]);
             compute_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]);
             
-            compute_pass.dispatch_workgroups(4096, 1, 1);
+            compute_pass.dispatch_workgroups(1000, 1, 1);
         }
         
-        // Pass 2: Render to screen
         {
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Render Pass"),
+                label: Some("Main Image Pass"),
                 timestamp_writes: None,
             });
             
-            compute_pass.set_pipeline(&self.compute_pipeline_render);
+            compute_pass.set_pipeline(&self.main_image_pipeline);
             compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
             compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
             compute_pass.set_bind_group(2, &self.compute_bind_group, &[]);
@@ -620,6 +779,17 @@ impl ShaderManager for LorenzShader {
         if self.base.egui_state.on_window_event(core.window(), event).consumed {
             return true;
         }
+        if let WindowEvent::MouseInput { state, button, .. } = event {
+            if *button == winit::event::MouseButton::Right {
+                if *state == winit::event::ElementState::Released {
+                    self.mouse_look_enabled = !self.mouse_look_enabled;
+                    return true;
+                }
+            }
+        }
+        if self.mouse_look_enabled && self.base.handle_mouse_input(core, event, false) {
+            return true;
+        }
         
         if let WindowEvent::KeyboardInput { event, .. } = event {
             return self.base.key_handler.handle_keyboard_input(core.window(), event);
@@ -631,7 +801,7 @@ impl ShaderManager for LorenzShader {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
-    let (app, event_loop) = cuneus::ShaderApp::new("Lorenz Attractor", 800, 600);
+    let (app, event_loop) = cuneus::ShaderApp::new("Volumetric Lorenz", 800, 600);
     
     app.run(event_loop, |core| {
         LorenzShader::init(core)

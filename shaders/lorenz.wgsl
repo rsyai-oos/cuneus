@@ -25,6 +25,9 @@ struct LorenzParams {
     scale: f32,          
     dof_amount: f32,     
     dof_focal_dist: f32,
+    gamma: f32,
+    exposure: f32,
+    particle_count: f32,
 }
 @group(1) @binding(0) var<uniform> params: LorenzParams;
 
@@ -140,6 +143,69 @@ fn aces_tonemap(color: v3) -> v3 {
     var b = v * (0.983729 * v + 0.4329510) + 0.238081;
     return m2 * (a / b);
 }
+
+fn densityField(pos: v3) -> f32 {
+    let screen_pos = projParticle(pos);
+    let uv = screen_pos.xy * 0.5 + 0.5;
+    
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) {
+        return 0.0;
+    }
+    
+    let coords = vec2<u32>(uv * R);
+    if (coords.x >= u32(R.x) || coords.y >= u32(R.y)) {
+        return 0.0;
+    }
+    
+    let idx = coords.x + u32(R.x) * coords.y;
+    let density1 = f32(atomicLoad(&atomic_buffer[idx]));
+    let density2 = f32(atomicLoad(&atomic_buffer[idx + u32(R.x * R.y)]));
+    
+    let total_density = (density1 + density2) * 0.01;
+    let distance_from_center = length(pos);
+    let falloff = exp(-distance_from_center * 0.1);
+    
+    return total_density * falloff;
+}
+
+fn volumetricTrace(ray_pos: v3, ray_dir: v3) -> v3 {
+    var color = v3(0.0);
+    var pos = ray_pos;
+    let step_size = 0.05;
+    var accumulated_density = 0.0;
+    
+    for (var i = 0; i < 150; i++) {
+        let density = densityField(pos);
+        
+        if (density > 0.001) {
+            let depth_factor = f32(i) / 150.0;
+            let light_color = mix(
+                vec3<f32>(params.color1_r, params.color1_g, params.color1_b),
+                vec3<f32>(params.color2_r, params.color2_g, params.color2_b),
+                depth_factor
+            );
+            
+            let scattering = density * (1.0 - accumulated_density) * step_size;
+            color += light_color * scattering * params.brightness * 5.0;
+            
+            accumulated_density += density * step_size * 0.1;
+            
+            if (accumulated_density > 0.95) {
+                break;
+            }
+        }
+        
+        pos += ray_dir * step_size;
+        
+        if (length(pos) > 30.0) {
+            break;
+        }
+    }
+    
+    let distance_fade = exp(-length(ray_pos) * 0.02);
+    return color * distance_fade;
+}
+
 @compute @workgroup_size(256, 1, 1)
 fn Splat(@builtin(global_invocation_id) id: vec3<u32>) {
     let Ru = vec2<u32>(textureDimensions(output));
@@ -148,8 +214,12 @@ fn Splat(@builtin(global_invocation_id) id: vec3<u32>) {
     let muv = v2(params.rotation_x, params.rotation_y);
     seed = id.x + hash_u(time_data.frame);
     
-    let iters = 100 + i32(sin_add(time_data.time * 0.2) * 100.0);
+    let particle_count = u32(params.particle_count);
+    if (id.x >= particle_count) {
+        return;
+    }
     
+    let iters = 100 + i32(sin_add(time_data.time * 0.2) * 100.0);
     let base_time = time_data.time * 0.5 + hash_f() * 100.0;
     
     var focusDist = params.dof_focal_dist * 2.0 - 1.0;
@@ -160,7 +230,6 @@ fn Splat(@builtin(global_invocation_id) id: vec3<u32>) {
     
     let lorenz_params = get_cyclic_params(base_time);
     
-
     let particle_offset = hash_f() * 20.0;
     let particle_age = base_time * 0.1 + particle_offset;
     
@@ -168,7 +237,6 @@ fn Splat(@builtin(global_invocation_id) id: vec3<u32>) {
     
     let dt = params.step_size;
     
-
     for(var i = 0; i < 1000; i++) {
         p = lorenz_step(p, lorenz_params, dt);
     }
@@ -181,7 +249,6 @@ fn Splat(@builtin(global_invocation_id) id: vec3<u32>) {
     
     let current_step = i32(time_position % time_period);
     
-
     for(var i = 0; i < 2000; i++) {
         p = lorenz_step(p, lorenz_params, dt);
         
@@ -217,7 +284,7 @@ fn Splat(@builtin(global_invocation_id) id: vec3<u32>) {
         let color_shift = sin(flow_position * pi * 2.0 + time_data.time * 0.5) * 0.5 + 0.5;
         
         if (uv.x > 0.0 && uv.x < 1.0 && uv.y > 0.0 && uv.y < 1.0 && idx < u32(Ru.x*Ru.y)) {
-            let intensity = 150.0 * alpha;
+            let intensity = 150.0 * alpha * params.exposure;
             atomicAdd(&atomic_buffer[idx], u32((1.0 - color_shift) * intensity));
             atomicAdd(&atomic_buffer[idx + Ru.x*Ru.y], u32(color_shift * intensity));
         }
@@ -232,6 +299,31 @@ fn main_image(@builtin(global_invocation_id) id: vec3<u32>) {
     var col1 = f32(atomicLoad(&atomic_buffer[hist_id])) * vec3<f32>(params.color1_r, params.color1_g, params.color1_b);
     var col2 = f32(atomicLoad(&atomic_buffer[hist_id + res.x*res.y])) * vec3<f32>(params.color2_r, params.color2_g, params.color2_b);
     var col = (col1 + col2) * params.brightness;
+    
+    let uv = vec2<f32>(id.xy) / vec2<f32>(res);
+    let screen_pos = (uv - 0.5) * 2.0;
+    
+    let aspect = vec2<f32>(res).x / vec2<f32>(res).y;
+    let ray_dir = normalize(vec3<f32>(screen_pos.x * aspect, screen_pos.y, 1.5));
+    let ray_pos = vec3<f32>(0.0, 0.0, -15.0);
+    
+    let muv = v2(params.rotation_x, params.rotation_y);
+    var transformed_ray_dir = ray_dir;
+    transformed_ray_dir = rotY(muv.x * tau) * transformed_ray_dir;
+    transformed_ray_dir = rotX(muv.y * pi) * transformed_ray_dir;
+    
+    var transformed_ray_pos = ray_pos;
+    transformed_ray_pos = rotY(muv.x * tau) * transformed_ray_pos;
+    transformed_ray_pos = rotX(muv.y * pi) * transformed_ray_pos;
+    
+    let volumetric_color = volumetricTrace(transformed_ray_pos, transformed_ray_dir);
+    
+    let particle_strength = length(col);
+    let volumetric_strength = length(volumetric_color);
+    let blend_factor = 0.7 + 0.3 * sin(time_data.time * 0.1);
+    
+    col = mix(col, col + volumetric_color, blend_factor);
+    col += volumetric_color * 0.5;
     
     let color_shift = sin(time_data.time * 0.2) * 0.2;
     col = mix(

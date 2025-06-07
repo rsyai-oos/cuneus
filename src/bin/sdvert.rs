@@ -6,21 +6,24 @@ use std::path::PathBuf;
 struct ShaderParams {
     lambda: f32,
     theta: f32,
-    alpha:f32,
+    alpha: f32,
     sigma: f32,
-    gamma:f32,
-    blue:f32,
-    a:f32,
-    b:f32,
-    c:f32,
-    d:f32,
-    e:f32,
-    f:f32,
-    g:f32,
-    iter:f32,
-    bound:f32,
-    aa:f32,
-    tt:f32,
+    gamma: f32,
+    blue: f32,
+    a: f32,
+    b: f32,
+    base_color_r: f32,
+    base_color_g: f32,
+    base_color_b: f32,
+    accent_color_r: f32,
+    accent_color_g: f32,
+    accent_color_b: f32,
+    background_r: f32,
+    background_g: f32,
+    background_b: f32,
+    gamma_correction: f32,
+    aces_tonemapping: f32,
+    _padding: f32,
 }
 
 
@@ -185,26 +188,24 @@ impl ShaderManager for Shader {
             ShaderParams {
                 sigma: 0.07, 
                 gamma: 1.5, 
-                blue: 1.0, 
-            
+                blue: 1.0,
                 a: 2.0,   
-                b: 0.5,    
-                c: 0.2,    
-            
-                d: 0.8,     
-                e: 0.65,     
-                f: 0.25,     
-            
-                g: 0.95,     
-                lambda: 5.0, 
+                b: 0.5,
+                lambda: 3.0, 
                 theta: 2.0, 
-            
-                alpha: 0.3, 
-            
-                aa: 0.1,
-                iter: 8.0,
-                bound: 0.235,
-                tt: 0.1,
+                alpha: 0.3,
+                base_color_r: 1.0,
+                base_color_g: 1.0,
+                base_color_b: 1.0,
+                accent_color_r: 1.0,
+                accent_color_g: 1.0,
+                accent_color_b: 1.0,
+                background_r: 0.6,
+                background_g: 0.9,
+                background_b: 0.9,
+                gamma_correction: 0.41,
+                aces_tonemapping: 0.4,
+                _padding: 0.0,
             },
             &params_bind_group_layout,
             0,
@@ -300,17 +301,77 @@ impl ShaderManager for Shader {
             self.base.render_ui(core, |ctx| {
                 ctx.style_mut(|style| {
                     style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(0, 0, 0, 180);
-                });                egui::Window::new("Settings").show(ctx, |ui| {
-                    changed |= ui.add(egui::Slider::new(&mut params.lambda, 0.0..=20.0).text("vert")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.theta, 0.0..=60.0).text("angle")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.alpha, 0.2..=1.0).text("num_vert_min")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.sigma, 0.2..=1.0).text("num_vert_max")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.gamma, 1.0..=3.0).text("radi")).changed();
-                    ui.separator();
-                    ShaderControls::render_controls_widget(ui, &mut controls_request);
-                    ui.separator();
-                    should_start_export = ExportManager::render_export_ui_widget(ui, &mut export_request);
-                });
+                });                egui::Window::new("SDVert Controls")
+                    .collapsible(true)
+                    .resizable(true)
+                    .default_width(300.0)
+                    .show(ctx, |ui| {
+                        egui::CollapsingHeader::new("Geometry")
+                            .default_open(true)
+                            .show(ui, |ui| {
+                                changed |= ui.add(egui::Slider::new(&mut params.lambda, 1.0..=20.0).text("Vertices")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.theta, 0.0..=10.0).text("Angle Scale")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.gamma, 0.1..=3.0).text("Layer Size")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.alpha, 0.001..=0.5).text("Layer Min")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.sigma, 0.01..=0.5).text("Layer Max")).changed();
+                            });
+
+                        egui::CollapsingHeader::new("Shape Parameters")
+                            .default_open(false)
+                            .show(ui, |ui| {
+                                changed |= ui.add(egui::Slider::new(&mut params.a, 0.0..=5.0).text("Depth Factor")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.b, 0.0..=5.0).text("Fold Pattern")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.blue, 0.0..=5.0).text("Hue Shift")).changed();
+                            });
+
+                        egui::CollapsingHeader::new("Colors")
+                            .default_open(false)
+                            .show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    ui.label("Base:");
+                                    let mut base_color = [params.base_color_r, params.base_color_g, params.base_color_b];
+                                    if ui.color_edit_button_rgb(&mut base_color).changed() {
+                                        params.base_color_r = base_color[0];
+                                        params.base_color_g = base_color[1];
+                                        params.base_color_b = base_color[2];
+                                        changed = true;
+                                    }
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.label("Accent:");
+                                    let mut accent_color = [params.accent_color_r, params.accent_color_g, params.accent_color_b];
+                                    if ui.color_edit_button_rgb(&mut accent_color).changed() {
+                                        params.accent_color_r = accent_color[0];
+                                        params.accent_color_g = accent_color[1];
+                                        params.accent_color_b = accent_color[2];
+                                        changed = true;
+                                    }
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.label("Background:");
+                                    let mut bg_color = [params.background_r, params.background_g, params.background_b];
+                                    if ui.color_edit_button_rgb(&mut bg_color).changed() {
+                                        params.background_r = bg_color[0];
+                                        params.background_g = bg_color[1];
+                                        params.background_b = bg_color[2];
+                                        changed = true;
+                                    }
+                                });
+                            });
+
+                        egui::CollapsingHeader::new("Post-Processing")
+                            .default_open(false)
+                            .show(ui, |ui| {
+                                changed |= ui.add(egui::Slider::new(&mut params.gamma_correction, 0.1..=3.0).text("Gamma Correction")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.aces_tonemapping, 0.0..=2.0).text("ACES Tonemapping")).changed();
+                            });
+
+                        ui.separator();
+                        ShaderControls::render_controls_widget(ui, &mut controls_request);
+                        
+                        ui.separator();
+                        should_start_export = ExportManager::render_export_ui_widget(ui, &mut export_request);
+                    });
             })
         } else {
             self.base.render_ui(core, |_ctx| {})

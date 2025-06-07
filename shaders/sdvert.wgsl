@@ -11,21 +11,24 @@ struct ResolutionUniform {
 struct Params {
     lambda: f32,
     theta: f32,
-    alpha:f32,
+    alpha: f32,
     sigma: f32,
     gamma: f32,
-    blue:f32,
-    aa:f32,
-    iter:f32,
-    bound:f32,
-    tt:f32,
-    a:f32,
-    b:f32,
-    c:f32,
-    d:f32,
-    e:f32,
-    f:f32,
-    g:f32,
+    blue: f32,
+    a: f32,
+    b: f32,
+    base_color_r: f32,
+    base_color_g: f32,
+    base_color_b: f32,
+    accent_color_r: f32,
+    accent_color_g: f32,
+    accent_color_b: f32,
+    background_r: f32,
+    background_g: f32,
+    background_b: f32,
+    gamma_correction: f32,
+    aces_tonemapping: f32,
+    _padding: f32,
 };
 
 const PI: f32 = 3.14159265358979323846;
@@ -164,10 +167,20 @@ fn gamma(color: vec3<f32>, gamma: f32) -> vec3<f32> {
     return pow(color, vec3<f32>(1.0 / gamma));
 }
 
+fn aces_tonemap(color: vec3<f32>) -> vec3<f32> {
+    let a = 2.51;
+    let b = 0.03;
+    let c = 2.43;
+    let d = 0.59;
+    let e = 0.14;
+    return clamp((color * (a * color + b)) / (color * (c * color + d) + e), vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
 @fragment
 fn fs_main(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
+    let bg_color = vec3<f32>(params.background_r, params.background_g, params.background_b);
     let bg = oscillate(0.6, 0.6, 8.0, u_time.time);
-    var fragColor = vec4<f32>(bg, bg, bg, 1.0);
+    var fragColor = vec4<f32>(bg_color * bg, 1.0);
     let screen_size = u_resolution.dimensions;
     let t = u_time.time * 0.5;
     var angle: f32 = 0.25;
@@ -210,7 +223,12 @@ fn fs_main(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
             0.1 * cos(layer * 9.21 + t * 0.5) *
             sin(angle * 5.0 - t * 0.3);
 
-        let hue = sin(i / des2 + angle / des + vec4<f32>(params.blue, 2.0, 3.0, 1.0) + fold * 0.5) * colorShift + colorIntensity;
+        let base_color = vec3<f32>(params.base_color_r, params.base_color_g, params.base_color_b);
+        let accent_color = vec3<f32>(params.accent_color_r, params.accent_color_g, params.accent_color_b);
+        let original_hue = sin(i / des2 + angle / des + vec4<f32>(params.blue, 2.0, 3.0, 1.0) + fold * 0.5) * colorShift + colorIntensity;
+        let color_influence = (base_color + accent_color) * 0.5;
+        let enhanced_hue = original_hue * vec4<f32>(color_influence, 1.0);
+        let hue = enhanced_hue;
 
         let litColor = hue * (lightIntensity * globalLight + envLight);
 
@@ -234,6 +252,10 @@ fn fs_main(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
     let vignetteUV = (FragCoord.xy - 0.5 * vec2<f32>(1920.0, 1080.0)) / 1080.0;
     let vignette = 1.0 - dot(vignetteUV, vignetteUV) * VIGNETTE_STRENGTH;
 
-    let cor = gamma(fragColor.rgb, 0.41);
+    var final_color = fragColor.rgb;
+    if (params.aces_tonemapping > 0.0) {
+        final_color = mix(final_color, aces_tonemap(final_color), params.aces_tonemapping);
+    }
+    let cor = gamma(final_color, params.gamma_correction);
     return vec4<f32>(cor, fragColor.a);
 }
