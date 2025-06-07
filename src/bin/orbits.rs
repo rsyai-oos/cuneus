@@ -4,29 +4,21 @@ use std::path::PathBuf;
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ShaderParams {
-    // Colors
     base_color: [f32; 3],
     x: f32,
     rim_color: [f32; 3],
     y: f32,
     accent_color: [f32; 3],
-    _pad3: f32,
-    _pad4: f32,
-    // xy vec2
-    
-    // Lighting parameters
+    gamma_correction: f32,
+    travel_speed: f32,
     iteration: i32,
     col_ext: f32,
     zoom: f32,
     trap_pow: f32,
-    
-    // Effect parameters
     trap_x: f32,
     trap_y: f32,
     trap_c1: f32,
     aa: i32,
-
-    // Animation parameters
     trap_s1: f32,
     wave_speed: f32,
     fold_intensity: f32,
@@ -221,19 +213,16 @@ impl ShaderManager for Shader {
                 rim_color: [0.0, 0.5, 1.0],
                 y: initial_y,
                 accent_color: [0.018, 0.018, 0.018],
-                _pad3: 0.0,
-                _pad4: 0.0,
+                gamma_correction: 0.4,
+                travel_speed: 1.0,
                 iteration: 355,
                 col_ext: 2.0,
                 zoom: initial_zoom,
                 trap_pow: 1.0,
-
-                
                 trap_x: -0.5,
                 trap_y: 2.0,
                 trap_c1: 0.2,
                 aa: 1,
-                
                 trap_s1: 0.8,
                 wave_speed: 0.1,
                 fold_intensity: 1.0,
@@ -337,123 +326,84 @@ impl ShaderManager for Shader {
             &core.size
         );
         controls_request.current_fps = Some(self.base.fps_tracker.fps());
-        let mouse_pos = if let Some(mouse_uniform) = &self.base.mouse_uniform {
-            mouse_uniform.data.position
-        } else {
-            [0.0, 0.0]
-        };
-        let raw_pos = self.base.mouse_tracker.raw_position;
-        let mouse_wheel = if let Some(mouse_uniform) = &self.base.mouse_uniform {
-            mouse_uniform.data.wheel
-        } else {
-            [0.0, 0.0]
-        };
+        
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
                 ctx.style_mut(|style| {
                     style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(0, 0, 0, 180);
+                    style.text_styles.get_mut(&egui::TextStyle::Body).unwrap().size = 11.0;
+                    style.text_styles.get_mut(&egui::TextStyle::Button).unwrap().size = 10.0;
                 });                
-                egui::Window::new("Mandelbrot").show(ctx, |ui| {
-                    // Colors
-                    changed |= ui.color_edit_button_rgb(&mut params.base_color).changed();
-                    ui.label("Base Color");
-                    
-                    changed |= ui.color_edit_button_rgb(&mut params.rim_color).changed();
-                    ui.label("Orbit Color");
-
-                    changed |= ui.color_edit_button_rgb(&mut params.accent_color).changed();
-                    ui.label("Ext Color");
-                    
-                    
-                    changed |= ui.add(egui::Slider::new(&mut params.iteration, 1..=500)
-                        .text("iteration")).changed();
+                egui::Window::new("Orbits")
+                    .collapsible(true)
+                    .resizable(true)
+                    .default_width(280.0)
+                    .show(ctx, |ui| {
                         
-                    changed |= ui.add(egui::Slider::new(&mut params.wave_speed, 0.0..=12.0)
-                        .text("cols")).changed();
-                        
-                    changed |= ui.add(egui::Slider::new(&mut params.fold_intensity, 0.0..=6.0)
-                        .text("escape")).changed();
-                    changed |= ui.add(egui::Slider::new(&mut params.aa, 1..=8)
-                    .text("AA(care!)")).changed(); 
+                        egui::CollapsingHeader::new("Colors")
+                            .default_open(true)
+                            .show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    ui.label("Base:");
+                                    changed |= ui.color_edit_button_rgb(&mut params.base_color).changed();
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.label("Orbit:");
+                                    changed |= ui.color_edit_button_rgb(&mut params.rim_color).changed();
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.label("Exterior:");
+                                    changed |= ui.color_edit_button_rgb(&mut params.accent_color).changed();
+                                });
+                            });
 
-                    ui.separator();
-                    ui.heading("Mouse Controls");
-                    ui.label("Left-click + drag to pan the view");
-                    ui.label("Scroll wheel to zoom in/out");
-                    ui.label(format!("Position (normalized): {:.3}, {:.3}", mouse_pos[0], mouse_pos[1]));
-                    ui.label(format!("Position (pixels): {:.1}, {:.1}", raw_pos[0], raw_pos[1]));
-                    ui.label(format!("Wheel: {:.2}, {:.2}", mouse_wheel[0], mouse_wheel[1]));
+                        egui::CollapsingHeader::new("Rendering")
+                            .default_open(false)
+                            .show(ui, |ui| {
+                                changed |= ui.add(egui::Slider::new(&mut params.iteration, 50..=500).text("Iterations")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.aa, 1..=4).text("Anti-aliasing")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.gamma_correction, 0.1..=2.0).text("Gamma")).changed();
+                            });
 
-                    ui.collapsing("Trap", |ui| {
-                        changed |= ui.add(egui::Slider::new(&mut params.trap_x, -12.0..=12.0)
-                        .text("trap_x")).changed();
-                        
-                        changed |= ui.add(egui::Slider::new(&mut params.trap_y, -12.0..=12.0)
-                            .text("trap_y")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.col_ext, 0.0..=25.0)
-                            .text("c1")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.trap_pow, 0.0..=10.0)
-                            .text("Trap Power")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.trap_c1, 0.0..=6.2)
-                            .text("c1")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.trap_s1, 0.0..=6.2)
-                            .text("s1")).changed();
+                        egui::CollapsingHeader::new("Traps")
+                            .default_open(false)
+                            .show(ui, |ui| {
+                                changed |= ui.add(egui::Slider::new(&mut params.trap_x, -5.0..=5.0).text("Trap X")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.trap_y, -5.0..=5.0).text("Trap Y")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.trap_pow, 0.0..=3.0).text("Trap Power")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.trap_c1, 0.0..=1.0).text("Trap Mix")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.trap_s1, 0.0..=2.0).text("Trap Blend")).changed();
+                            });
+
+                        egui::CollapsingHeader::new("Animation")
+                            .default_open(false)
+                            .show(ui, |ui| {
+                                changed |= ui.add(egui::Slider::new(&mut params.travel_speed, 0.0..=2.0).text("Travel Speed")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.wave_speed, 0.0..=2.0).text("Wave Speed")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.fold_intensity, 0.0..=3.0).text("Fold Intensity")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.col_ext, 0.0..=10.0).text("Color Extension")).changed();
+                            });
+
+                        egui::CollapsingHeader::new("Navigation")
+                            .default_open(false)
+                            .show(ui, |ui| {
+                                ui.label("Left-click + drag: Pan view");
+                                ui.label("Mouse wheel: Zoom");
+                                ui.separator();
+                                let old_zoom = params.zoom;
+                                changed |= ui.add(egui::Slider::new(&mut params.zoom, 0.0001..=1.0).text("Zoom").logarithmic(true)).changed();
+                                if old_zoom != params.zoom {
+                                    self.zoom_level = params.zoom;
+                                }
+                                changed |= ui.add(egui::Slider::new(&mut params.x, 0.0..=3.0).text("X Position")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.y, 0.0..=6.0).text("Y Position")).changed();
+                            });
+
+                        ui.separator();
+                        ShaderControls::render_controls_widget(ui, &mut controls_request);
+                        ui.separator();
+                        should_start_export = ExportManager::render_export_ui_widget(ui, &mut export_request);
                     });
-
-
-                    ui.collapsing("Positions", |ui| {
-                        let old_zoom = params.zoom;
-                        changed |= ui.add(egui::Slider::new(&mut params.zoom, 0.0001..=1.5)
-                            .text("Zoom")
-                            .logarithmic(true)).changed();
-                        if old_zoom != params.zoom {
-                            self.zoom_level = params.zoom;
-                        }
-                        ui.horizontal(|ui| {
-                            ui.label("Fine Zoom:");
-                            if ui.button("÷1.1").clicked() {
-                                params.zoom = (params.zoom / 1.1).max(0.0001);
-                                self.zoom_level = params.zoom;
-                                changed = true;
-                            }
-                            if ui.button("×1.1").clicked() {
-                                params.zoom = (params.zoom * 1.1).min(1.5);
-                                self.zoom_level = params.zoom;
-                                changed = true;
-                            }
-                        });
-                        changed |= ui.add(egui::Slider::new(&mut params.x, 0.0..=3.0)
-                            .text("X")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.y, 0.0..=6.0)
-                            .text("Y")).changed();
-                        ui.horizontal(|ui| {
-                            ui.label("Fine X:");
-                            if ui.button("-0.001").clicked() {
-                                params.x = (params.x - 0.001).max(0.0);
-                                changed = true;
-                            }
-                            if ui.button("+0.001").clicked() {
-                                params.x = (params.x + 0.001).min(3.0);
-                                changed = true;
-                            }
-                        });
-                        ui.horizontal(|ui| {
-                            ui.label("Fine Y:");
-                            if ui.button("-0.001").clicked() {
-                                params.y = (params.y - 0.001).max(0.0);
-                                changed = true;
-                            }
-                            if ui.button("+0.001").clicked() {
-                                params.y = (params.y + 0.001).min(6.0);
-                                changed = true;
-                            }
-                        });
-                    });
-                    ui.separator();
-                    ShaderControls::render_controls_widget(ui, &mut controls_request);
-                    ui.separator();
-                    should_start_export = ExportManager::render_export_ui_widget(ui, &mut export_request);
-                });
             })
         } else {
             self.base.render_ui(core, |_ctx| {})
@@ -464,6 +414,7 @@ impl ShaderManager for Shader {
         let current_time = self.base.controls.get_time(&self.base.start_time);
         self.base.time_uniform.data.time = current_time;
         self.base.time_uniform.update(&core.queue);
+        
         if changed {
             self.params_uniform.data = params;
             self.params_uniform.update(&core.queue);
@@ -523,21 +474,24 @@ impl ShaderManager for Shader {
         }
         match event {
             WindowEvent::MouseInput { state, button, .. } => {
-                if *button == MouseButton::Left {
-                    match state {
-                        ElementState::Pressed => {
-                            if let Some(mouse_uniform) = &self.base.mouse_uniform {
-                                self.mouse_dragging = true;
-                                self.drag_start = mouse_uniform.data.position;
-                                self.drag_start_pos = [self.params_uniform.data.x, self.params_uniform.data.y];
+                match button {
+                    MouseButton::Left => {
+                        match state {
+                            ElementState::Pressed => {
+                                if let Some(mouse_uniform) = &self.base.mouse_uniform {
+                                    self.mouse_dragging = true;
+                                    self.drag_start = mouse_uniform.data.position;
+                                    self.drag_start_pos = [self.params_uniform.data.x, self.params_uniform.data.y];
+                                }
+                                return true;
+                            },
+                            ElementState::Released => {
+                                self.mouse_dragging = false;
+                                return true;
                             }
-                            return true;
-                        },
-                        ElementState::Released => {
-                            self.mouse_dragging = false;
-                            return true;
                         }
-                    }
+                    },
+                    _ => {}
                 }
                 false
             },

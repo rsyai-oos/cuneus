@@ -26,8 +26,8 @@ struct Params {
     rim_color: vec3<f32>,
     y: f32,
     accent_color: vec3<f32>,
-    _pad3: f32,
-    _pad4: f32,
+    gamma_correction: f32,
+    travel_speed: f32,
     iteration: i32,
     col_ext: f32,
     zoom: f32,
@@ -97,7 +97,7 @@ fn fs_main(@builtin(position) fc: vec4<f32>) -> @location(0) vec4<f32> {
     let t = u_time.time;
     let t01 = t * .4;
     // cp: camera path
-    let cp = vec2(sin(.0002 * t / 10.), cos(.0002 * t / 10.));
+    let cp = vec2(sin(.0002 * t * params.travel_speed / 10.), cos(.0002 * t * params.travel_speed / 10.));
     // p: pan position
     var p = vec2(.8085, .2607);
     if(t > 17.) { p.y += .00001 * (t - 1.); }
@@ -137,7 +137,7 @@ fn fs_main(@builtin(position) fc: vec4<f32>) -> @location(0) vec4<f32> {
             }
         }
     }
-    col = g(col / f32(AA * AA), .4);
+    col = g(col / f32(AA * AA), params.gamma_correction);
     let q = frag.xy / ss;
     col *= .7 + .3 * pow(16. * q.x * q.y * (1. - q.x) * (1. - q.y), .15);
     return vec4(col, 1.);
