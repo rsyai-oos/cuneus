@@ -18,13 +18,13 @@ jobs:
           - group: "media"
             features: ""
             gstreamer_required: true
-            shaders: "audiovis,fluid,computecolors,droste,fft,gabornoise,matrix,pathtracing,scenecolor,spiral,voronoi"
+            shaders: "audiovis,computecolors,droste,fft,gabornoise,matrix,pathtracing,scenecolor,spiral,voronoi,fluid,cnn"
           
           # Shaders that DON'T need GStreamer (pure GPU compute)
           - group: "no-media" 
             features: "--no-default-features"
             gstreamer_required: false
-            shaders: "asahi,buddhabrot,cnn,gabor,lorenz,galaxy,lich,mandelbulb,satan,sdvert,sinh,roto,orbits,dna,genuary2025_6,nebula,rorschach,poe2,tree,2dneuron,spiralchaos,cliffordcompute"
+            shaders: "asahi,buddhabrot,gabor,lorenz,galaxy,lich,mandelbulb,satan,sdvert,sinh,roto,orbits,dna,genuary2025_6,nebula,rorschach,poe2,tree,2dneuron,spiralchaos,cliffordcompute"
         
         include:
           - os: ubuntu-latest
