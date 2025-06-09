@@ -1,16 +1,23 @@
 // This file is part of the gstreamer, and its inits the spectrum analyzer and bpm.
 // I also did some smoothing related to audio data for the spectrum analyzer.
+#[cfg(feature = "media")]
 use log::info;
+#[cfg(feature = "media")]
 use wgpu;
 
+#[cfg(feature = "media")]
 use crate::gst::video::VideoTextureManager;
+#[cfg(feature = "media")]
 use crate::UniformBinding;
+#[cfg(feature = "media")]
 use crate::ResolutionUniform;
 
 pub struct SpectrumAnalyzer {
+    #[cfg(feature = "media")]
     prev_audio_data: [[f32; 4]; 32],
 }
 
+#[cfg(feature = "media")]
 impl SpectrumAnalyzer {
     pub fn new() -> Self {
         Self {
@@ -163,5 +170,12 @@ impl SpectrumAnalyzer {
             
             resolution_uniform.update(queue);
         }
+    }
+}
+
+#[cfg(not(feature = "media"))]
+impl SpectrumAnalyzer {
+    pub fn new() -> Self {
+        Self {}
     }
 }

@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+#[cfg(feature = "media")]
 use crate::gst::video::VideoTextureManager;
 use crate::hdri::HdriMetadata;
 #[derive(Clone)]
@@ -178,6 +179,7 @@ impl ShaderControls {
     }
 
     /// Extract video info from a video texture manager
+    #[cfg(feature = "media")]
     pub fn get_video_info(
         using_video_texture: bool,
         video_manager: Option<&VideoTextureManager>,

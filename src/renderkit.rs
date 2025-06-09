@@ -1,9 +1,12 @@
 use std::time::Instant;
 use egui_wgpu::ScreenDescriptor;
 use egui::ViewportId;
+#[cfg(feature = "media")]
 use crate::gst::video::VideoTextureManager;
 use std::path::Path;
-use log::{warn, info, error};
+use log::{info, error};
+#[cfg(feature = "media")]
+use log::warn;
 use crate::spectrum::SpectrumAnalyzer;
 use crate::compute::ComputeShader;
 use crate::{Core,fps, Renderer, TextureManager, UniformProvider, UniformBinding,KeyInputHandler,ExportManager,ShaderControls,ControlsRequest,ResolutionUniform};
@@ -29,7 +32,9 @@ impl UniformProvider for TimeUniform {
 }
 pub struct RenderKit {
     pub renderer: Renderer,
+    #[cfg(feature = "media")]
     pub video_texture_manager: Option<VideoTextureManager>,
+    #[cfg(feature = "media")]
     pub using_video_texture: bool,
     pub texture_manager: Option<TextureManager>,
     pub egui_renderer: egui_wgpu::Renderer,
@@ -178,7 +183,9 @@ impl RenderKit {
 
         Self {
             renderer,
+            #[cfg(feature = "media")]
             video_texture_manager: None,
+            #[cfg(feature = "media")]
             using_video_texture: false,
             texture_manager: Some(texture_manager),
             egui_renderer,
@@ -345,8 +352,11 @@ impl RenderKit {
                         &self.texture_bind_group_layout,
                     );
                     self.texture_manager = Some(new_texture_manager);
-                    self.using_video_texture = false;
-                    self.video_texture_manager = None;
+                    #[cfg(feature = "media")]
+                    {
+                        self.using_video_texture = false;
+                        self.video_texture_manager = None;
+                    }
                     Ok(())
                 } else {
                     Err(anyhow::anyhow!("Failed to open image"))
@@ -366,10 +376,13 @@ impl RenderKit {
                 ) {
                     Ok((texture_manager, metadata)) => {
                         self.texture_manager = Some(texture_manager);
-                        self.using_video_texture = false;
+                        #[cfg(feature = "media")]
+                        {
+                            self.using_video_texture = false;
+                            self.video_texture_manager = None;
+                        }
                         self.using_hdri_texture = true;
                         self.hdri_metadata = Some(metadata);
-                        self.video_texture_manager = None;
                         Ok(())
                     },
                     Err(e) => {
@@ -378,6 +391,7 @@ impl RenderKit {
                     }
                 }
             },
+            #[cfg(feature = "media")]
             Some(ext) if ["mp4", "avi", "mkv", "mov", "webm"].contains(&ext.as_str()) => {
                 info!("Loading video: {:?}", path_ref);
                 match VideoTextureManager::new(
@@ -407,6 +421,7 @@ impl RenderKit {
             }
         }
     }
+    #[cfg(feature = "media")]
     pub fn update_video_texture(&mut self, core: &Core, queue: &wgpu::Queue) -> bool {
         if self.using_video_texture {
             if let Some(video_manager) = &mut self.video_texture_manager {
@@ -421,18 +436,21 @@ impl RenderKit {
         }
         false
     }
+    #[cfg(feature = "media")]
     pub fn play_video(&mut self) -> anyhow::Result<()> {
         if let Some(video_manager) = &mut self.video_texture_manager {
             video_manager.play()?;
         }
         Ok(())
     }
+    #[cfg(feature = "media")]
     pub fn pause_video(&mut self) -> anyhow::Result<()> {
         if let Some(video_manager) = &mut self.video_texture_manager {
             video_manager.pause()?;
         }
         Ok(())
     }
+    #[cfg(feature = "media")]
     pub fn seek_video(&mut self, position_seconds: f64) -> anyhow::Result<()> {
         if let Some(video_manager) = &mut self.video_texture_manager {
             let position = gstreamer::ClockTime::from_seconds(position_seconds as u64);
@@ -440,6 +458,8 @@ impl RenderKit {
         }
         Ok(())
     }
+    
+    #[cfg(feature = "media")]
     pub fn set_video_loop(&mut self, should_loop: bool) {
         if let Some(video_manager) = &mut self.video_texture_manager {
             video_manager.set_loop(should_loop);
@@ -496,6 +516,7 @@ impl RenderKit {
         }
         self.controls.apply_ui_request(request);
     }
+    #[cfg(feature = "media")]
     pub fn update_audio_spectrum(&mut self, queue: &wgpu::Queue) {
         self.spectrum_analyzer.update_spectrum(
             queue,
@@ -504,6 +525,7 @@ impl RenderKit {
             self.using_video_texture,
         );
     }
+    #[cfg(feature = "media")]
     pub fn handle_video_requests(&mut self, core: &Core, request: &ControlsRequest) {
         if let Some(path) = &request.load_media_path {
             if let Err(e) = self.load_media(core, path) {
@@ -661,6 +683,7 @@ impl RenderKit {
     }
 
     /// Get video information if a video texture is loaded
+    #[cfg(feature = "media")]
     pub fn get_video_info(&self) -> Option<(Option<f32>, f32, (u32, u32), Option<f32>, bool, bool, f64, bool)> {
         if self.using_video_texture {
             if let Some(vm) = &self.video_texture_manager {
