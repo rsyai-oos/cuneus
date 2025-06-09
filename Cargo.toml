@@ -22,13 +22,17 @@ env_logger = "0.11.6"
 pollster = "0.4.0"
 rfd = "0.15.1"
 notify = "7.0.0"
-gstreamer = "0.23.4"
-gstreamer-video = "0.23.4"
-gstreamer-app = "0.23.4"
-gstreamer-pbutils = "0.23.4"
+gstreamer = { version = "0.23.4", optional = true }
+gstreamer-video = { version = "0.23.4", optional = true }
+gstreamer-app = { version = "0.23.4", optional = true }
+gstreamer-pbutils = { version = "0.23.4", optional = true }
 anyhow = "1.0.96"
 log = "0.4.25"
 fontdue = "0.9.0"
+
+[features]
+default = ["media"]
+media = ["gstreamer", "gstreamer-video", "gstreamer-app", "gstreamer-pbutils"]
 
 [dev-dependencies]
 crossterm = "0.28.1"
