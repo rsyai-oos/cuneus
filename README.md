@@ -30,9 +30,10 @@ A tool for experimenting with WGSL shaders, it uses `wgpu` for rendering, `egui`
 #### Usage
 
 - If you want to try your own shaders, check out the [usage.md](usage.md).
+- **Optional Media Support**: GStreamer dependencies are optional - use `--no-default-features` for lightweight builds with pure GPU compute shaders.
 - **When using cuneus as a dependency** (via `cargo add`):
   - Add `bytemuck = { version = "1", features = ["derive"] }` to dependencies (derive macros can't be re-exported)
-  - Copy [build.rs](build.rs) to your project root to configure `GStreamer` paths
+  - Copy [build.rs](build.rs) to your project root to configure `GStreamer` paths (only needed for media features)
   - then simply use `use cuneus::prelude::*;`
 
 
