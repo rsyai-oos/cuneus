@@ -13,7 +13,19 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        shader: [asahi, buddhabrot, cnn, pathtracing, fft, gabor, lorenz, droste, fluid, galaxy, lich, mandelbulb, satan, sdvert, sinh, spiral, roto, orbits, dna, genuary2025_6, nebula, rorschach, poe2, voronoi, tree, matrix, gabornoise, scenecolor,audiovis,2dneuron,spiralchaos,cliffordcompute]
+        shader_config:
+          # Shaders that REQUIRE GStreamer (media features)
+          - group: "media"
+            features: ""
+            gstreamer_required: true
+            shaders: "audiovis,fluid,computecolors,droste,fft,gabornoise,matrix,pathtracing,scenecolor,spiral,voronoi"
+          
+          # Shaders that DON'T need GStreamer (pure GPU compute)
+          - group: "no-media" 
+            features: "--no-default-features"
+            gstreamer_required: false
+            shaders: "asahi,buddhabrot,cnn,gabor,lorenz,galaxy,lich,mandelbulb,satan,sdvert,sinh,roto,orbits,dna,genuary2025_6,nebula,rorschach,poe2,tree,2dneuron,spiralchaos,cliffordcompute"
+        
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
@@ -36,9 +48,9 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      # Install GStreamer for macOS
+      # Install GStreamer for macOS (only for media shaders)
       - name: Install macOS dependencies
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && matrix.shader_config.gstreamer_required
         run: |
           # Download and install official GStreamer packages
           GSTREAMER_VERSION="1.26.0"
@@ -53,9 +65,9 @@ jobs:
           echo "GST_PLUGIN_PATH=/Library/Frameworks/GStreamer.framework/Versions/1.0/lib/gstreamer-1.0" >> $GITHUB_ENV
           echo "DYLD_FALLBACK_LIBRARY_PATH=/Library/Frameworks/GStreamer.framework/Versions/1.0/lib" >> $GITHUB_ENV
 
-      # Install GStreamer for Linux
+      # Install GStreamer for Linux (only for media shaders)
       - name: Install Linux dependencies
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && matrix.shader_config.gstreamer_required
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -71,9 +83,9 @@ jobs:
             gstreamer1.0-plugins-bad \
             gstreamer1.0-plugins-ugly
 
-      # Install GStreamer for Windows
+      # Install GStreamer for Windows (only for media shaders)
       - name: Install Windows dependencies
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && matrix.shader_config.gstreamer_required
         shell: pwsh
         run: |
           Write-Host "Starting GStreamer installation process..."
@@ -135,66 +147,94 @@ jobs:
           "PKG_CONFIG_PATH=$expectedPath\lib\pkgconfig" | Out-File -FilePath $env:GITHUB_ENV -Append
           "PATH=$expectedPath\bin;$env:Path" | Out-File -FilePath $env:GITHUB_ENV -Append
 
-      # Build the binary
-      - name: Build binary
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --release --bin ${{ matrix.shader }}
-
-      # Create release directory structure and copy files
-      - name: Prepare release package
+      # Build all binaries for this shader group
+      - name: Build binaries
         shell: bash
         run: |
-          # Create directory structure
-          mkdir -p release/${{ matrix.shader }}/shaders
-          
-          # Copy the binary
-          cp "target/release/${{ matrix.shader }}${{ matrix.ext }}" "release/${{ matrix.shader }}/"
-          
-          # Copy shader files
-          cp shaders/${{ matrix.shader }}.wgsl release/${{ matrix.shader }}/shaders/
-          cp shaders/vertex.wgsl release/${{ matrix.shader }}/shaders/
-          
-          # Create a README file
-          echo "${{ matrix.shader }} Shader" > release/${{ matrix.shader }}/README.txt
-          echo "Requirements:" >> release/${{ matrix.shader }}/README.txt
-          echo "1. GStreamer 1.26.0 or later must be installed on your system." >> release/${{ matrix.shader }}/README.txt
-          echo "   Download from: https://gstreamer.freedesktop.org/download/" >> release/${{ matrix.shader }}/README.txt
-          echo "2. The 'shaders' directory must remain in the same folder as the executable." >> release/${{ matrix.shader }}/README.txt
-          
-          # Windows-specific: create .bat launcher
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            echo "@echo off" > release/${{ matrix.shader }}/run_${{ matrix.shader }}.bat
-            echo "if not exist shaders mkdir shaders" >> release/${{ matrix.shader }}/run_${{ matrix.shader }}.bat
-            echo "${{ matrix.shader }}.exe" >> release/${{ matrix.shader }}/run_${{ matrix.shader }}.bat
-          fi
+          echo "Building ${{ matrix.shader_config.group }} shaders with features: ${{ matrix.shader_config.features }}"
+          IFS=',' read -ra SHADERS <<< "${{ matrix.shader_config.shaders }}"
+          for shader in "${SHADERS[@]}"; do
+            echo "Building shader: $shader"
+            cargo build --release --bin "$shader" ${{ matrix.shader_config.features }}
+          done
 
-          # Create launcher script for Linux/MacOS
-          if [[ "${{ runner.os }}" != "Windows" ]]; then
-            echo '#!/bin/bash' > release/${{ matrix.shader }}/run_${{ matrix.shader }}.sh
-            echo 'mkdir -p shaders' >> release/${{ matrix.shader }}/run_${{ matrix.shader }}.sh
-            echo './${{ matrix.shader }}' >> release/${{ matrix.shader }}/run_${{ matrix.shader }}.sh
-            chmod +x release/${{ matrix.shader }}/run_${{ matrix.shader }}.sh
-          fi
+      # Create release packages for each shader in the group
+      - name: Prepare release packages
+        shell: bash
+        run: |
+          IFS=',' read -ra SHADERS <<< "${{ matrix.shader_config.shaders }}"
+          for shader in "${SHADERS[@]}"; do
+            echo "Packaging shader: $shader"
+            
+            # Create directory structure
+            mkdir -p "release/$shader/shaders"
+            
+            # Copy the binary
+            cp "target/release/$shader${{ matrix.ext }}" "release/$shader/"
+            
+            # Copy shader files
+            cp "shaders/$shader.wgsl" "release/$shader/shaders/"
+            cp "shaders/vertex.wgsl" "release/$shader/shaders/"
+            
+            # Create appropriate README based on shader group
+            echo "$shader Shader" > "release/$shader/README.txt"
+            echo "Requirements:" >> "release/$shader/README.txt"
+            
+            if [[ "${{ matrix.shader_config.gstreamer_required }}" == "true" ]]; then
+              echo "1. GStreamer 1.26.0 or later must be installed on your system." >> "release/$shader/README.txt"
+              echo "   Download from: https://gstreamer.freedesktop.org/download/" >> "release/$shader/README.txt"
+              echo "2. The 'shaders' directory must remain in the same folder as the executable." >> "release/$shader/README.txt"
+            else
+              echo "1. No additional dependencies required - just run the executable!" >> "release/$shader/README.txt"
+              echo "2. The 'shaders' directory must remain in the same folder as the executable." >> "release/$shader/README.txt"
+              echo "3. This is a lightweight build without media support." >> "release/$shader/README.txt"
+            fi
+            
+            # Windows-specific: create .bat launcher
+            if [[ "${{ runner.os }}" == "Windows" ]]; then
+              echo "@echo off" > "release/$shader/run_$shader.bat"
+              echo "if not exist shaders mkdir shaders" >> "release/$shader/run_$shader.bat"
+              echo "$shader.exe" >> "release/$shader/run_$shader.bat"
+            fi
 
-      # Create archive
-      - name: Create archive
+            # Create launcher script for Linux/MacOS
+            if [[ "${{ runner.os }}" != "Windows" ]]; then
+              echo '#!/bin/bash' > "release/$shader/run_$shader.sh"
+              echo 'mkdir -p shaders' >> "release/$shader/run_$shader.sh"
+              echo "./$shader" >> "release/$shader/run_$shader.sh"
+              chmod +x "release/$shader/run_$shader.sh"
+            fi
+          done
+
+      # Create archives for each shader
+      - name: Create archives
         shell: bash
         run: |
           cd release
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            7z a "../${{ matrix.shader }}-${{ matrix.target }}${{ matrix.archive_ext }}" ${{ matrix.shader }}
-          else
-            tar -czf "../${{ matrix.shader }}-${{ matrix.target }}${{ matrix.archive_ext }}" ${{ matrix.shader }}
-          fi
+          IFS=',' read -ra SHADERS <<< "${{ matrix.shader_config.shaders }}"
+          for shader in "${SHADERS[@]}"; do
+            echo "Creating archive for: $shader"
+            if [[ "${{ runner.os }}" == "Windows" ]]; then
+              7z a "../$shader-${{ matrix.target }}${{ matrix.archive_ext }}" "$shader"
+            else
+              tar -czf "../$shader-${{ matrix.target }}${{ matrix.archive_ext }}" "$shader"
+            fi
+          done
 
-      # Upload artifact
-      - name: Upload artifact
+      # Upload artifacts for each shader
+      - name: Upload artifacts
+        shell: bash
+        run: |
+          IFS=',' read -ra SHADERS <<< "${{ matrix.shader_config.shaders }}"
+          for shader in "${SHADERS[@]}"; do
+            echo "Uploading artifact for: $shader"
+          done
+          
+      - name: Upload artifacts to GitHub
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.shader }}-${{ matrix.target }}
-          path: ${{ matrix.shader }}-${{ matrix.target }}${{ matrix.archive_ext }}
+          name: ${{ matrix.shader_config.group }}-${{ matrix.target }}
+          path: "*-${{ matrix.target }}${{ matrix.archive_ext }}"
 
   release:
     needs: [build]

@@ -24,6 +24,7 @@ mod export;
 mod hot;
 mod controls;
 mod atomic;
+#[cfg(feature = "media")]
 pub mod gst;
 pub mod compute;
 mod spectrum;
@@ -55,7 +56,12 @@ pub mod prelude {
         RenderKit, ShaderControls, ExportManager, ShaderHotReload,
         TextureManager, Renderer, AtomicBuffer,
         KeyInputHandler, ControlsRequest, FontSystem, FontUniforms,
-        gst, save_frame, compute::create_bind_group_layout,compute::BindGroupLayoutType
+        save_frame, compute::create_bind_group_layout,compute::BindGroupLayoutType
+    };
+    
+    #[cfg(feature = "media")]
+    pub use crate::{
+        gst
     };
     
     pub use crate::wgpu;
