@@ -565,6 +565,8 @@ impl ShaderManager for MandelbulbShader {
             self.base.render_ui(core, |ctx| {
                 ctx.style_mut(|style| {
                     style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(0, 0, 0, 180);
+                    style.text_styles.get_mut(&egui::TextStyle::Body).unwrap().size = 11.0;
+                    style.text_styles.get_mut(&egui::TextStyle::Button).unwrap().size = 10.0;
                 });
 
                 egui::Window::new("Mandelbulb PathTracer")
@@ -572,13 +574,13 @@ impl ShaderManager for MandelbulbShader {
                     .resizable(true)
                     .default_width(350.0)
                     .show(ctx, |ui| {
-                        ui.label("Mouse Controls:");
                         ui.label("Left Click + Drag - Rotate bulb");
                         ui.label("Right: - Toggle mouse");
                         ui.separator();
                         
                         egui::CollapsingHeader::new("Camera&View")
                             .default_open(true)
+                            
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.zoom, 0.1..=5.0).text("Zoom")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.focal_length, 2.0..=20.0).text("Focal Length")).changed();
