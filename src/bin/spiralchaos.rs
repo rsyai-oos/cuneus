@@ -60,6 +60,10 @@ struct SpiralShader {
     
     // Hot reload for shader
     hot_reload: cuneus::ShaderHotReload,
+    
+    // Export timing control
+    export_time: Option<f32>,
+    export_frame: Option<u32>,
 }
 
 impl SpiralShader {
@@ -160,6 +164,9 @@ impl SpiralShader {
     }
     fn handle_export(&mut self, core: &Core) {
         if let Some((frame, time)) = self.base.export_manager.try_get_next_frame() {
+            self.export_time = Some(time);
+            self.export_frame = Some(frame);
+            
             if let Ok(data) = self.capture_frame(core, time) {
                 let settings = self.base.export_manager.settings();
                 if let Err(e) = cuneus::save_frame(data, frame, settings) {
@@ -167,6 +174,8 @@ impl SpiralShader {
                 }
             }
         } else {
+            self.export_time = None;
+            self.export_frame = None;
             self.base.export_manager.complete_export();
         }
     }
@@ -360,6 +369,8 @@ impl ShaderManager for SpiralShader {
             atomic_buffer,
             frame_count: 0,
             hot_reload,
+            export_time: None,
+            export_frame: None,
         };
         
         result.recreate_compute_resources(core);
@@ -438,6 +449,8 @@ impl ShaderManager for SpiralShader {
             self.base.render_ui(core, |ctx| {
                 ctx.style_mut(|style| {
                     style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(0, 0, 0, 180);
+                    style.text_styles.get_mut(&egui::TextStyle::Body).unwrap().size = 11.0;
+                    style.text_styles.get_mut(&egui::TextStyle::Button).unwrap().size = 10.0;
                 });
                 
                 egui::Window::new("Chaos Spiral")
@@ -515,15 +528,20 @@ impl ShaderManager for SpiralShader {
         }
         self.base.apply_control_request(controls_request);
         
-        let current_time = self.base.controls.get_time(&self.base.start_time);
+        let (current_time, current_frame) = if let (Some(export_time), Some(export_frame)) = (self.export_time, self.export_frame) {
+            (export_time, export_frame)
+        } else {
+            let current_time = self.base.controls.get_time(&self.base.start_time);
+            (current_time, self.frame_count)
+        };
         
         self.base.time_uniform.data.time = current_time;
-        self.base.time_uniform.data.frame = self.frame_count;
+        self.base.time_uniform.data.frame = current_frame;
         self.base.time_uniform.update(&core.queue);
         
         self.compute_time_uniform.data.time = current_time;
         self.compute_time_uniform.data.delta = 1.0/60.0;
-        self.compute_time_uniform.data.frame = self.frame_count;
+        self.compute_time_uniform.data.frame = current_frame;
         self.compute_time_uniform.update(&core.queue);
         
         if changed {
@@ -587,7 +605,10 @@ impl ShaderManager for SpiralShader {
         self.base.handle_render_output(core, &view, full_output, &mut encoder);
         core.queue.submit(Some(encoder.finish()));
         output.present();
-        self.frame_count = self.frame_count.wrapping_add(1);
+        
+        if self.export_time.is_none() {
+            self.frame_count = self.frame_count.wrapping_add(1);
+        }
         
         Ok(())
     }

@@ -25,7 +25,7 @@ pub struct ExportSettings {
     pub width: u32,
     pub height: u32,
     pub start_time: f32,
-    pub end_time: f32,
+    pub total_time: f32,
     pub fps: u32,
     pub is_exporting: bool,
 }
@@ -37,7 +37,7 @@ impl Default for ExportSettings {
             width: 1920,
             height: 1080,
             start_time: 0.0,
-            end_time: 5.0,
+            total_time: 5.0,
             fps: 60,
             is_exporting: false,
         }
@@ -48,7 +48,7 @@ pub struct ExportUiRequest {
     pub width: u32,
     pub height: u32,
     pub start_time: f32,
-    pub end_time: f32,
+    pub total_time: f32,
     pub fps: u32,
     pub path: PathBuf,
     pub is_exporting: bool,
@@ -59,7 +59,7 @@ pub struct ExportUiState {
     pub temp_width: u32,
     pub temp_height: u32,
     pub temp_start_time: f32,
-    pub temp_end_time: f32,
+    pub temp_total_time: f32,
     pub temp_fps: u32,
 }
 
@@ -76,7 +76,7 @@ struct TempExportState {
     width: u32,
     height: u32,
     start_time: f32,
-    end_time: f32,
+    total_time: f32,
     fps: u32,
     path: PathBuf,
 }
@@ -89,7 +89,7 @@ impl ExportManager {
             width: settings.width,
             height: settings.height,
             start_time: settings.start_time,
-            end_time: settings.end_time,
+            total_time: settings.total_time,
             fps: settings.fps,
             path: settings.export_path.clone(),
         };
@@ -106,7 +106,7 @@ impl ExportManager {
             width: self.temp_state.width,
             height: self.temp_state.height,
             start_time: self.temp_state.start_time,
-            end_time: self.temp_state.end_time,
+            total_time: self.temp_state.total_time,
             fps: self.temp_state.fps,
             path: self.temp_state.path.clone(),
             is_exporting: self.settings.is_exporting,
@@ -116,7 +116,7 @@ impl ExportManager {
         self.temp_state.width = request.width;
         self.temp_state.height = request.height;
         self.temp_state.start_time = request.start_time;
-        self.temp_state.end_time = request.end_time;
+        self.temp_state.total_time = request.total_time;
         self.temp_state.fps = request.fps;
         self.temp_state.path = request.path;
     }
@@ -146,7 +146,7 @@ impl ExportManager {
         self.settings.width = self.temp_state.width;
         self.settings.height = self.temp_state.height;
         self.settings.start_time = self.temp_state.start_time;
-        self.settings.end_time = self.temp_state.end_time;
+        self.settings.total_time = self.temp_state.total_time;
         self.settings.fps = self.temp_state.fps;
         self.settings.export_path = self.temp_state.path.clone();
         
@@ -156,7 +156,7 @@ impl ExportManager {
         let (tx, rx) = mpsc::channel();
 
         std::thread::spawn(move || {
-            let total_frames = ((settings.end_time - settings.start_time) * settings.fps as f32) as u32;
+            let total_frames = (settings.total_time * settings.fps as f32) as u32;
             
             for frame in 0..total_frames {
                 let time = settings.start_time + (frame as f32 / settings.fps as f32);
@@ -201,8 +201,8 @@ impl ExportManager {
                         .prefix("Start Time: ")
                         .speed(0.1));
                         
-                    ui.add(egui::DragValue::new(&mut request.end_time)
-                        .prefix("End Time: ")
+                    ui.add(egui::DragValue::new(&mut request.total_time)
+                        .prefix("Total Time: ")
                         .speed(0.1));
                         
                     ui.add(egui::DragValue::new(&mut request.fps)
