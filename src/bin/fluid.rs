@@ -72,6 +72,12 @@ impl FluidShader {
                 } else if let Some(ref default_texture) = self.base.texture_manager {
                     render_pass.set_bind_group(1, &default_texture.bind_group, &[]);
                 }
+            } else if self.base.using_webcam_texture {
+                if let Some(webcam_manager) = &self.base.webcam_texture_manager {
+                    render_pass.set_bind_group(1, &webcam_manager.texture_manager().bind_group, &[]);
+                } else if let Some(ref default_texture) = self.base.texture_manager {
+                    render_pass.set_bind_group(1, &default_texture.bind_group, &[]);
+                }
             } else if let Some(ref default_texture) = self.base.texture_manager {
                 render_pass.set_bind_group(1, &default_texture.bind_group, &[]);
             }
@@ -341,13 +347,22 @@ impl ShaderManager for FluidShader {
         // Extract video info before entering the closure to avoid borrow checker issues
         let using_video_texture = self.base.using_video_texture;
         let using_hdri_texture = self.base.using_hdri_texture;
+        let using_webcam_texture = self.base.using_webcam_texture;
         let video_info = self.base.get_video_info();
         let hdri_info = self.base.get_hdri_info();
+        let webcam_info = self.base.get_webcam_info();
         
         // Update video texture if one is loaded
-        if self.base.using_video_texture {
-            self.base.update_video_texture(core, &core.queue);
-        }
+        let _video_updated = if self.base.using_video_texture {
+            self.base.update_video_texture(core, &core.queue)
+        } else {
+            false
+        };
+        let _webcam_updated = if self.base.using_webcam_texture {
+            self.base.update_webcam_texture(core, &core.queue)
+        } else {
+            false
+        };
         controls_request.current_fps = Some(self.base.fps_tracker.fps());
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
@@ -362,6 +377,8 @@ impl ShaderManager for FluidShader {
                         video_info,
                         using_hdri_texture,
                         hdri_info,
+                        using_webcam_texture,
+                        webcam_info
                     );
                     
                     ui.separator();
@@ -399,6 +416,7 @@ impl ShaderManager for FluidShader {
         self.base.export_manager.apply_ui_request(export_request);
         self.base.apply_control_request(controls_request.clone());
         self.base.handle_video_requests(core, &controls_request);
+        self.base.handle_webcam_requests(core, &controls_request);
         self.base.handle_hdri_requests(core, &controls_request);
         
         let current_time = self.base.controls.get_time(&self.base.start_time);
@@ -446,12 +464,18 @@ impl ShaderManager for FluidShader {
                 // Source texture from feedback loop
                 render_pass.set_bind_group(0, &source_texture.bind_group, &[]);
                 
-                // Input texture - could be image, video, or default
+                // Input texture - could be image, video, webcam, or default
                 if let Some(ref input_texture) = self.input_texture {
                     render_pass.set_bind_group(1, &input_texture.bind_group, &[]);
                 } else if self.base.using_video_texture {
                     if let Some(video_manager) = &self.base.video_texture_manager {
                         render_pass.set_bind_group(1, &video_manager.texture_manager().bind_group, &[]);
+                    } else if let Some(ref default_texture) = self.base.texture_manager {
+                        render_pass.set_bind_group(1, &default_texture.bind_group, &[]);
+                    }
+                } else if self.base.using_webcam_texture {
+                    if let Some(webcam_manager) = &self.base.webcam_texture_manager {
+                        render_pass.set_bind_group(1, &webcam_manager.texture_manager().bind_group, &[]);
                     } else if let Some(ref default_texture) = self.base.texture_manager {
                         render_pass.set_bind_group(1, &default_texture.bind_group, &[]);
                     }
@@ -491,6 +515,12 @@ impl ShaderManager for FluidShader {
                 } else if self.base.using_video_texture {
                     if let Some(video_manager) = &self.base.video_texture_manager {
                         render_pass.set_bind_group(1, &video_manager.texture_manager().bind_group, &[]);
+                    } else if let Some(ref default_texture) = self.base.texture_manager {
+                        render_pass.set_bind_group(1, &default_texture.bind_group, &[]);
+                    }
+                } else if self.base.using_webcam_texture {
+                    if let Some(webcam_manager) = &self.base.webcam_texture_manager {
+                        render_pass.set_bind_group(1, &webcam_manager.texture_manager().bind_group, &[]);
                     } else if let Some(ref default_texture) = self.base.texture_manager {
                         render_pass.set_bind_group(1, &default_texture.bind_group, &[]);
                     }

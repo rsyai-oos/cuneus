@@ -28,6 +28,11 @@ pub struct ControlsRequest {
     // HDRI reqs
     pub hdri_exposure: Option<f32>,
     pub hdri_gamma: Option<f32>,
+
+    // Webcam reqs
+    pub start_webcam: bool,
+    pub stop_webcam: bool,
+    pub webcam_device_index: Option<u32>,
 }
 impl Default for ControlsRequest {
     fn default() -> Self {
@@ -68,6 +73,11 @@ impl Default for ControlsRequest {
             // HDRI-related stuff
             hdri_exposure: None,
             hdri_gamma: None,
+
+            // Webcam-related stuff
+            start_webcam: false,
+            stop_webcam: false,
+            webcam_device_index: None,
         }
     }
 }
@@ -157,6 +167,10 @@ impl ShaderControls {
 
             hdri_exposure: None,
             hdri_gamma: None,
+
+            start_webcam: false,
+            stop_webcam: false,
+            webcam_device_index: None,
         }
     }
     
@@ -211,12 +225,24 @@ impl ShaderControls {
         video_info: Option<VideoInfo>,
         using_hdri_texture: bool, 
        hdri_info: Option<HdriMetadata>,
+        using_webcam_texture: bool,
+        webcam_info: Option<(u32, u32)>,
     ) {
 
         ui.group(|ui| {
             ui.horizontal(|ui| {
                 ui.heading("Media");
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if using_webcam_texture {
+                        if ui.button("🔴 Stop Webcam").clicked() {
+                            request.stop_webcam = true;
+                        }
+                    } else {
+                        if ui.button("📹 Webcam").clicked() {
+                            request.start_webcam = true;
+                        }
+                    }
+                    
                     if ui.button("Load").clicked() {
                         if let Some(path) = rfd::FileDialog::new()
                             .add_filter("Media Files", &["png", "jpg", "jpeg", "mp4", "avi", "mkv", "webm", "mov"])
@@ -333,6 +359,17 @@ impl ShaderControls {
                     }
                 });
             }
+        if using_webcam_texture {
+            ui.collapsing("Webcam Settings", |ui| {
+                if let Some((width, height)) = webcam_info {
+                    ui.label(format!("Resolution: {}x{}", width, height));
+                    ui.label("Type: Live Camera Feed");
+                    ui.label("Status: Active");
+                } else {
+                    ui.label("Webcam information not available");
+                }
+            });
+        }
         });
     }
 

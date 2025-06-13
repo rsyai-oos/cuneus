@@ -1,5 +1,7 @@
 #[cfg(feature = "media")]
 pub mod video;
+#[cfg(feature = "media")]
+pub mod webcam;
 
 use log::info;
 
