@@ -3,6 +3,8 @@ use egui_wgpu::ScreenDescriptor;
 use egui::ViewportId;
 #[cfg(feature = "media")]
 use crate::gst::video::VideoTextureManager;
+#[cfg(feature = "media")]
+use crate::gst::webcam::WebcamTextureManager;
 use std::path::Path;
 use log::{info, error};
 #[cfg(feature = "media")]
@@ -36,6 +38,10 @@ pub struct RenderKit {
     pub video_texture_manager: Option<VideoTextureManager>,
     #[cfg(feature = "media")]
     pub using_video_texture: bool,
+    #[cfg(feature = "media")]
+    pub webcam_texture_manager: Option<WebcamTextureManager>,
+    #[cfg(feature = "media")]
+    pub using_webcam_texture: bool,
     pub texture_manager: Option<TextureManager>,
     pub egui_renderer: egui_wgpu::Renderer,
     pub egui_state: egui_winit::State,
@@ -187,6 +193,10 @@ impl RenderKit {
             video_texture_manager: None,
             #[cfg(feature = "media")]
             using_video_texture: false,
+            #[cfg(feature = "media")]
+            webcam_texture_manager: None,
+            #[cfg(feature = "media")]
+            using_webcam_texture: false,
             texture_manager: Some(texture_manager),
             egui_renderer,
             egui_state,
@@ -356,6 +366,8 @@ impl RenderKit {
                     {
                         self.using_video_texture = false;
                         self.video_texture_manager = None;
+                        self.using_webcam_texture = false;
+                        self.webcam_texture_manager = None;
                     }
                     Ok(())
                 } else {
@@ -380,6 +392,8 @@ impl RenderKit {
                         {
                             self.using_video_texture = false;
                             self.video_texture_manager = None;
+                            self.using_webcam_texture = false;
+                            self.webcam_texture_manager = None;
                         }
                         self.using_hdri_texture = true;
                         self.hdri_metadata = Some(metadata);
@@ -403,6 +417,8 @@ impl RenderKit {
                     Ok(video_manager) => {
                         self.video_texture_manager = Some(video_manager);
                         self.using_video_texture = true;
+                        self.using_webcam_texture = false;
+                        self.webcam_texture_manager = None;
                         if let Err(e) = self.play_video() {
                             warn!("Failed to play video: {}", e);
                         }
@@ -465,6 +481,55 @@ impl RenderKit {
             video_manager.set_loop(should_loop);
         }
     }
+    
+    #[cfg(feature = "media")]
+    pub fn start_webcam(&mut self, core: &Core, device_index: Option<u32>) -> anyhow::Result<()> {
+        info!("Starting webcam");
+        let webcam_manager = WebcamTextureManager::new(
+            &core.device,
+            &core.queue,
+            &self.texture_bind_group_layout,
+            device_index,
+        )?;
+        
+        let mut manager = webcam_manager;
+        manager.start()?;
+        
+        self.webcam_texture_manager = Some(manager);
+        self.using_webcam_texture = true;
+        self.using_video_texture = false;
+        self.video_texture_manager = None;
+        self.using_hdri_texture = false;
+        
+        Ok(())
+    }
+    
+    #[cfg(feature = "media")]
+    pub fn stop_webcam(&mut self) -> anyhow::Result<()> {
+        info!("Stopping webcam");
+        if let Some(webcam_manager) = &mut self.webcam_texture_manager {
+            webcam_manager.stop()?;
+        }
+        self.using_webcam_texture = false;
+        self.webcam_texture_manager = None;
+        Ok(())
+    }
+    
+    #[cfg(feature = "media")]
+    pub fn update_webcam_texture(&mut self, core: &Core, queue: &wgpu::Queue) -> bool {
+        if self.using_webcam_texture {
+            if let Some(webcam_manager) = &mut self.webcam_texture_manager {
+                if let Ok(updated) = webcam_manager.update_texture(
+                    &core.device,
+                    queue,
+                    &self.texture_bind_group_layout
+                ) {
+                    return updated;
+                }
+            }
+        }
+        false
+    }
     pub fn load_image(&mut self, core: &Core, path: std::path::PathBuf) {
         if let Ok(img) = image::open(path) {
             let rgba_image = img.into_rgba8();
@@ -475,6 +540,13 @@ impl RenderKit {
                 &self.texture_bind_group_layout,
             );
             self.texture_manager = Some(new_texture_manager);
+            #[cfg(feature = "media")]
+            {
+                self.using_video_texture = false;
+                self.video_texture_manager = None;
+                self.using_webcam_texture = false;
+                self.webcam_texture_manager = None;
+            }
         }
     }
     pub fn create_capture_texture(
@@ -569,6 +641,21 @@ impl RenderKit {
         if request.toggle_mute {
             if let Some(vm) = &mut self.video_texture_manager {
                 let _ = vm.toggle_mute();
+            }
+        }
+    }
+    
+    #[cfg(feature = "media")]
+    pub fn handle_webcam_requests(&mut self, core: &Core, request: &ControlsRequest) {
+        if request.start_webcam {
+            if let Err(e) = self.start_webcam(core, request.webcam_device_index) {
+                error!("Failed to start webcam: {}", e);
+            }
+        }
+        
+        if request.stop_webcam {
+            if let Err(e) = self.stop_webcam() {
+                error!("Failed to stop webcam: {}", e);
             }
         }
     }
@@ -697,6 +784,19 @@ impl RenderKit {
                     vm.volume(),
                     vm.is_muted()
                 ))
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    }
+    
+    #[cfg(feature = "media")]
+    pub fn get_webcam_info(&self) -> Option<(u32, u32)> {
+        if self.using_webcam_texture {
+            if let Some(wm) = &self.webcam_texture_manager {
+                Some(wm.dimensions())
             } else {
                 None
             }
