@@ -260,6 +260,17 @@ impl PathTracingShader {
             } else {
                 panic!("No texture available for background");
             }
+        } else if self.base.using_webcam_texture {
+            if let Some(ref webcam_manager) = self.base.webcam_texture_manager {
+                let texture_manager = webcam_manager.texture_manager();
+                background_view = &texture_manager.view;
+                background_sampler = &texture_manager.sampler;
+            } else if let Some(ref texture_manager) = self.base.texture_manager {
+                background_view = &texture_manager.view;
+                background_sampler = &texture_manager.sampler;
+            } else {
+                panic!("No texture available for background");
+            }
         } else if let Some(ref texture_manager) = self.base.texture_manager {
             background_view = &texture_manager.view;
             background_sampler = &texture_manager.sampler;
@@ -647,10 +658,18 @@ impl ShaderManager for PathTracingShader {
             self.should_reset_accumulation = true;
         }
         
-        if self.base.using_video_texture {
-            if self.base.update_video_texture(core, &core.queue) {
-                self.recreate_compute_resources(core);
-            }
+        let video_updated = if self.base.using_video_texture {
+            self.base.update_video_texture(core, &core.queue)
+        } else {
+            false
+        };
+        let webcam_updated = if self.base.using_webcam_texture {
+            self.base.update_webcam_texture(core, &core.queue)
+        } else {
+            false
+        };
+        if video_updated || webcam_updated {
+            self.recreate_compute_resources(core);
         }
         
         if self.base.export_manager.is_exporting() {
@@ -690,8 +709,10 @@ impl ShaderManager for PathTracingShader {
         
         let using_video_texture = self.base.using_video_texture;
         let using_hdri_texture = self.base.using_hdri_texture;
+        let using_webcam_texture = self.base.using_webcam_texture;
         let video_info = self.base.get_video_info();
         let hdri_info = self.base.get_hdri_info();
+        let webcam_info = self.base.get_webcam_info();
         
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
@@ -717,7 +738,9 @@ impl ShaderManager for PathTracingShader {
                             using_video_texture,
                             video_info,
                             using_hdri_texture,
-                            hdri_info
+                            hdri_info,
+                            using_webcam_texture,
+                            webcam_info
                         );
                         ui.separator();
                         
@@ -780,7 +803,8 @@ impl ShaderManager for PathTracingShader {
         let was_media_loaded = controls_request.load_media_path.is_some();
         self.base.apply_control_request(controls_request.clone());
         self.base.handle_video_requests(core, &controls_request);
-        if was_media_loaded {
+        self.base.handle_webcam_requests(core, &controls_request);
+        if was_media_loaded || controls_request.start_webcam {
             self.recreate_compute_resources(core);
         }
         if self.base.handle_hdri_requests(core, &controls_request) {

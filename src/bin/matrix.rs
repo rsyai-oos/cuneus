@@ -79,6 +79,10 @@ impl MatrixShader {
                 if let Some(video_manager) = &self.base.video_texture_manager {
                     render_pass.set_bind_group(0, &video_manager.texture_manager().bind_group, &[]);
                 }
+            } else if self.base.using_webcam_texture {
+                if let Some(webcam_manager) = &self.base.webcam_texture_manager {
+                    render_pass.set_bind_group(0, &webcam_manager.texture_manager().bind_group, &[]);
+                }
             } else if let Some(texture_manager) = &self.base.texture_manager {
                 render_pass.set_bind_group(0, &texture_manager.bind_group, &[]);
             }
@@ -292,9 +296,16 @@ impl ShaderManager for MatrixShader {
     fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {
         let output = core.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        if self.base.using_video_texture {
-            self.base.update_video_texture(core, &core.queue);
-        }
+        let _video_updated = if self.base.using_video_texture {
+            self.base.update_video_texture(core, &core.queue)
+        } else {
+            false
+        };
+        let _webcam_updated = if self.base.using_webcam_texture {
+            self.base.update_webcam_texture(core, &core.queue)
+        } else {
+            false
+        };
         let mut params = self.params_uniform.data;
         let mut changed = false;
         let mut should_start_export = false;
@@ -305,8 +316,10 @@ impl ShaderManager for MatrixShader {
         );
         let using_video_texture = self.base.using_video_texture;
         let using_hdri_texture = self.base.using_hdri_texture;
+        let using_webcam_texture = self.base.using_webcam_texture;
         let video_info = self.base.get_video_info();
         let hdri_info = self.base.get_hdri_info();
+        let webcam_info = self.base.get_webcam_info();
         controls_request.current_fps = Some(self.base.fps_tracker.fps());
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
@@ -324,6 +337,8 @@ impl ShaderManager for MatrixShader {
                                 video_info,
                                 using_hdri_texture,
                                 hdri_info,
+                                using_webcam_texture,
+                                webcam_info
                             );
                         });
     
@@ -378,6 +393,7 @@ impl ShaderManager for MatrixShader {
         self.base.export_manager.apply_ui_request(export_request);
         self.base.apply_control_request(controls_request.clone());
         self.base.handle_video_requests(core, &controls_request);
+        self.base.handle_webcam_requests(core, &controls_request);
         self.base.handle_hdri_requests(core, &controls_request);
         
         let current_time = self.base.controls.get_time(&self.base.start_time);
@@ -417,6 +433,10 @@ impl ShaderManager for MatrixShader {
             if self.base.using_video_texture {
                 if let Some(video_manager) = &self.base.video_texture_manager {
                     render_pass.set_bind_group(0, &video_manager.texture_manager().bind_group, &[]);
+                }
+            } else if self.base.using_webcam_texture {
+                if let Some(webcam_manager) = &self.base.webcam_texture_manager {
+                    render_pass.set_bind_group(0, &webcam_manager.texture_manager().bind_group, &[]);
                 }
             } else if let Some(texture_manager) = &self.base.texture_manager {
                 render_pass.set_bind_group(0, &texture_manager.bind_group, &[]);

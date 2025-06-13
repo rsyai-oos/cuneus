@@ -73,6 +73,18 @@ impl ColorProjection {
                 // This should never happen as we always have a default texture
                 panic!("No texture available for compute shader input");
             }
+        } else if self.base.using_webcam_texture {
+            if let Some(ref webcam_manager) = self.base.webcam_texture_manager {
+                let texture_manager = webcam_manager.texture_manager();
+                input_texture_view = &texture_manager.view;
+                input_sampler = &texture_manager.sampler;
+            } else if let Some(ref texture_manager) = self.base.texture_manager {
+                input_texture_view = &texture_manager.view;
+                input_sampler = &texture_manager.sampler;
+            } else {
+                // This should never happen as we always have a default texture
+                panic!("No texture available for compute shader input");
+            }
         } else if let Some(ref texture_manager) = self.base.texture_manager {
             input_texture_view = &texture_manager.view;
             input_sampler = &texture_manager.sampler;
@@ -494,7 +506,12 @@ impl ShaderManager for ColorProjection {
         } else {
             false
         };
-        if video_updated {
+        let webcam_updated = if self.base.using_webcam_texture {
+            self.base.update_webcam_texture(core, &core.queue)
+        } else {
+            false
+        };
+        if video_updated || webcam_updated {
             self.recreate_compute_resources(core);
         }
         
@@ -530,8 +547,10 @@ impl ShaderManager for ColorProjection {
         // Extract video info before entering the closure
         let using_video_texture = self.base.using_video_texture;
         let using_hdri_texture = self.base.using_hdri_texture;
+        let using_webcam_texture = self.base.using_webcam_texture;
         let video_info = self.base.get_video_info();
         let hdri_info = self.base.get_hdri_info();
+        let webcam_info = self.base.get_webcam_info();
         
         // Render UI
         controls_request.current_fps = Some(self.base.fps_tracker.fps());
@@ -552,7 +571,9 @@ impl ShaderManager for ColorProjection {
                         using_video_texture,
                         video_info,
                         using_hdri_texture,
-                        hdri_info
+                        hdri_info,
+                        using_webcam_texture,
+                        webcam_info
                     );
                         ui.separator();
                         
@@ -605,7 +626,8 @@ impl ShaderManager for ColorProjection {
         }
         self.base.apply_control_request(controls_request.clone());
         self.base.handle_video_requests(core, &controls_request);
-        if controls_request.load_media_path.is_some() {
+        self.base.handle_webcam_requests(core, &controls_request);
+        if controls_request.load_media_path.is_some() || controls_request.start_webcam {
             self.recreate_compute_resources(core);
         }
         if self.base.handle_hdri_requests(core, &controls_request) {
@@ -669,6 +691,18 @@ impl ShaderManager for ColorProjection {
             let input_dimensions = if self.base.using_video_texture {
                 if let Some(ref vm) = self.base.video_texture_manager {
                     let (w, h) = vm.dimensions();
+                    (w.div_ceil(16), h.div_ceil(16))
+                } else if let Some(ref tm) = self.base.texture_manager {
+                    let dims = wgpu::TextureFormat::Rgba8UnormSrgb.block_dimensions();
+                    let w = tm.texture.width() / dims.0;
+                    let h = tm.texture.height() / dims.1;
+                    (w.div_ceil(16), h.div_ceil(16))
+                } else {
+                    (width, height)
+                }
+            } else if self.base.using_webcam_texture {
+                if let Some(ref wm) = self.base.webcam_texture_manager {
+                    let (w, h) = wm.dimensions();
                     (w.div_ceil(16), h.div_ceil(16))
                 } else if let Some(ref tm) = self.base.texture_manager {
                     let dims = wgpu::TextureFormat::Rgba8UnormSrgb.block_dimensions();

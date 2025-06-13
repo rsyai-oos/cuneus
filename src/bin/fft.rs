@@ -82,6 +82,17 @@ impl FFTShader {
             } else {
                 panic!("No texture available for compute shader input");
             }
+        } else if self.base.using_webcam_texture {
+            if let Some(ref webcam_manager) = self.base.webcam_texture_manager {
+                let texture_manager = webcam_manager.texture_manager();
+                input_texture_view = &texture_manager.view;
+                input_sampler = &texture_manager.sampler;
+            } else if let Some(ref texture_manager) = self.base.texture_manager {
+                input_texture_view = &texture_manager.view;
+                input_sampler = &texture_manager.sampler;
+            } else {
+                panic!("No texture available for compute shader input");
+            }
         } else if let Some(ref texture_manager) = self.base.texture_manager {
             input_texture_view = &texture_manager.view;
             input_sampler = &texture_manager.sampler;
@@ -618,8 +629,13 @@ impl ShaderManager for FFTShader {
         } else {
             false
         };
+        let webcam_updated = if self.base.using_webcam_texture {
+            self.base.update_webcam_texture(core, &core.queue)
+        } else {
+            false
+        };
         
-        if video_updated {
+        if video_updated || webcam_updated {
             self.recreate_compute_resources(core);
         }
         
@@ -654,8 +670,10 @@ impl ShaderManager for FFTShader {
 
         let using_video_texture = self.base.using_video_texture;
         let using_hdri_texture = self.base.using_hdri_texture;
+        let using_webcam_texture = self.base.using_webcam_texture;
         let video_info = self.base.get_video_info();
         let hdri_info = self.base.get_hdri_info();
+        let webcam_info = self.base.get_webcam_info();
         
         controls_request.current_fps = Some(self.base.fps_tracker.fps());
         let full_output = if self.base.key_handler.show_ui {
@@ -677,6 +695,8 @@ impl ShaderManager for FFTShader {
                             video_info,
                             using_hdri_texture,
                             hdri_info,
+                            using_webcam_texture,
+                            webcam_info
                         );
                         
                         ui.separator();
@@ -753,6 +773,7 @@ impl ShaderManager for FFTShader {
         }
         self.base.apply_control_request(controls_request.clone());
         self.base.handle_video_requests(core, &controls_request);
+        self.base.handle_webcam_requests(core, &controls_request);
         if controls_request.load_media_path.is_some() {
             self.recreate_compute_resources(core);
             self.should_initialize = true;
