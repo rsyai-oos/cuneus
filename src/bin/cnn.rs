@@ -989,7 +989,7 @@ let full_output = if self.base.key_handler.show_ui {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
-    let (app, event_loop) = cuneus::ShaderApp::new("CNN Digit Recognizer - Full Implementation", 1200, 800);
+    let (app, event_loop) = cuneus::ShaderApp::new("CNN Digit Recognizer", 800, 600);
     
     app.run(event_loop, |core| {
         CNNDigitRecognizer::init(core)
