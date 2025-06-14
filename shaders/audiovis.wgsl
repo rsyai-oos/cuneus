@@ -9,7 +9,7 @@
 struct ResolutionUniform {
     dimensions: vec2<f32>,
     _padding: vec2<f32>,
-    audio_data: array<vec4<f32>, 32>,  // 128 processed bands
+    audio_data: array<vec4<f32>, 32>,  // for 64 bars, We will use 16
     bpm: f32,
 };
 struct TimeUniform {
@@ -28,11 +28,11 @@ struct Params {
 
 // gAV: get audio value at any frequency (0-1 range), notice how we use audio_data array to get audio data from rust side
 fn gAV(f: f32) -> f32 {
-    let idx = f * 128.0;
+    let idx = f * 64.0;
     let i = u32(idx);
     let fp = idx - f32(i);
     
-    if (i >= 128u) { return 0.0; }
+    if (i >= 64u) { return 0.0; }
     
     let vi = i / 4u;
     let vc = i % 4u;
@@ -43,7 +43,7 @@ fn gAV(f: f32) -> f32 {
     else if (vc == 2u) { v1 = u_resolution.audio_data[vi].z; }
     else { v1 = u_resolution.audio_data[vi].w; }
     
-    if (i >= 127u) { return v1; }
+    if (i >= 63u) { return v1; }
     
     let ni = i + 1u;
     let nvi = ni / 4u;
@@ -174,10 +174,10 @@ fn fs_main(@builtin(position) p: vec4<f32>, @location(0) tc: vec2<f32>) -> @loca
     var fc = vec3<f32>(0.005, 0.005, 0.01);
     fc += sE(tc, t, 0.5 + tE * 0.5); 
     
-    // Bar visualization parameters
+    // Bar visualization
     let eB = 0.15;  // eq bottom
     let eH = 0.7;   // eq height
-    let bW = 1.0 / 130.0;  // band width
+    let bW = 1.0 / 66.0;  // band width
     let bS = bW * 0.3;  // band spacing
     
 
@@ -185,9 +185,9 @@ fn fs_main(@builtin(position) p: vec4<f32>, @location(0) tc: vec2<f32>) -> @loca
     let rD = 0.1;  // reflection depth
     
     // Draw frequency bars
-    for (var i = 0; i < 128; i++) {
+    for (var i = 0; i < 64; i++) {
         let bX = (f32(i) + 1.0) * bW;  // band X position
-        let bA = gAV(f32(i) / 128.0);  // band audio value
+        let bA = gAV(f32(i) / 64.0);  // band audio value
         
         let bH = bA * eH;  // bar height
         let bB = 1.0 - eB - bH;  // bar bottom
@@ -202,7 +202,7 @@ fn fs_main(@builtin(position) p: vec4<f32>, @location(0) tc: vec2<f32>) -> @loca
         
         // Draw bar
         if (inX && inY) {
-            let fT = f32(i) / 128.0;  // frequency factor
+            let fT = f32(i) / 64.0;  // frequency factor
             let hT = (bT - tc.y) / max(bH, 0.001);  // height factor
             
             let tE = smoothstep(0.5, 0.0, length(vec2<f32>(
@@ -219,7 +219,7 @@ fn fs_main(@builtin(position) p: vec4<f32>, @location(0) tc: vec2<f32>) -> @loca
         // Outer glow
         else if (eD < 0.01 && ((tc.x >= bX - 0.01 && tc.x < bX + bW - bS + 0.01) && 
                 (tc.y <= bT + 0.01 && tc.y >= bB - 0.01))) {
-            let fT = f32(i) / 128.0;
+            let fT = f32(i) / 64.0;
             let gS = smoothstep(0.01, 0.0, eD) * bA;
             fc += hsv2rgb(fT, 0.9, 0.9) * gS * 0.5;
         }
@@ -227,7 +227,7 @@ fn fs_main(@builtin(position) p: vec4<f32>, @location(0) tc: vec2<f32>) -> @loca
         if (inX && tc.y > rF && tc.y < rF + rD) {
             let rDist = (tc.y - rF) / rD;
             let rInt = (1.0 - rDist) * 3.2 * bA;
-            let rCol = hsv2rgb(f32(i) / 128.0, 0.9, 0.8) * rInt;
+            let rCol = hsv2rgb(f32(i) / 64.0, 0.9, 0.8) * rInt;
             fc = mix(fc, rCol, smoothstep(rD, 0.0, tc.y - rF) * 0.5);
         }
     }

@@ -51,11 +51,11 @@ impl SpectrumAnalyzer {
                         // Highly sensitive threshold for detecting subtle high frequencies
                         let threshold: f32 = -60.0;
                         
-                        // Process enhanced audio data with accurate representation
-                        for i in 0..128.min(bands) {
-                            let band_percent = i as f32 / 128.0;
+                        // Process only first 64 bands (note that, we actually have 128 but its expensiive)
+                        for i in 0..64 {
+                            let band_percent = i as f32 / 64.0;
                             // Map to source index with slight emphasis on higher frequencies
-                            let source_idx = (band_percent * (0.8 + band_percent * 0.2) * bands as f32) as usize;
+                            let source_idx = (band_percent * (bands as f32 / 2.0)) as usize;
                             // Use narrow width for all frequencies for accuracy
                             let width = 1;
                             let end_idx = (source_idx + width).min(bands);
@@ -128,7 +128,7 @@ impl SpectrumAnalyzer {
                         
                         // Beat detection with balanced boost across frequency spectrum
                         let mut bass_energy: f32 = 0.0;
-                        let bass_bands = 128 / 16;
+                        let bass_bands = 64 / 16;
                         for i in 0..(bass_bands / 4) {
                             for j in 0..4 {
                                 bass_energy += resolution_uniform.data.audio_data[i][j];
@@ -139,13 +139,13 @@ impl SpectrumAnalyzer {
                         // If we detect a beat, provide progressive boost to mid/high frequencies
                         if bass_energy > 0.5 {
                             // First quarter - bass 
-                            let q1 = 32 / 4;
+                            let q1 = 16 / 4;
                             // Second quarter - low-mids
-                            let q2 = 32 / 2;
+                            let q2 = 16 / 2;
                             // Third quarter - upper-mids
-                            let q3 = 3 * 32 / 4;
+                            let q3 = 3 * 16 / 4;
                             
-                            for i in 0..32 {
+                            for i in 0..16 {
                                 for j in 0..4 {
                                     if i < q1 {
                                         // No boost for bass (prevent dominance)
