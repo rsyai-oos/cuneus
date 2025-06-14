@@ -802,8 +802,8 @@ let full_output = if self.base.key_handler.show_ui {
                     .show(ui, |ui| {
                         changed |= ui.add(egui::Slider::new(&mut params.canvas_size, 0.3..=0.8).text("Canvas Size")).changed();
                         changed |= ui.add(egui::Slider::new(&mut params.brush_size, 0.001..=0.015).text("Brush Size")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.canvas_offset_x, 0.0..=0.5).text("Canvas X Offset")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.canvas_offset_y, 0.0..=0.5).text("Canvas Y Offset")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.canvas_offset_x, 0.0..=0.5).text("Canvas X")).changed();
+                        changed |= ui.add(egui::Slider::new(&mut params.canvas_offset_y, 0.0..=0.5).text("Canvas Y")).changed();
                         
                         if ui.button("Clear Canvas").clicked() {
                             params.clear_canvas = 1;
