@@ -8,18 +8,13 @@ Note: Please don't be surprised to see that some Uniforms are common both in “
 ## Quick Start
 
 1. Copy one of the template files from `src/bin/` that best matches your needs:
-   - `spiral.rs`: Simple single-pass shader with texture support
-   - `fluid.rs`: Multi-pass shader with texture support
-   - `attractor.rs`: Three-pass rendering example
-   - `xmas.rs`: Single pass with extensive parameter controls
-   - `audiovis.rs` Audio visualizer example to show how you can use spectrum/bpm data from rust.
-  
-if you want 4 passes or more the logic is exactly the same. 
+    - compute.rs is simply debug screen, you can start with here.
+
 
 2. Rename and modify the copied file to create your shader
 3. Focus on writing your WGSL shader code :-)
 
-## GStreamer Requirement for Video Textures
+## GStreamer Requirement for Video/Camera Textures
 
 Cuneus supports using Videos as textures, which requires GStreamer bins to be installed on your system.
 
@@ -48,7 +43,6 @@ This template includes:
 3. Basic render pipeline
 4. WGSL shader code
 
-I created this by completely copying and pasting xmas.rs, and I could only focus on my shader.
 
 ```rust
 // 1. Required imports
