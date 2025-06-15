@@ -1,204 +1,258 @@
-// Enes Altun, 2025, MIT License
-// heavily inspired from https://www.shadertoy.com/view/MslGWN  
-
+// MIT License, by Pablo Roman Andrioli aka "Kali", 2013
+// Shadertoy: https://www.shadertoy.com/view/XlfGRj 
 struct TimeUniform {
     time: f32,
+    delta: f32,
+    frame: u32,
+    _padding: u32,
 };
+@group(0) @binding(0) var<uniform> time_data: TimeUniform;
 
-struct ResolutionUniform {
-    dimensions: vec2<f32>,
-    _padding: vec2<f32>,
-};
-
-struct Params {
-    zoom_base: f32,      
-    space_distort_x: f32,
-    space_distort_y: f32,
-    space_distort_z: f32,
+struct NebulaParams {
+    iterations: i32,
+    formuparam: f32,
+    volsteps: i32,
+    stepsize: f32,
+    zoom: f32,
+    tile: f32,
+    speed: f32,
+    brightness: f32,
+    darkmatter: f32,
+    distfading: f32,
+    saturation: f32,
+    n_boxes: f32,
+    rotation: i32,
+    depth: f32,
+    color_mode: i32,
+    _padding1: f32,
     
-    zoom_delay: f32,
-    zoom_speed: f32,
-    max_zoom: f32,
-    min_zoom: f32,
+    rotation_x: f32,
+    rotation_y: f32,
+    click_state: i32,
+    scale: f32,
     
-    noise_scale: f32,
+    dof_amount: f32,
+    dof_focal_dist: f32,
+    exposure: f32,
+    gamma: f32,
+    
+    color1_r: f32,
+    color1_g: f32,
+    color1_b: f32,
+    color2_r: f32,
+    color2_g: f32,
+    color2_b: f32,
+    
     time_scale: f32,
-    _pad1: vec2<f32>,
     
-    disk_color: vec4<f32>,
+    spiral_mode: i32,
+    spiral_strength: f32,
+    spiral_speed: f32,
+    visual_mode: i32,
+    _padding2: f32,
+    _padding3: f32,
+}
+@group(1) @binding(0) var<uniform> params: NebulaParams;
+
+@group(2) @binding(0) var output: texture_storage_2d<rgba16float, write>;
+@group(3) @binding(0) var<storage, read_write> atomic_buffer: array<atomic<u32>>;
+
+const pi = 3.14159265359;
+
+fn rot(a: f32) -> mat2x2<f32> {
+    let s = sin(a);
+    let c = cos(a);
+    return mat2x2<f32>(c, -s, s, c);
 }
 
-@group(0) @binding(0) var<uniform> u_time: TimeUniform;
-@group(1) @binding(0) var<uniform> u_resolution: ResolutionUniform;
-@group(2) @binding(0) var<uniform> params: Params;
-
-fn mod289_f32(x: f32) -> f32 {
-    return x - floor(x * (1.0 / 289.0)) * 289.0;
+fn sdBox(p: vec2<f32>, b: vec2<f32>) -> f32 {
+    let d = abs(p) - b;
+    return length(max(d, vec2<f32>(0.0))) + min(max(d.x, d.y), 0.0);
 }
 
-fn mod289_vec4(x: vec4<f32>) -> vec4<f32> {
-    return x - floor(x * (1.0 / 289.0)) * 289.0;
-}
-
-fn perm(x: vec4<f32>) -> vec4<f32> {
-    return mod289_vec4(((x * 34.0) + 1.0) * x);
-}
-
-fn noise(p: vec3<f32>) -> f32 {
-    let a = floor(p);
-    let d = p - a;
-    let d2 = d * d * (3.0 - 2.0 * d);
+fn periphery(p: vec2<f32>, s: f32, time: f32) -> f32 {
+    var per = 0.0;
     
-    let b = a.xxyy + vec4<f32>(0.0, 1.0, 0.0, 1.0);
-    let k1 = perm(b.xyxy);
-    let k2 = perm(k1.xyxy + b.zzww);
-    
-    let c = k2 + a.zzzz;
-    let k3 = perm(c);
-    let k4 = perm(c + 1.0);
-    
-    let o1 = fract(k3 * (1.0 / 41.0));
-    let o2 = fract(k4 * (1.0 / 41.0));
-    
-    let o3 = o2 * d2.z + o1 * (1.0 - d2.z);
-    let o4 = o3.yw * d2.x + o3.xz * (1.0 - d2.x);
-    
-    return o4.y * d2.y + o4.x * (1.0 - d2.y);
-}
-
-fn rnd3(co: vec2<f32>) -> vec3<f32> {
-    let a = fract(cos(co.x * 8.3e-3 + co.y) * vec3<f32>(1.3e5, 4.7e5, 2.9e5));
-    let b = fract(sin(co.x * 0.3e-3 + co.y) * vec3<f32>(8.1e5, 1.0e5, 0.1e5));
-    return mix(a, b, 0.5);
-}
-
-fn getZoom(t: f32) -> f32 {
-    let at = max(0.0, t - params.zoom_delay);
-    let rz = params.min_zoom + (exp(at * params.zoom_speed) - 1.0);
-    return min(rz, params.max_zoom);
-}
-
-fn bhLens(uv: vec2<f32>, hp: vec2<f32>, m: f32, zf: f32) -> vec2<f32> {
-    let dir = uv - hp;
-    let d = length(dir);
-    let rs = m * 0.1 * (1.0 + log(zf) * params.zoom_base);
-    let def = rs / (d * d) * (1.0 - exp(-d * 5.0));
-    let dp = uv - normalize(dir) * def * (1.0 + log(zf) * 0.05);
-    let dE = exp(-d * 10.0) * sin(d * 50.0 - u_time.time * 2.0) * 0.02;
-    return dp + vec2<f32>(dE * dir.y, -dE * dir.x);
-}
-
-fn eF(pin: vec3<f32>, s: f32, cx: f32, spd: f32, zf: f32) -> f32 {
-    var p = pin * (1.0 + log(zf) * params.zoom_base);
-    let str = 7.0 + 0.03 * log(1.0e-6 + fract(sin(u_time.time * spd) * 4373.11));
-    var acc = s / 4.0;
-    var prv = 0.0;
-    var tw = 0.0;
-    
-    for(var i = 0.0; i < cx; i += 1.0) {
-        let mg = dot(p, p);
-        p = abs(p) / mg + vec3<f32>(params.space_distort_x, params.space_distort_y, params.space_distort_z);
-        let w = exp(-i / 7.0);
-        acc += w * exp(-str * pow(abs(mg - prv), 2.2));
-        tw += w;
-        prv = mg;
+    for (var i = 1.0; i < params.n_boxes + 1.0 * cos(time); i += 1.0) {
+        var p0 = p;
+        
+        let a = radians(31.0 * cos(time) / params.n_boxes * cos(time)) * i;
+        let mean = (params.n_boxes + params.depth) * 0.4;
+        p0 = rot(a) * p0;
+        
+        if (params.rotation != 0) {
+            p0 = rot(time * i * mean * 1e-2 / (params.n_boxes * 0.08) * time) * p0;
+        }
+        
+        let box = sdBox(p0, vec2<f32>(s));
+        let gamma = mean * 1e-4 * 0.7;
+        let box_result = gamma / abs(box);
+        
+        per += box_result;
     }
-    return max(0.0, 5.0 * acc / tw - 0.7);
+    return per;
 }
 
-fn genStar(sd: vec2<f32>, br: f32, t: f32, zf: f32) -> vec4<f32> {
-    let r = rnd3(sd);
-    let off = vec2<f32>(
-        sin(t * (r.x * 0.5 + 0.1) + r.y * 6.28) * 0.01,
-        cos(t * (r.y * 0.5 + 0.1) + r.x * 6.28) * 0.01
-    ) / zf;
+fn mainVR(fragCoord: vec2<f32>, res: vec2<f32>, ro: vec3<f32>, rd: vec3<f32>, time: f32) -> vec4<f32> {
+    var uv = fragCoord.xy / res.xy - 0.5;
+    uv.y *= res.y / res.x;
     
-    let sz = mix(0.0, 1.5, pow(r.x, 2.0)) * (1.0 + log(zf) * 0.1);
-    var sC = mix(vec3<f32>(1.0, 0.8, 0.6), vec3<f32>(0.6, 0.8, 1.0), r.z);
-    var fSz = sz;
-    
-    if(r.x > 0.99) {
-        sC = vec3<f32>(1.0, 0.4, 0.2);
-        fSz *= 2.0;
-    } else if(r.y > 0.995) {
-        sC = vec3<f32>(0.6, 0.8, 1.0);
-        fSz *= 1.5;
+    if (params.spiral_mode == 1) {
+        let radius = length(uv);
+        let angle = atan2(uv.y, uv.x);
+        let spiral_angle = angle + log(radius + 0.1) * params.spiral_strength + time * params.spiral_speed;
+        let spiral_radius = radius * (1.0 + sin(spiral_angle * 3.0) * 0.3);
+        uv = vec2<f32>(cos(spiral_angle) * spiral_radius, sin(spiral_angle) * spiral_radius);
+    } else if (params.spiral_mode == 2) {
+        let radius = length(uv);
+        let hole_factor = smoothstep(0.0, 0.5, radius);
+        uv *= hole_factor * params.spiral_strength * 0.5;
+    } else if (params.spiral_mode == 3) {
+        let radius = length(uv);
+        let angle = atan2(uv.y, uv.x);
+        let tunnel_depth = 1.0 / (radius * params.spiral_strength + 0.1) + time * params.spiral_speed;
+        let tunnel_radius = radius * tunnel_depth * 0.3;
+        uv = vec2<f32>(cos(angle) * tunnel_radius, sin(angle) * tunnel_radius);
     }
     
-    let pSpd = r.y * 2.0 + 0.5;
-    let pF = 1.0 + 0.2 * sin(t * pSpd);
-    var sBr = pow(r.y, 20.0) * br * pF;
-    sBr *= 1.0 + 0.3 * sin(t * 5.0 + r.x * 100.0);
+    var dir = vec3<f32>(uv * params.zoom, 1.0);
+    let time_scaled = time * params.speed + 0.25;
     
-    return vec4<f32>(sC * sBr * fSz, sBr) * (1.0 - smoothstep(1.0, 2.0, zf));
+    let a1 = 0.5 + params.rotation_x / 800.0 * 2.0;
+    let a2 = 0.8 + params.rotation_y / 600.0 * 2.0;
+    let rot1 = rot(a1);
+    let rot2 = rot(a2);
+    dir = vec3<f32>(rot1 * dir.xy, dir.z);
+    dir = vec3<f32>(rot2 * dir.xy, dir.z);
+    
+    var ray_origin = vec3<f32>(1.0, 0.5, 0.5);
+    ray_origin += vec3<f32>(time_scaled * 2.0, time_scaled, -2.0);
+    ray_origin = vec3<f32>(rot1 * ray_origin.xy, ray_origin.z);
+    ray_origin = vec3<f32>(rot2 * ray_origin.xy, ray_origin.z);
+    
+    let depth_from_center = length(dir.xy);
+    let focal_distance = params.dof_focal_dist * 3.0;
+    let depth_diff = abs(depth_from_center - focal_distance);
+    let dof_blur = 1.0 - smoothstep(0.0, params.dof_amount * 2.0, depth_diff);
+    
+    var s = 0.1;
+    var fade = 1.0;
+    var v = vec3<f32>(0.0);
+    
+    for (var r = 0; r < params.volsteps; r++) {
+        var p = ray_origin + s * dir * 0.5;
+        
+        if (params.spiral_mode == 1) {
+            let p_radius = length(p.xy);
+            let p_angle = atan2(p.y, p.x);
+            let spiral_p_angle = p_angle + log(p_radius + 0.1) * params.spiral_strength * 0.5 + time * params.spiral_speed * 0.3;
+            let spiral_p_radius = p_radius * (1.0 + sin(spiral_p_angle * 2.0 + p.z * 0.5) * 0.4);
+            p.x = cos(spiral_p_angle) * spiral_p_radius;
+            p.y = sin(spiral_p_angle) * spiral_p_radius;
+        } else if (params.spiral_mode == 2) {
+            let p_radius = length(p.xy);
+            let hole_factor = smoothstep(0.0, 0.6, p_radius);
+            p.z *= hole_factor * params.spiral_strength * 0.5;
+        } else if (params.spiral_mode == 3) {
+            let p_radius = length(p.xy);
+            let tunnel_factor = 1.0 / (p_radius * params.spiral_strength * 0.5 + 0.1);
+            p.z *= tunnel_factor * 0.5;
+        }
+        
+        p = abs(vec3<f32>(params.tile) - (p % (vec3<f32>(params.tile) * 2.0)));
+        
+        var pa = 0.0;
+        var a = 0.0;
+        
+        for (var i = 0; i < params.iterations; i++) {
+            p = abs(p) / dot(p, p) - params.formuparam;
+            a += abs(length(p) - pa);
+            pa = length(p);
+        }
+        
+        let dm = max(0.0, params.darkmatter - a * a * 0.001);
+        a *= a * a;
+        
+        a *= mix(0.3, 1.0, dof_blur);
+        fade *= mix(0.8, 1.0, dof_blur);
+        
+        if (r > 6) {
+            fade *= 1.3 - dm;
+        }
+        
+        v += vec3<f32>(fade);
+        v += vec3<f32>(s, s * s, s * s * s) * a * params.brightness * fade;
+        fade *= params.distfading;
+        s += params.stepsize;
+    }
+    
+    v = mix(vec3<f32>(length(v)), v, params.saturation);
+    
+    return vec4<f32>(v * 0.03, 1.0);
 }
 
-@fragment
-fn fs_main(@builtin(position) fc: vec4<f32>) -> @location(0) vec4<f32> {
-    let uv = 2.0 * vec2<f32>(fc.x, u_resolution.dimensions.y - fc.y) / u_resolution.dimensions - 1.0;
-    let uvs = uv * u_resolution.dimensions / max(u_resolution.dimensions.x, u_resolution.dimensions.y);
+fn H(h: f32) -> vec3<f32> {
+    return (cos(h * 6.3 + vec3<f32>(0.0, 23.0, 21.0)) * 0.5 + 0.5);
+}
+
+fn aces_tonemap(color: vec3<f32>) -> vec3<f32> {
+    let a = 2.51;
+    let b = 0.03;
+    let c = 2.43;
+    let d = 0.59;
+    let e = 0.14;
+    return clamp((color * (a * color + b)) / (color * (c * color + d) + e), vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
+fn gamma_correction(color: vec3<f32>, gamma: f32) -> vec3<f32> {
+    return pow(max(color, vec3<f32>(0.0)), vec3<f32>(1.0 / gamma));
+}
+
+@compute @workgroup_size(16, 16, 1)
+fn volumetric_render(@builtin(global_invocation_id) id: vec3<u32>) {
+    return;
+}
+
+fn hash_u32(a: u32) -> u32 {
+    var x = a;
+    x ^= x >> 16u;
+    x *= 0x7feb352du;
+    x ^= x >> 15u;
+    x *= 0x846ca68bu;
+    x ^= x >> 16u;
+    return x;
+}
+
+@compute @workgroup_size(16, 16, 1)
+fn main_image(@builtin(global_invocation_id) id: vec3<u32>) {
+    let res = vec2<f32>(textureDimensions(output));
+    if (f32(id.x) >= res.x || f32(id.y) >= res.y) { return; }
     
-    let zf = getZoom(u_time.time);
-    let sUv = uvs / zf;
-    let bhp = vec2<f32>(0.0);
-    let lUv = bhLens(sUv, bhp, 0.15, zf);
+    let pixel_idx = id.x + u32(res.x) * id.y;
+    let color_offset = u32(res.x * res.y);
     
-    var p = vec3<f32>(lUv / 4.0, 0.0) + vec3<f32>(1.0, -1.3, 0.0);
-    p += 0.2 * vec3<f32>(
-        sin(u_time.time / 16.0),
-        sin(u_time.time / 12.0),
-        sin(u_time.time / 128.0)
+    let base_intensity = f32(atomicLoad(&atomic_buffer[pixel_idx])) * 0.001;
+    let red_extra = f32(atomicLoad(&atomic_buffer[pixel_idx + color_offset])) * 0.01;
+    let blue_extra = f32(atomicLoad(&atomic_buffer[pixel_idx + color_offset * 2u])) * 0.01;
+    
+    var color = vec3<f32>(
+        base_intensity,
+        base_intensity * 0.7,
+        base_intensity
     );
     
-    let zs = 1.0 + log(zf) * params.zoom_base;
-    var fq: array<f32, 4>;
-    fq[0] = noise(vec3<f32>(0.01 * params.noise_scale * zs, 0.25, u_time.time / 10.0));
-    fq[1] = noise(vec3<f32>(0.07 * params.noise_scale * zs, 0.25, u_time.time / 10.0));
-    fq[2] = noise(vec3<f32>(0.15 * params.noise_scale * zs, 0.25, u_time.time / 10.0));
-    fq[3] = noise(vec3<f32>(0.30 * params.noise_scale * zs, 0.25, u_time.time / 10.0));
+    let fragCoord = vec2<f32>(f32(id.x), f32(id.y));
+    var uv = fragCoord.xy / res.xy - 0.5;
+    uv.y *= res.y / res.x;
+    var dir = vec3<f32>(uv * params.zoom, 1.0);
+    let ray_origin = vec3<f32>(1.0, 0.5, 0.5);
+    let nebula_color = mainVR(fragCoord, res, ray_origin, dir, time_data.time * params.time_scale);
     
-    let t1 = eF(p, fq[2], 26.0, 1.0, zf);
-    let t2 = eF(p * 1.5, fq[3], 18.0, 1.0 * 0.7, zf);
-    let t3 = eF(p * 0.5, fq[1], 22.0, 1.0 * 1.3, zf);
+    var final_color = nebula_color.rgb + color * 0.1;
     
-    let v = (1.0 - exp((abs(uv.x) - 1.0) * 6.0)) * (1.0 - exp((abs(uv.y) - 1.0) * 6.0));
+    final_color *= params.exposure;
+    final_color = aces_tonemap(final_color);
+    final_color = gamma_correction(final_color, params.gamma);
     
-    let nC1 = mix(fq[3] - 0.3, 1.0, v) * vec4<f32>(1.5 * fq[2] * t1 * t1 * t1, 2.2 * fq[1] * t1 * t1, fq[3] * t1, 1.0);
-    let nC2 = mix(fq[2] - 0.2, 1.0, v) * vec4<f32>(1.3 * fq[1] * t2 * t2 * t2, 1.8 * fq[3] * t2 * t2, fq[2] * t2, 0.8);
-    let nC3 = mix(fq[1] - 0.1, 1.0, v) * vec4<f32>(4.2 * fq[3] * t3 * t3, 1.4 * fq[2] * t3 * t3, fq[1] * t3, 0.6);
-    
-    var sc = vec4<f32>(0.0);
-    for(var i = 0.0; i < 3.0; i += 1.0) {
-        let sd = (p.xy + i * 0.5) * 2.0;
-        let ps = floor(sd * u_resolution.dimensions.x);
-        sc += genStar(ps, 1.2 - i * 0.3, u_time.time, zf);
-    }
-    
-    let th = lUv - bhp;
-    let dh = length(th);
-    let dg = exp(-dh * 10.0) * (2.0 + log(zf) * 0.5);
-    let ad = vec4<f32>(params.disk_color[0], params.disk_color[1], params.disk_color[2], params.disk_color[3]) * dg;
-    
-    var col = nC1 + nC2 * 0.8 + nC3 * 0.6 + sc + ad;
-    
-    let zci = 1.0 + log(zf) * 0.1;
-    col = vec4<f32>(pow(col.rgb, vec3<f32>(0.9 / zci)), col.a);
-    
-    let sCol = vec4<f32>(
-        smoothstep(0.0, 1.0, col.r),
-        smoothstep(0.0, 1.0, col.g),
-        smoothstep(0.0, 1.0, col.b),
-        col.a
-    );
-    col = mix(col, sCol, 0.2);
-    
-    if(zf > 1.0) {
-        let rb = normalize(uv - bhp) * 0.001 * log(zf);
-        let bUv = uv + rb;
-        let bCol = col;
-        col = mix(col, bCol, 0.5);
-    }
-    
-    col = vec4<f32>(pow(col.rgb, vec3<f32>(params.time_scale)), col.a);
-    return col;
+    textureStore(output, vec2<i32>(id.xy), vec4<f32>(final_color, 1.0));
 }

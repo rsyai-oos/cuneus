@@ -1,47 +1,91 @@
-use cuneus::{Core,Renderer,ShaderApp, ShaderManager, UniformProvider, UniformBinding, RenderKit,ExportManager,ShaderHotReload,ShaderControls};
-use winit::event::*;
+use cuneus::{Core, ShaderManager, UniformProvider, UniformBinding, RenderKit, ShaderControls, ExportManager, ShaderApp};
+use cuneus::compute::{create_bind_group_layout, BindGroupLayoutType};
+use winit::event::WindowEvent;
 use std::path::PathBuf;
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct ShaderParams {
-    zoom_base: f32,
-    space_distort_x: f32,
-    space_distort_y: f32,
-    space_distort_z: f32,
+struct NebulaParams {
+    iterations: i32,
+    formuparam: f32,
+    volsteps: i32,
+    stepsize: f32,
+    zoom: f32,
+    tile: f32,
+    speed: f32,
+    brightness: f32,
+    darkmatter: f32,
+    distfading: f32,
+    saturation: f32,
+    n_boxes: f32,
+    rotation: i32,
+    depth: f32,
+    color_mode: i32,
+    _padding1: f32,
     
-    zoom_delay: f32,
-    zoom_speed: f32,
-    max_zoom: f32,
-    min_zoom: f32,
+    rotation_x: f32,
+    rotation_y: f32,
+    click_state: i32,
+    scale: f32,
     
-    noise_scale: f32,
+    dof_amount: f32,
+    dof_focal_dist: f32,
+    exposure: f32,
+    gamma: f32,
+    
+    color1_r: f32,
+    color1_g: f32,
+    color1_b: f32,
+    color2_r: f32,
+    color2_g: f32,
+    color2_b: f32,
+    
     time_scale: f32,
-    _pad1: [f32; 2],
     
-    disk_color: [f32; 4],
+    spiral_mode: i32,
+    spiral_strength: f32,
+    spiral_speed: f32,
+    visual_mode: i32,
+    _padding2: f32,
+    _padding3: f32,
 }
-impl UniformProvider for ShaderParams {
+
+impl UniformProvider for NebulaParams {
     fn as_bytes(&self) -> &[u8] {
         bytemuck::bytes_of(self)
     }
 }
 
-struct Shader {
+struct NebulaShader {
     base: RenderKit,
-    params_uniform: UniformBinding<ShaderParams>,
-    hot_reload: ShaderHotReload,
-    time_bind_group_layout: wgpu::BindGroupLayout,    
-    resolution_bind_group_layout: wgpu::BindGroupLayout,
+    params_uniform: UniformBinding<NebulaParams>,
+    compute_time_uniform: UniformBinding<cuneus::compute::ComputeTimeUniform>,
+    
+    volumetric_pipeline: wgpu::ComputePipeline,
+    composition_pipeline: wgpu::ComputePipeline,
+    
+    output_texture: cuneus::TextureManager,
+    
+    time_bind_group_layout: wgpu::BindGroupLayout,
     params_bind_group_layout: wgpu::BindGroupLayout,
+    storage_bind_group_layout: wgpu::BindGroupLayout,
+    atomic_bind_group_layout: wgpu::BindGroupLayout,
+    
+    storage_bind_group: wgpu::BindGroup,
+    
+    atomic_buffer: cuneus::AtomicBuffer,
+    
+    frame_count: u32,
+    hot_reload: cuneus::ShaderHotReload,
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
-    let (app, event_loop) = ShaderApp::new("nebula", 800, 600);
+    let (app, event_loop) = ShaderApp::new("Kali's Starnest", 800, 600);
     app.run(event_loop, |core| {
-        Shader::init(core)
+        NebulaShader::init(core)
     })
 }
-impl Shader {
+impl NebulaShader {
     fn capture_frame(&mut self, core: &Core, time: f32) -> Result<Vec<u8>, wgpu::SurfaceError> {
         let settings = self.base.export_manager.settings();
         let (capture_texture, output_buffer) = self.base.create_capture_texture(
@@ -61,26 +105,17 @@ impl Shader {
         self.base.time_uniform.update(&core.queue);
         self.base.resolution_uniform.data.dimensions = [settings.width as f32, settings.height as f32];
         self.base.resolution_uniform.update(&core.queue);
+
         {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Capture Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &capture_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
+            let mut render_pass = cuneus::Renderer::begin_render_pass(
+                &mut encoder,
+                &capture_view,
+                wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                Some("Capture Pass"),
+            );
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-            render_pass.set_bind_group(0, &self.base.time_uniform.bind_group, &[]);
-            render_pass.set_bind_group(1, &self.base.resolution_uniform.bind_group, &[]);
-            render_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
+            render_pass.set_bind_group(0, &self.output_texture.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
         }
         encoder.copy_texture_to_buffer( 
@@ -119,6 +154,7 @@ impl Shader {
         }
         Ok(unpadded_data)
     }
+
     fn handle_export(&mut self, core: &Core) {
         if let Some((frame, time)) = self.base.export_manager.try_get_next_frame() {
             if let Ok(data) = self.capture_frame(core, time) {
@@ -132,143 +168,256 @@ impl Shader {
         }
     }
 }
-impl ShaderManager for Shader {
+impl ShaderManager for NebulaShader {
     fn init(core: &Core) -> Self {
-        let time_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
+        let texture_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                    },
+                    count: None,
                 },
-                count: None,
-            }],
-            label: Some("time_bind_group_layout"),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+            label: Some("texture_bind_group_layout"),
         });
+        
+        let mut base = RenderKit::new(
+            core,
+            include_str!("../../shaders/vertex.wgsl"),
+            include_str!("../../shaders/blit.wgsl"),
+            &[&texture_bind_group_layout],
+            None,
+        );
+        base.setup_mouse_uniform(core);
 
-        let resolution_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-            label: Some("resolution_bind_group_layout"),
-        });
-        let params_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-            label: Some("params_bind_group_layout"),
-        });
+        let time_bind_group_layout = create_bind_group_layout(
+            &core.device, 
+            BindGroupLayoutType::TimeUniform, 
+            "Nebula Time"
+        );
+        
+        let params_bind_group_layout = create_bind_group_layout(
+            &core.device, 
+            BindGroupLayoutType::CustomUniform, 
+            "Nebula Params"
+        );
+        
+        let storage_bind_group_layout = create_bind_group_layout(
+            &core.device, 
+            BindGroupLayoutType::StorageTexture, 
+            "Nebula Storage"
+        );
+        
+        let atomic_bind_group_layout = create_bind_group_layout(
+            &core.device, 
+            BindGroupLayoutType::AtomicBuffer, 
+            "Nebula Atomic"
+        );
 
         let params_uniform = UniformBinding::new(
             &core.device,
-            "Params Uniform",
-            ShaderParams {
-                zoom_base: 1.0,
-                space_distort_x: -0.5,
-                space_distort_y: -0.4,
-                space_distort_z: -1.5,
+            "Nebula Params Uniform",
+            NebulaParams {
+                iterations: 25,
+                formuparam: 0.75,
+                volsteps: 5,
+                stepsize: 0.270,
+                zoom: 1.85,
+                tile: 0.58,
+                speed: 0.020,
+                brightness: 0.00062,
+                darkmatter: 0.23,
+                distfading: 0.40,
+                saturation: 1.00,
+                n_boxes: 10.0,
+                rotation: 1,
+                depth: 5.0,
+                color_mode: 1,
+                _padding1: 0.0,
                 
-                zoom_delay: 7.0,
-                zoom_speed: 0.2,
-                max_zoom: 10.0,
-                min_zoom: 1.0,
+                rotation_x: 0.0,
+                rotation_y: 0.0,
+                click_state: 0,
+                scale: 1.0,
                 
-                noise_scale: 100.0,
-                time_scale: 1.3,
-                _pad1: [0.0; 2],
+                dof_amount: 0.0,
+                dof_focal_dist: 0.5,
+                exposure: 1.65,
+                gamma: 0.400,
                 
-                disk_color: [1.0, 0.6, 0.2, 1.0],
+                color1_r: 1.0,
+                color1_g: 0.5,
+                color1_b: 0.1,
+                color2_r: 0.1,
+                color2_g: 0.3,
+                color2_b: 1.0,
+                
+                time_scale: 1.0,
+                
+                spiral_mode: 0,
+                spiral_strength: 2.0,
+                spiral_speed: 0.02,
+                visual_mode: 0,
+                _padding2: 0.0,
+                _padding3: 0.0,
             },
             &params_bind_group_layout,
             0,
         );
 
-        let bind_group_layouts = vec![
+        let compute_time_uniform = UniformBinding::new(
+            &core.device,
+            "Nebula Compute Time Uniform",
+            cuneus::compute::ComputeTimeUniform {
+                time: 0.0,
+                delta: 0.0,
+                frame: 0,
+                _padding: 0,
+            },
             &time_bind_group_layout,
-            &resolution_bind_group_layout,
-            &params_bind_group_layout,
-        ];
-        let vs_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Vertex Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/vertex.wgsl").into()),
-        });
-
-        let fs_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Fragment Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/nebula.wgsl").into()),
-        });
-
-        let shader_paths = vec![
-            PathBuf::from("shaders/vertex.wgsl"),
-            PathBuf::from("shaders/nebula.wgsl"),
-        ];
-
-        let base = RenderKit::new(
-            core,
-            include_str!("../../shaders/vertex.wgsl"),
-            include_str!("../../shaders/nebula.wgsl"),
-            &bind_group_layouts,
-            None,
+            0,
         );
 
-        let hot_reload = ShaderHotReload::new(
+
+        let atomic_buffer = cuneus::AtomicBuffer::new(
+            &core.device,
+            core.config.width * core.config.height * 2,
+            &atomic_bind_group_layout,
+        );
+
+        let output_texture = cuneus::compute::create_output_texture(
+            &core.device,
+            core.config.width,
+            core.config.height,
+            wgpu::TextureFormat::Rgba16Float,
+            &texture_bind_group_layout,
+            wgpu::AddressMode::ClampToEdge,
+            wgpu::FilterMode::Linear,
+            "Nebula Output Texture",
+        );
+
+        let storage_view = output_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let storage_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Nebula Storage Bind Group"),
+            layout: &storage_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&storage_view),
+                },
+            ],
+        });
+        
+        let shader_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Nebula Compute Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/nebula.wgsl").into()),
+        });
+        
+        let hot_reload = cuneus::ShaderHotReload::new_compute(
             core.device.clone(),
-            shader_paths,
-            vs_module,
-            fs_module,
+            PathBuf::from("shaders/nebula.wgsl"),
+            shader_module.clone(),
+            "volumetric_render",
         ).expect("Failed to initialize hot reload");
+
+        let compute_pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Nebula Compute Pipeline Layout"),
+            bind_group_layouts: &[
+                &time_bind_group_layout,      
+                &params_bind_group_layout,    
+                &storage_bind_group_layout,   
+                &atomic_bind_group_layout,
+            ],
+            push_constant_ranges: &[],
+        });
+
+        let volumetric_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("Volumetric Render Pipeline"),
+            layout: Some(&compute_pipeline_layout),
+            module: &shader_module,
+            entry_point: Some("volumetric_render"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            cache: None,
+        });
+
+        let composition_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("Composition Pipeline"),
+            layout: Some(&compute_pipeline_layout),
+            module: &shader_module,
+            entry_point: Some("main_image"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            cache: None,
+        });
+
 
         Self {
             base,
             params_uniform,
-            hot_reload,
+            compute_time_uniform,
+            volumetric_pipeline,
+            composition_pipeline,
+            output_texture,
             time_bind_group_layout,
-            resolution_bind_group_layout,
             params_bind_group_layout,
+            storage_bind_group_layout,
+            atomic_bind_group_layout,
+            storage_bind_group,
+            atomic_buffer,
+            frame_count: 0,
+            hot_reload,
         }
     }
 
     fn update(&mut self, core: &Core) {
-        if let Some((new_vs, new_fs)) = self.hot_reload.check_and_reload() {
-            println!("Reloading shaders at time: {:.2}s", self.base.start_time.elapsed().as_secs_f32());
-            let pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Render Pipeline Layout"),
+        if let Some(new_shader) = self.hot_reload.reload_compute_shader() {
+            println!("Reloading Nebula shader at time: {:.2}s", self.base.start_time.elapsed().as_secs_f32());
+            let compute_pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Updated Nebula Compute Pipeline Layout"),
                 bind_group_layouts: &[
                     &self.time_bind_group_layout,
-                    &self.resolution_bind_group_layout,
                     &self.params_bind_group_layout,
+                    &self.storage_bind_group_layout,
+                    &self.atomic_bind_group_layout,
                 ],
                 push_constant_ranges: &[],
             });
-            self.base.renderer = Renderer::new(
-                &core.device,
-                new_vs,
-                new_fs,
-                core.config.format,
-                &pipeline_layout,
-                None, 
-            );
+            
+            self.volumetric_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("Updated Volumetric Pipeline"),
+                layout: Some(&compute_pipeline_layout),
+                module: &new_shader,
+                entry_point: Some("volumetric_render"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                cache: None,
+            });
+            
+            self.composition_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("Updated Composition Pipeline"),
+                layout: Some(&compute_pipeline_layout),
+                module: &new_shader,
+                entry_point: Some("main_image"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                cache: None,
+            });
+            
         }
-    
+        
         if self.base.export_manager.is_exporting() {
             self.handle_export(core);
         }
+        
+        self.base.update_mouse_uniform(&core.queue);
         self.base.fps_tracker.update();
     }
     fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {
@@ -283,63 +432,112 @@ impl ShaderManager for Shader {
             &core.size
         );
         controls_request.current_fps = Some(self.base.fps_tracker.fps());
+        
+        if self.base.mouse_tracker.uniform.buttons[0] & 1 != 0 {
+            params.rotation_x = self.base.mouse_tracker.uniform.position[0];
+            params.rotation_y = self.base.mouse_tracker.uniform.position[1];
+            params.click_state = 1;
+            changed = true;
+        } else {
+            params.click_state = 0;
+        }
+
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
                 ctx.style_mut(|style| {
                     style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(0, 0, 0, 180);
-                });                egui::Window::new("Nebula").show(ctx, |ui| {
-                    ui.collapsing("uv", |ui| {
-                        changed |= ui.add(egui::Slider::new(&mut params.zoom_base, -12.0..=12.0)
-                            .text("Base")).changed();
-                        
-                        ui.group(|ui| {
-                            ui.label("uv");
-                            changed |= ui.add(egui::Slider::new(&mut params.space_distort_x, -0.7..=0.0)
-                                .text("X Distortion")).changed();
-                            changed |= ui.add(egui::Slider::new(&mut params.space_distort_y, -0.7..=0.0)
-                                .text("Y Distortion")).changed();
-                            changed |= ui.add(egui::Slider::new(&mut params.space_distort_z, -1.5..=0.1)
-                                .text("Z Distortion")).changed();
-                        });
-                    });
-                    ui.collapsing("Zoom", |ui| {
-                        changed |= ui.add(egui::Slider::new(&mut params.zoom_delay, 0.0..=1000.0)
-                            .text("Zoom Start Delay")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.zoom_speed, 0.01..=1.0)
-                            .text("Haste")).changed();
-                        changed |= ui.add(egui::Slider::new(&mut params.min_zoom, 0.1..=1.0)
-                            .text("Initial Zoom")).changed();
-                    });
-                    ui.collapsing("Noise", |ui| {
-                        changed |= ui.add(egui::Slider::new(&mut params.noise_scale, 0.0..=200.0)
-                            .text("Noise Scale")).changed();
-                    });
-        
-                    ui.collapsing("Hole", |ui| {
-                        ui.horizontal(|ui| {
-                            ui.label("Disk Color:");
-                            changed |= ui.color_edit_button_rgba_unmultiplied(&mut params.disk_color).changed();
-                        });
-                    });
-                    ui.collapsing("gamma", |ui| {
-                        changed |= ui.add(egui::Slider::new(&mut params.time_scale, 0.0..=3.0)
-                            .text("gamma")).changed();
-                    });
-        
-                    ui.separator();
-                    ShaderControls::render_controls_widget(ui, &mut controls_request);
-                    ui.separator();
-                    should_start_export = ExportManager::render_export_ui_widget(ui, &mut export_request);
+                    style.text_styles.get_mut(&egui::TextStyle::Body).unwrap().size = 11.0;
+                    style.text_styles.get_mut(&egui::TextStyle::Button).unwrap().size = 10.0;
                 });
+                
+                egui::Window::new("Kali's Starnest")
+                    .collapsible(true)
+                    .resizable(true)
+                    .default_width(320.0)
+                    .show(ctx, |ui| {
+                        
+                        egui::CollapsingHeader::new("Volumetric Parameters")
+                            .default_open(true)
+                            .show(ui, |ui| {
+                                changed |= ui.add(egui::Slider::new(&mut params.iterations, 5..=30).text("Iterations")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.formuparam, 0.1..=1.0).text("Form Parameter")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.volsteps, 1..=10).text("Volume Steps")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.stepsize, 0.05..=0.3).text("Step Size")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.zoom, 0.1..=112.0).text("Zoom")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.tile, 0.1..=2.0).text("Tile")).changed();
+                            });
+
+                        egui::CollapsingHeader::new("Appearance")
+                            .default_open(true)
+                            .show(ui, |ui| {
+                                changed |= ui.add(egui::Slider::new(&mut params.brightness, 0.0005..=0.005).logarithmic(true).text("Brightness")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.darkmatter, 0.1..=0.8).text("Dark Matter")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.distfading, 0.1..=1.0).text("Distance Fading")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.saturation, 0.1..=1.0).text("Saturation")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.exposure, 0.5..=3.0).text("Exposure")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.gamma, 0.4..=1.2).text("Gamma")).changed();
+                            });
+
+                        egui::CollapsingHeader::new("Visual Modes")
+                            .default_open(true)
+                            .show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    if ui.selectable_label(params.spiral_mode == 0, "Normal").clicked() {
+                                        params.spiral_mode = 0;
+                                        changed = true;
+                                    }
+                                    if ui.selectable_label(params.spiral_mode == 1, "Spiral").clicked() {
+                                        params.spiral_mode = 1;
+                                        changed = true;
+                                    }
+                                    if ui.selectable_label(params.spiral_mode == 2, "Hole").clicked() {
+                                        params.spiral_mode = 2;
+                                        changed = true;
+                                    }
+                                    if ui.selectable_label(params.spiral_mode == 3, "Tunnel").clicked() {
+                                        params.spiral_mode = 3;
+                                        changed = true;
+                                    }
+                                });
+                                
+                                if params.spiral_mode != 0 {
+                                    ui.separator();
+                                    changed |= ui.add(egui::Slider::new(&mut params.spiral_strength, 0.5..=4.0).text("Spiral Strength")).changed();
+                                    changed |= ui.add(egui::Slider::new(&mut params.spiral_speed, -0.1..=0.1).text("Spiral Speed")).changed();
+                                }
+                                
+                            });
+
+                        egui::CollapsingHeader::new("Depth of Field")
+                            .default_open(false)
+                            .show(ui, |ui| {
+                                changed |= ui.add(egui::Slider::new(&mut params.dof_amount, 0.0..=3.0).text("DOF Amount")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.dof_focal_dist, 0.0..=2.0).text("Focal Distance")).changed();
+                            });
+
+                        
+
+
+                        egui::CollapsingHeader::new("Animation")
+                            .default_open(false)
+                            .show(ui, |ui| {
+                                changed |= ui.add(egui::Slider::new(&mut params.speed, -0.1..=0.1).text("Galaxy Speed")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.time_scale, 0.1..=2.0).text("Animation Speed")).changed();
+                            });
+
+                        ui.separator();
+                        ShaderControls::render_controls_widget(ui, &mut controls_request);
+                        ui.separator();
+                        should_start_export = ExportManager::render_export_ui_widget(ui, &mut export_request);
+                    });
             })
         } else {
             self.base.render_ui(core, |_ctx| {})
         };
+
         self.base.export_manager.apply_ui_request(export_request);
         self.base.apply_control_request(controls_request);
-        let current_time = self.base.controls.get_time(&self.base.start_time);
-        self.base.time_uniform.data.time = current_time;
-        self.base.time_uniform.update(&core.queue);
+        
         if changed {
             self.params_uniform.data = params;
             self.params_uniform.update(&core.queue);
@@ -349,33 +547,66 @@ impl ShaderManager for Shader {
             self.base.export_manager.start_export();
         }
 
+        let current_time = self.base.controls.get_time(&self.base.start_time);
+        
         let mut encoder = core.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Render Encoder"),
         });
 
-        {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Main Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
+        self.compute_time_uniform.data.time = current_time;
+        self.compute_time_uniform.data.delta = 1.0/60.0;
+        self.compute_time_uniform.data.frame = self.frame_count;
+        self.compute_time_uniform.update(&core.queue);
 
+        {
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("Particle Accumulation Pass"),
+                timestamp_writes: None,
+            });
+            
+            compute_pass.set_pipeline(&self.volumetric_pipeline);
+            compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
+            compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
+            compute_pass.set_bind_group(2, &self.storage_bind_group, &[]);
+            compute_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]);
+            
+            let workgroups_x = (core.config.width as f32 / 16.0).ceil() as u32;
+            let workgroups_y = (core.config.height as f32 / 16.0).ceil() as u32;
+            compute_pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
+        }
+
+        {
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("Nebula Render Pass"),
+                timestamp_writes: None,
+            });
+            
+            compute_pass.set_pipeline(&self.composition_pipeline);
+            compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
+            compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
+            compute_pass.set_bind_group(2, &self.storage_bind_group, &[]);
+            compute_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]);
+            
+            let workgroups_x = (core.config.width as f32 / 16.0).ceil() as u32;
+            let workgroups_y = (core.config.height as f32 / 16.0).ceil() as u32;
+            compute_pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
+        }
+
+        {
+            let mut render_pass = cuneus::Renderer::begin_render_pass(
+                &mut encoder,
+                &view,
+                wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                Some("Display Pass"),
+            );
+            
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-            render_pass.set_bind_group(0, &self.base.time_uniform.bind_group, &[]);
-            render_pass.set_bind_group(1, &self.base.resolution_uniform.bind_group, &[]);
-            render_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
+            render_pass.set_bind_group(0, &self.output_texture.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
         }
+        
+        self.frame_count = self.frame_count.wrapping_add(1);
 
         self.base.handle_render_output(core, &view, full_output, &mut encoder);
         core.queue.submit(Some(encoder.finish()));
@@ -385,15 +616,75 @@ impl ShaderManager for Shader {
     }
     fn resize(&mut self, core: &Core) {
         self.base.update_resolution(&core.queue, core.size);
+        
+        let texture_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+            label: Some("texture_bind_group_layout"),
+        });
+        
+        self.atomic_buffer = cuneus::AtomicBuffer::new(
+            &core.device,
+            core.config.width * core.config.height * 2,
+            &self.atomic_bind_group_layout,
+        );
+
+        self.output_texture = cuneus::compute::create_output_texture(
+            &core.device,
+            core.config.width,
+            core.config.height,
+            wgpu::TextureFormat::Rgba16Float,
+            &texture_bind_group_layout,
+            wgpu::AddressMode::ClampToEdge,
+            wgpu::FilterMode::Linear,
+            "Nebula Output Texture",
+        );
+        
+        
+        let storage_view = self.output_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        self.storage_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Nebula Storage Bind Group"),
+            layout: &self.storage_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&storage_view),
+                },
+            ],
+        });
     }
+
     fn handle_input(&mut self, core: &Core, event: &WindowEvent) -> bool {
-        if self.base.egui_state.on_window_event(core.window(), event).consumed {
+        let ui_handled = self.base.egui_state.on_window_event(core.window(), event).consumed;
+        
+        if ui_handled {
             return true;
         }
+
+        if self.base.handle_mouse_input(core, event, false) {
+            return true;
+        }
+
         if let WindowEvent::KeyboardInput { event, .. } = event {
             return self.base.key_handler.handle_keyboard_input(core.window(), event);
         }
+
         false
     }
 }
-
