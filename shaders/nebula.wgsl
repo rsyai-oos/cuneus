@@ -177,13 +177,13 @@ fn mainVR(fragCoord: vec2<f32>, res: vec2<f32>, ro: vec3<f32>, rd: vec3<f32>, ti
         fade *= mix(0.7, 1.0, dof_factor);
         
         let dust_noise = sin(p.x * 0.5 + time * 0.1) * cos(p.y * 0.3) * sin(p.z * 0.4);
-        let dust_factor = max(0.0, dust_noise * params.dust_intensity * 0.1);
-        let dust_color = vec3<f32>(0.3, 0.7, 0.5);
+        let dust_factor = max(0.0, params.dust_intensity);
+        let dust_color = vec3<f32>(0.3, 0.7, 0.7);
         
         let color_phase = a * params.color_variation * 2.0 + time * 0.5;
         let enhanced_color = vec3<f32>(
             0.8 + sin(color_phase) * 0.4,
-            0.6 + sin(color_phase + 2.0) * 0.5, 
+            0.6 + sin(color_phase + 2.0) * 0.1, 
             0.9 + sin(color_phase + 4.0) * 0.3
         );
         
