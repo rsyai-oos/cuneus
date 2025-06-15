@@ -14,9 +14,9 @@ struct NebulaParams {
     tile: f32,
     speed: f32,
     brightness: f32,
-    darkmatter: f32,
+    dust_intensity: f32,
     distfading: f32,
-    saturation: f32,
+    color_variation: f32,
     n_boxes: f32,
     rotation: i32,
     depth: f32,
@@ -33,12 +33,12 @@ struct NebulaParams {
     exposure: f32,
     gamma: f32,
     
-    color1_r: f32,
-    color1_g: f32,
-    color1_b: f32,
-    color2_r: f32,
-    color2_g: f32,
-    color2_b: f32,
+    _padding4: f32,
+    _padding5: f32,
+    _padding6: f32,
+    _padding7: f32,
+    _padding8: f32,
+    _padding9: f32,
     
     time_scale: f32,
     
@@ -229,17 +229,17 @@ impl ShaderManager for NebulaShader {
             &core.device,
             "Nebula Params Uniform",
             NebulaParams {
-                iterations: 25,
-                formuparam: 0.75,
-                volsteps: 5,
-                stepsize: 0.270,
+                iterations: 21,
+                formuparam: 0.55,
+                volsteps: 10,
+                stepsize: 0.21,
                 zoom: 1.85,
-                tile: 0.58,
+                tile: 0.8,
                 speed: 0.020,
                 brightness: 0.00062,
-                darkmatter: 0.23,
-                distfading: 0.40,
-                saturation: 1.00,
+                dust_intensity: 0.3,
+                distfading: 1.0,
+                color_variation: 1.5,
                 n_boxes: 10.0,
                 rotation: 1,
                 depth: 5.0,
@@ -256,12 +256,12 @@ impl ShaderManager for NebulaShader {
                 exposure: 1.65,
                 gamma: 0.400,
                 
-                color1_r: 1.0,
-                color1_g: 0.5,
-                color1_b: 0.1,
-                color2_r: 0.1,
-                color2_g: 0.3,
-                color2_b: 1.0,
+                _padding4: 0.0,
+                _padding5: 0.0,
+                _padding6: 0.0,
+                _padding7: 0.0,
+                _padding8: 0.0,
+                _padding9: 0.0,
                 
                 time_scale: 1.0,
                 
@@ -461,8 +461,8 @@ impl ShaderManager for NebulaShader {
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.iterations, 5..=30).text("Iterations")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.formuparam, 0.1..=1.0).text("Form Parameter")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.volsteps, 1..=10).text("Volume Steps")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.stepsize, 0.05..=0.3).text("Step Size")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.volsteps, 1..=20).text("Volume Steps")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.stepsize, 0.05..=0.5).text("Step Size")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.zoom, 0.1..=112.0).text("Zoom")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.tile, 0.1..=2.0).text("Tile")).changed();
                             });
@@ -470,12 +470,12 @@ impl ShaderManager for NebulaShader {
                         egui::CollapsingHeader::new("Appearance")
                             .default_open(true)
                             .show(ui, |ui| {
-                                changed |= ui.add(egui::Slider::new(&mut params.brightness, 0.0005..=0.005).logarithmic(true).text("Brightness")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.darkmatter, 0.1..=0.8).text("Dark Matter")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.distfading, 0.1..=1.0).text("Distance Fading")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.saturation, 0.1..=1.0).text("Saturation")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.exposure, 0.5..=3.0).text("Exposure")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.gamma, 0.4..=1.2).text("Gamma")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.brightness, 0.0005..=0.015).logarithmic(true).text("Brightness")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.dust_intensity, 0.0..=1.0).text("Dust Intensity")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.distfading, 0.1..=3.0).text("Distance Fading")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.color_variation, 0.5..=5.0).text("Color Variation")).changed();
+                                                changed |= ui.add(egui::Slider::new(&mut params.exposure, 0.5..=3.0).text("Exposure")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.gamma, 0.1..=1.2).text("Gamma")).changed();
                             });
 
                         egui::CollapsingHeader::new("Visual Modes")
@@ -514,8 +514,6 @@ impl ShaderManager for NebulaShader {
                                 changed |= ui.add(egui::Slider::new(&mut params.dof_amount, 0.0..=3.0).text("DOF Amount")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.dof_focal_dist, 0.0..=2.0).text("Focal Distance")).changed();
                             });
-
-                        
 
 
                         egui::CollapsingHeader::new("Animation")

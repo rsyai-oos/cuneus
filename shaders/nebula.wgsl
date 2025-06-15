@@ -17,9 +17,9 @@ struct NebulaParams {
     tile: f32,
     speed: f32,
     brightness: f32,
-    darkmatter: f32,
+    dust_intensity: f32,
     distfading: f32,
-    saturation: f32,
+    color_variation: f32,
     n_boxes: f32,
     rotation: i32,
     depth: f32,
@@ -36,12 +36,12 @@ struct NebulaParams {
     exposure: f32,
     gamma: f32,
     
-    color1_r: f32,
-    color1_g: f32,
-    color1_b: f32,
-    color2_r: f32,
-    color2_g: f32,
-    color2_b: f32,
+    _padding4: f32,
+    _padding5: f32,
+    _padding6: f32,
+    _padding7: f32,
+    _padding8: f32,
+    _padding9: f32,
     
     time_scale: f32,
     
@@ -131,9 +131,9 @@ fn mainVR(fragCoord: vec2<f32>, res: vec2<f32>, ro: vec3<f32>, rd: vec3<f32>, ti
     ray_origin = vec3<f32>(rot2 * ray_origin.xy, ray_origin.z);
     
     let depth_from_center = length(dir.xy);
-    let focal_distance = params.dof_focal_dist * 3.0;
+    let focal_distance = params.dof_focal_dist * 2.0;
     let depth_diff = abs(depth_from_center - focal_distance);
-    let dof_blur = 1.0 - smoothstep(0.0, params.dof_amount * 2.0, depth_diff);
+    let dof_blur = 1.0 - smoothstep(0.0, params.dof_amount * 1.5, depth_diff * depth_diff);
     
     var s = 0.1;
     var fade = 1.0;
@@ -170,25 +170,47 @@ fn mainVR(fragCoord: vec2<f32>, res: vec2<f32>, ro: vec3<f32>, rd: vec3<f32>, ti
             pa = length(p);
         }
         
-        let dm = max(0.0, params.darkmatter - a * a * 0.001);
         a *= a * a;
         
-        a *= mix(0.3, 1.0, dof_blur);
-        fade *= mix(0.8, 1.0, dof_blur);
+        let dof_factor = smoothstep(0.3, 1.0, dof_blur);
+        a *= mix(0.2, 1.0, dof_factor);
+        fade *= mix(0.7, 1.0, dof_factor);
         
-        if (r > 6) {
-            fade *= 1.3 - dm;
-        }
+        let dust_noise = sin(p.x * 0.5 + time * 0.1) * cos(p.y * 0.3) * sin(p.z * 0.4);
+        let dust_factor = max(0.0, dust_noise * params.dust_intensity * 0.1);
+        let dust_color = vec3<f32>(0.3, 0.7, 0.5);
         
-        v += vec3<f32>(fade);
-        v += vec3<f32>(s, s * s, s * s * s) * a * params.brightness * fade;
+        let color_phase = a * params.color_variation * 2.0 + time * 0.5;
+        let enhanced_color = vec3<f32>(
+            0.8 + sin(color_phase) * 0.4,
+            0.6 + sin(color_phase + 2.0) * 0.5, 
+            0.9 + sin(color_phase + 4.0) * 0.3
+        );
+        
+        v += vec3<f32>(fade) * dust_color * dust_factor;
+        v += vec3<f32>(s, s * s, s * s * s) * a * params.brightness * fade * enhanced_color;
         fade *= params.distfading;
         s += params.stepsize;
     }
     
-    v = mix(vec3<f32>(length(v)), v, params.saturation);
+    v = mix(vec3<f32>(length(v)), v, 1.0);
     
     return vec4<f32>(v * 0.03, 1.0);
+}
+
+
+
+fn color_grade(color: vec3<f32>) -> vec3<f32> {
+    var graded = color;
+    
+    graded = pow(graded, vec3<f32>(0.9));
+    graded *= vec3<f32>(1.1, 1.05, 0.95);
+    graded = mix(graded, graded * graded, 0.3);
+    
+    let luminance = dot(graded, vec3<f32>(0.299, 0.587, 0.114));
+    graded = mix(vec3<f32>(luminance), graded, 1.2);
+    
+    return graded;
 }
 
 fn H(h: f32) -> vec3<f32> {
@@ -244,13 +266,15 @@ fn main_image(@builtin(global_invocation_id) id: vec3<u32>) {
     let fragCoord = vec2<f32>(f32(id.x), f32(id.y));
     var uv = fragCoord.xy / res.xy - 0.5;
     uv.y *= res.y / res.x;
+    
     var dir = vec3<f32>(uv * params.zoom, 1.0);
     let ray_origin = vec3<f32>(1.0, 0.5, 0.5);
     let nebula_color = mainVR(fragCoord, res, ray_origin, dir, time_data.time * params.time_scale);
     
-    var final_color = nebula_color.rgb + color * 0.1;
+    var final_color = nebula_color.rgb + color * 0.05;
     
     final_color *= params.exposure;
+    final_color = color_grade(final_color);
     final_color = aces_tonemap(final_color);
     final_color = gamma_correction(final_color, params.gamma);
     
