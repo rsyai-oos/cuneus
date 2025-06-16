@@ -70,28 +70,7 @@ fn sdBox(p: vec2<f32>, b: vec2<f32>) -> f32 {
     return length(max(d, vec2<f32>(0.0))) + min(max(d.x, d.y), 0.0);
 }
 
-fn periphery(p: vec2<f32>, s: f32, time: f32) -> f32 {
-    var per = 0.0;
-    
-    for (var i = 1.0; i < params.n_boxes + 1.0 * cos(time); i += 1.0) {
-        var p0 = p;
-        
-        let a = radians(31.0 * cos(time) / params.n_boxes * cos(time)) * i;
-        let mean = (params.n_boxes + params.depth) * 0.4;
-        p0 = rot(a) * p0;
-        
-        if (params.rotation != 0) {
-            p0 = rot(time * i * mean * 1e-2 / (params.n_boxes * 0.08) * time) * p0;
-        }
-        
-        let box = sdBox(p0, vec2<f32>(s));
-        let gamma = mean * 1e-4 * 0.7;
-        let box_result = gamma / abs(box);
-        
-        per += box_result;
-    }
-    return per;
-}
+
 
 fn mainVR(fragCoord: vec2<f32>, res: vec2<f32>, ro: vec3<f32>, rd: vec3<f32>, time: f32) -> vec4<f32> {
     var uv = fragCoord.xy / res.xy - 0.5;
@@ -159,7 +138,7 @@ fn mainVR(fragCoord: vec2<f32>, res: vec2<f32>, ro: vec3<f32>, rd: vec3<f32>, ti
             p.z *= tunnel_factor * 0.5;
         }
         
-        p = abs(vec3<f32>(params.tile) - (p % (vec3<f32>(params.tile) * 2.0)));
+        p = abs(vec3<f32>(params.tile) - (p* (vec3<f32>(params.tile) * 1.0)));
         
         var pa = 0.0;
         var a = 0.0;
@@ -173,7 +152,7 @@ fn mainVR(fragCoord: vec2<f32>, res: vec2<f32>, ro: vec3<f32>, rd: vec3<f32>, ti
         a *= a * a;
         
         let dof_factor = smoothstep(0.3, 1.0, dof_blur);
-        a *= mix(0.2, 1.0, dof_factor);
+        a *= 2.0*mix(0.2, 1.0, dof_factor);
         fade *= mix(0.7, 1.0, dof_factor);
         
         let dust_noise = sin(p.x * 0.5 + time * 0.1) * cos(p.y * 0.3) * sin(p.z * 0.4);
