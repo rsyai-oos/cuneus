@@ -1,3 +1,5 @@
+// nebula: MIT License, Enes Altun. 2025
+// Based on the kali's shader:
 // MIT License, by Pablo Roman Andrioli aka "Kali", 2013
 // Shadertoy: https://www.shadertoy.com/view/XlfGRj 
 struct TimeUniform {
@@ -144,7 +146,8 @@ fn mainVR(fragCoord: vec2<f32>, res: vec2<f32>, ro: vec3<f32>, rd: vec3<f32>, ti
         var a = 0.0;
         
         for (var i = 0; i < params.iterations; i++) {
-            p = abs(p) / dot(p, p) - params.formuparam;
+            let power_mod = 2.0 + sin(length(p) * 0.5) * 0.3;
+            p = abs(p) / pow(dot(p, p), power_mod * 0.5) - params.formuparam;
             a += abs(length(p) - pa);
             pa = length(p);
         }

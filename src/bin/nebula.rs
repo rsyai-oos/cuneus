@@ -80,7 +80,7 @@ struct NebulaShader {
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
-    let (app, event_loop) = ShaderApp::new("Kali's Starnest", 800, 600);
+    let (app, event_loop) = ShaderApp::new("universe", 800, 600);
     app.run(event_loop, |core| {
         NebulaShader::init(core)
     })
@@ -450,7 +450,7 @@ impl ShaderManager for NebulaShader {
                     style.text_styles.get_mut(&egui::TextStyle::Button).unwrap().size = 10.0;
                 });
                 
-                egui::Window::new("Kali's Starnest")
+                egui::Window::new("universe")
                     .collapsible(true)
                     .resizable(true)
                     .default_width(320.0)
