@@ -165,10 +165,15 @@ fn mainVR(fragCoord: vec2<f32>, res: vec2<f32>, ro: vec3<f32>, rd: vec3<f32>, ti
             0.6 + sin(color_phase + 2.0) * 0.1, 
             0.9 + sin(color_phase + 4.0) * 0.3
         );
-        
-        v += vec3<f32>(fade) * dust_color * dust_factor;
-        v += vec3<f32>(s, s * s, s * s * s) * a * params.brightness * fade * enhanced_color;
-        fade *= params.distfading;
+        let h_blur = sin(p.x * 0.5 + 0.3) * 0.2 + 1.0;
+        let v_blur = cos(p.y * 0.4 +  0.25) * 0.2 + 1.0;
+        let blur_factor = vec3<f32>(h_blur, v_blur, mix(h_blur, v_blur, 0.5));
+        let dust_layer = vec3<f32>(fade) * dust_color * dust_factor;
+        let main_layer = vec3<f32>(s, s * s, s * s * s) * a * params.brightness * fade * enhanced_color;
+        let layered_blur = blur_factor * vec3<f32>(0.6, 0.6, 0.4);
+        v += dust_layer * layered_blur.x;
+        v += main_layer * layered_blur;
+        fade *= params.distfading * mix(0.95, 1.05, blur_factor.z);
         s += params.stepsize;
     }
     
