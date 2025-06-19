@@ -502,7 +502,7 @@ impl ShaderManager for BuddhabrotShader {
                                 ui.add_space(10.0);
                                 ui.separator();
                                 
-                                changed |= ui.add(egui::Slider::new(&mut params.exposure, 0.0005..=0.001).logarithmic(true).text("Exposure")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.exposure, 0.00005..=0.001).logarithmic(true).text("Exposure")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.sample_density, 0.1..=2.0).text("Sample Density")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.dithering, 0.0..=1.0).text("Dithering")).changed();
                             });
