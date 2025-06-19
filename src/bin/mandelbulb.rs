@@ -579,7 +579,7 @@ impl ShaderManager for MandelbulbShader {
                         ui.separator();
                         
                         egui::CollapsingHeader::new("Camera&View")
-                            .default_open(true)
+                            .default_open(false)
                             
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.zoom, 0.1..=5.0).text("Zoom")).changed();
@@ -604,7 +604,7 @@ impl ShaderManager for MandelbulbShader {
                             });
                         
                         egui::CollapsingHeader::new("Mandelbulb")
-                            .default_open(true)
+                            .default_open(false)
                             .show(ui, |ui| {
                                 let old_power = params.power;
                                 changed |= ui.add(egui::Slider::new(&mut params.power, 2.0..=12.0).text("Power")).changed();
@@ -614,7 +614,7 @@ impl ShaderManager for MandelbulbShader {
                             });
                         
                         egui::CollapsingHeader::new("Render")
-                            .default_open(true)
+                            .default_open(false)
                             .show(ui, |ui| {
                                 let old_samples = params.samples_per_pixel;
                                 changed |= ui.add(egui::Slider::new(&mut params.samples_per_pixel, 1..=8).text("Samples/pixel")).changed();

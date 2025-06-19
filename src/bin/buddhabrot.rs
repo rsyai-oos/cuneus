@@ -472,6 +472,8 @@ impl ShaderManager for BuddhabrotShader {
             self.base.render_ui(core, |ctx| {
                 ctx.style_mut(|style| {
                     style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(0, 0, 0, 180);
+                    style.text_styles.get_mut(&egui::TextStyle::Body).unwrap().size = 11.0;
+                    style.text_styles.get_mut(&egui::TextStyle::Button).unwrap().size = 10.0;
                 });
                 
                 egui::Window::new("Buddhabrot Explorer")
@@ -482,7 +484,7 @@ impl ShaderManager for BuddhabrotShader {
                     .max_width(500.0)
                     .show(ctx, |ui| {
                         egui::CollapsingHeader::new("Fractal Parameters")
-                            .default_open(true)
+                            .default_open(false)
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.max_iterations, 100..=500).text("Max Iterations")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.escape_radius, 2.0..=10.0).text("Escape Radius")).changed();
@@ -491,7 +493,7 @@ impl ShaderManager for BuddhabrotShader {
                             });
                         
                         egui::CollapsingHeader::new("View Controls")
-                            .default_open(true)
+                            .default_open(false)
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.zoom, 0.1..=5.0).logarithmic(true).text("Zoom")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.offset_x, -2.0..=1.0).text("Offset X")).changed();
@@ -506,7 +508,7 @@ impl ShaderManager for BuddhabrotShader {
                             });
                             
                         egui::CollapsingHeader::new("Colors")
-                            .default_open(true)
+                            .default_open(false)
                             .show(ui, |ui| {
                                 ui.horizontal(|ui| {
                                     ui.label("Color 1:");
@@ -532,7 +534,7 @@ impl ShaderManager for BuddhabrotShader {
                             });
                         
                         egui::CollapsingHeader::new("Rendering Options")
-                            .default_open(true)
+                            .default_open(false)
                             .show(ui, |ui| {
                                 ui.horizontal(|ui| {
                                     ui.label("Accumulated?:");
