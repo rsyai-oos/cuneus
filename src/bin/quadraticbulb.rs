@@ -587,7 +587,7 @@ impl ShaderManager for QuadraticBulbShader {
                         ui.separator();
                         
                         egui::CollapsingHeader::new("Camera & View")
-                            .default_open(true)
+                            .default_open(false)
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.zoom, 0.1..=5.0).text("Zoom")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.focal_length, 2.0..=20.0).text("Focal Length")).changed();
@@ -611,7 +611,7 @@ impl ShaderManager for QuadraticBulbShader {
                             });
                         
                         egui::CollapsingHeader::new("Mathematical Formula")
-                            .default_open(true)
+                            .default_open(false)
                             .show(ui, |ui| {
                                 ui.label("Quadratic Transform Coefficients:");
                                 ui.separator();
@@ -655,7 +655,7 @@ impl ShaderManager for QuadraticBulbShader {
                             });
                         
                         egui::CollapsingHeader::new("Render Settings")
-                            .default_open(true)
+                            .default_open(false)
                             .show(ui, |ui| {
                                 let old_samples = params.samples_per_pixel;
                                 changed |= ui.add(egui::Slider::new(&mut params.samples_per_pixel, 1..=8).text("Samples/pixel")).changed();
