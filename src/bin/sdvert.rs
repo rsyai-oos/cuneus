@@ -301,13 +301,17 @@ impl ShaderManager for Shader {
             self.base.render_ui(core, |ctx| {
                 ctx.style_mut(|style| {
                     style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(0, 0, 0, 180);
-                });                egui::Window::new("SDVert Controls")
+                    style.text_styles.get_mut(&egui::TextStyle::Body).unwrap().size = 11.0;
+                    style.text_styles.get_mut(&egui::TextStyle::Button).unwrap().size = 10.0;
+                });
+                
+                egui::Window::new("SDVert Controls")
                     .collapsible(true)
                     .resizable(true)
                     .default_width(300.0)
                     .show(ctx, |ui| {
                         egui::CollapsingHeader::new("Geometry")
-                            .default_open(true)
+                            .default_open(false)
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.lambda, 1.0..=20.0).text("Vertices")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.theta, 0.0..=10.0).text("Angle Scale")).changed();

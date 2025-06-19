@@ -341,7 +341,7 @@ impl ShaderManager for Shader {
                     .show(ctx, |ui| {
                         
                         egui::CollapsingHeader::new("Colors")
-                            .default_open(true)
+                            .default_open(false)
                             .show(ui, |ui| {
                                 ui.horizontal(|ui| {
                                     ui.label("Base:");

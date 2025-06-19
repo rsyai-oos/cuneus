@@ -787,6 +787,8 @@ let full_output = if self.base.key_handler.show_ui {
     self.base.render_ui(core, |ctx| {
         ctx.style_mut(|style| {
             style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(0, 0, 0, 180);
+            style.text_styles.get_mut(&egui::TextStyle::Body).unwrap().size = 11.0;
+            style.text_styles.get_mut(&egui::TextStyle::Button).unwrap().size = 10.0;
         });
         egui::Window::new("CNN Digit Recognizer")
             .collapsible(true)
@@ -798,7 +800,7 @@ let full_output = if self.base.key_handler.show_ui {
                 ui.label("The CNN will predict the digit using pre-trained weights");
                 ui.separator();
                 egui::CollapsingHeader::new("Canvas Set")
-                    .default_open(true)
+                    .default_open(false)
                     .show(ui, |ui| {
                         changed |= ui.add(egui::Slider::new(&mut params.canvas_size, 0.3..=0.8).text("Canvas Size")).changed();
                         changed |= ui.add(egui::Slider::new(&mut params.brush_size, 0.001..=0.015).text("Brush Size")).changed();
@@ -815,7 +817,7 @@ let full_output = if self.base.key_handler.show_ui {
                     });
                 
                 egui::CollapsingHeader::new("CNN Settings")
-                    .default_open(true)
+                    .default_open(false)
                     .show(ui, |ui| {
                         changed |= ui.add(egui::Slider::new(&mut params.prediction_threshold, 0.0..=0.5).text("Prediction Threshold")).changed();
                     });

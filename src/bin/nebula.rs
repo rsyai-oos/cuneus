@@ -457,7 +457,7 @@ impl ShaderManager for NebulaShader {
                     .show(ctx, |ui| {
                         
                         egui::CollapsingHeader::new("Volumetric Parameters")
-                            .default_open(true)
+                            .default_open(false)
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.iterations, 5..=30).text("Iterations")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.formuparam, 0.1..=1.0).text("Form Parameter")).changed();
@@ -468,7 +468,7 @@ impl ShaderManager for NebulaShader {
                             });
 
                         egui::CollapsingHeader::new("Appearance")
-                            .default_open(true)
+                            .default_open(false)
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.brightness, 0.0005..=0.015).logarithmic(true).text("Brightness")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.dust_intensity, 0.0..=1.0).text("Dust Intensity")).changed();
@@ -479,7 +479,7 @@ impl ShaderManager for NebulaShader {
                             });
 
                         egui::CollapsingHeader::new("Visual Modes")
-                            .default_open(true)
+                            .default_open(false)
                             .show(ui, |ui| {
                                 ui.horizontal(|ui| {
                                     if ui.selectable_label(params.spiral_mode == 0, "Normal").clicked() {

@@ -718,11 +718,13 @@ impl ShaderManager for PathTracingShader {
             self.base.render_ui(core, |ctx| {
                 ctx.style_mut(|style| {
                     style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(0, 0, 0, 180);
+                    style.text_styles.get_mut(&egui::TextStyle::Body).unwrap().size = 11.0;
+                    style.text_styles.get_mut(&egui::TextStyle::Button).unwrap().size = 10.0;
                 });
 
                 egui::Window::new("Path Tracer")
                     .collapsible(true)
-                    .resizable(false)
+                    .resizable(true)
                     .default_width(300.0)
                     .show(ctx, |ui| {
                         ui.label("Camera Controls:");
@@ -745,7 +747,7 @@ impl ShaderManager for PathTracingShader {
                         ui.separator();
                         
                         egui::CollapsingHeader::new("Render Settings")
-                            .default_open(true)
+                            .default_open(false)
                             .show(ui, |ui| {
                                 let old_samples = params.samples_per_pixel;
                                 changed |= ui.add(egui::Slider::new(&mut params.samples_per_pixel, 1..=16).text("Samples/pixel")).changed();

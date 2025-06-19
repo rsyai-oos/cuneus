@@ -680,11 +680,13 @@ impl ShaderManager for FFTShader {
             self.base.render_ui(core, |ctx| {
                 ctx.style_mut(|style| {
                     style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(0, 0, 0, 180);
+                    style.text_styles.get_mut(&egui::TextStyle::Body).unwrap().size = 11.0;
+                    style.text_styles.get_mut(&egui::TextStyle::Button).unwrap().size = 10.0;
                 });
                 
                 egui::Window::new("fourier workflow")
                     .collapsible(true)
-                    .resizable(false)
+                    .resizable(true)
                     .default_width(250.0)
                     .show(ctx, |ui| {
                         // Media controls
@@ -702,7 +704,7 @@ impl ShaderManager for FFTShader {
                         ui.separator();
                         
                         egui::CollapsingHeader::new("FFT Settings")
-                            .default_open(true)
+                            .default_open(false)
                             .show(ui, |ui| {
                                 ui.label("Resolution:");
                                 
@@ -726,7 +728,7 @@ impl ShaderManager for FFTShader {
                             });
                         
                         egui::CollapsingHeader::new("Filter Settings")
-                            .default_open(true)
+                            .default_open(false)
                             .show(ui, |ui| {
                                 ui.label("Filter Type:");
                                 changed |= ui.radio_value(&mut params.filter_type, 0, "LP").changed();

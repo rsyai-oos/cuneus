@@ -455,11 +455,11 @@ impl ShaderManager for SpiralShader {
                 
                 egui::Window::new("Chaos Spiral")
                     .collapsible(true)
-                    .resizable(false)
+                    .resizable(true)
                     .default_width(250.0)
                     .show(ctx, |ui| {
                         egui::CollapsingHeader::new("Spiral")
-                            .default_open(true)
+                            .default_open(false)
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.a, 0.0..=3.0).text("Tightness")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.b, 0.0..=3.0).text("Speed")).changed();
@@ -467,7 +467,7 @@ impl ShaderManager for SpiralShader {
                             });
                         
                         egui::CollapsingHeader::new("DOF")
-                            .default_open(true)
+                            .default_open(false)
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.dof_amount, 0.0..=3.0).text("N")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.dof_focal_dist, 0.0..=3.0).text("Focal Distance")).changed();
@@ -475,14 +475,14 @@ impl ShaderManager for SpiralShader {
                             });
                         
                         egui::CollapsingHeader::new("rot")
-                            .default_open(true)
+                            .default_open(false)
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.rotation_x, -1.0..=1.0).text("X")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.rotation_y, -1.0..=1.0).text("Y")).changed();
                             });
                             
                         egui::CollapsingHeader::new("Colors")
-                            .default_open(true)
+                            .default_open(false)
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.brightness, 0.00001..=0.0001).logarithmic(true).text("Brightness")).changed();
                                 

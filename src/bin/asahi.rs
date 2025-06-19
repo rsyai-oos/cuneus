@@ -292,8 +292,11 @@ impl ShaderManager for Shader {
                 // transparent
                 ctx.style_mut(|style| {
                     style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(0, 0, 0, 180);
+                    style.text_styles.get_mut(&egui::TextStyle::Body).unwrap().size = 11.0;
+                    style.text_styles.get_mut(&egui::TextStyle::Button).unwrap().size = 10.0;
                 });
-                egui::Window::new("Flower Settings").show(ctx, |ui| {
+                
+                egui::Window::new("Flower Settings").resizable(true).show(ctx, |ui| {
                     ui.collapsing("Left Petals Colors", |ui| {
                         changed |= ui.color_edit_button_rgb(&mut params.color_petal_start_a).changed();
                         ui.label("Start Color");

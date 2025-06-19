@@ -325,8 +325,13 @@ impl ShaderManager for MatrixShader {
             self.base.render_ui(core, |ctx| {
                 ctx.style_mut(|style| {
                     style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(0, 0, 0, 180);
-                });                egui::Window::new("Matrix Effect")
+                    style.text_styles.get_mut(&egui::TextStyle::Body).unwrap().size = 11.0;
+                    style.text_styles.get_mut(&egui::TextStyle::Button).unwrap().size = 10.0;
+                });
+                
+                egui::Window::new("Matrix Effect")
                     .collapsible(true)
+                    .resizable(true)
                     .default_size([300.0, 100.0])
                     .show(ctx, |ui| {
                         ui.collapsing("Media", |ui: &mut egui::Ui| {

@@ -446,15 +446,17 @@ impl ShaderManager for GaborShader {
             self.base.render_ui(core, |ctx| {
                 ctx.style_mut(|style| {
                     style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(0, 0, 0, 180);
+                    style.text_styles.get_mut(&egui::TextStyle::Body).unwrap().size = 11.0;
+                    style.text_styles.get_mut(&egui::TextStyle::Button).unwrap().size = 10.0;
                 });
                 
                 egui::Window::new("Gabor Patch")
                     .collapsible(true)
-                    .resizable(false)
+                    .resizable(true)
                     .default_width(250.0)
                     .show(ctx, |ui| {
                         egui::CollapsingHeader::new("Gabor Parameters")
-                            .default_open(true)
+                            .default_open(false)
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.frequency, 0.1..=10.0).text("Frequency")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.orientation, -std::f32::consts::PI..=std::f32::consts::PI).text("Orientation")).changed();
@@ -469,7 +471,7 @@ impl ShaderManager for GaborShader {
                             });
                         
                         egui::CollapsingHeader::new("Visual Settings")
-                            .default_open(true)
+                            .default_open(false)
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.z_scale, 0.0..=1.0).text("Z Depth Scale")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.brightness, 0.00001..=0.0001).logarithmic(true).text("Brightness")).changed();
@@ -480,7 +482,7 @@ impl ShaderManager for GaborShader {
                             });
                             
                         egui::CollapsingHeader::new("Depth of Field")
-                            .default_open(true)
+                            .default_open(false)
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.dof_amount, 0.0..=3.0).text("DOF Amount")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.dof_focal_dist, 0.0..=1.0).text("Focal Distance")).changed();
@@ -488,7 +490,7 @@ impl ShaderManager for GaborShader {
                             });
                             
                         egui::CollapsingHeader::new("Colors")
-                            .default_open(true)
+                            .default_open(false)
                             .show(ui, |ui| {
                                 ui.horizontal(|ui| {
                                     ui.label("Positive Part:");

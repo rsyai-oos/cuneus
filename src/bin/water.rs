@@ -614,11 +614,13 @@ impl ShaderManager for WaterShader {
             self.base.render_ui(core, |ctx| {
                 ctx.style_mut(|style| {
                     style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(0, 0, 0, 200);
+                    style.text_styles.get_mut(&egui::TextStyle::Body).unwrap().size = 11.0;
+                    style.text_styles.get_mut(&egui::TextStyle::Button).unwrap().size = 10.0;
                 });
 
                 egui::Window::new("Arctic Night Ocean")
                     .collapsible(true)
-                    .resizable(false)
+                    .resizable(true)
                     .default_width(340.0)
                     .show(ctx, |ui| {
                         ui.separator();
@@ -628,7 +630,7 @@ impl ShaderManager for WaterShader {
                         ui.separator();
                         
                         egui::CollapsingHeader::new("Water")
-                            .default_open(true)
+                            .default_open(false)
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.water_depth, 1.0..=5.0).text("Depth")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.drag_mult, 0.1..=0.8).text("Wave Calmness")).changed();
@@ -651,7 +653,7 @@ impl ShaderManager for WaterShader {
                             });
 
                         egui::CollapsingHeader::new("Sky")
-                            .default_open(true)
+                            .default_open(false)
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.time_speed, 0.1..=2.0).text("Time Flow")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.sun_speed, 0.01..=0.2).text("Moon Movement")).changed();
@@ -681,7 +683,7 @@ impl ShaderManager for WaterShader {
                             });
 
                         egui::CollapsingHeader::new("Aurora Borealis")
-                            .default_open(true)
+                            .default_open(false)
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.cloud_coverage, 0.0..=1.0).text("Intensity")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.cloud_speed, 0.05..=0.5).text("Animation Speed")).changed();
@@ -689,7 +691,7 @@ impl ShaderManager for WaterShader {
                             });
 
                         egui::CollapsingHeader::new("Vis Settings")
-                            .default_open(true)
+                            .default_open(false)
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.exposure, 0.1..=3.5).text("Exposure")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.gamma, 0.1..=2.8).text("Gamma")).changed();

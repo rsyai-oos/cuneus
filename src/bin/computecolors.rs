@@ -558,11 +558,13 @@ impl ShaderManager for ColorProjection {
             self.base.render_ui(core, |ctx| {
                 ctx.style_mut(|style| {
                     style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(0, 0, 0, 180);
+                    style.text_styles.get_mut(&egui::TextStyle::Body).unwrap().size = 11.0;
+                    style.text_styles.get_mut(&egui::TextStyle::Button).unwrap().size = 10.0;
                 });
                 
                 egui::Window::new("Color Projection Settings")
                     .collapsible(true)
-                    .resizable(false)
+                    .resizable(true)
                     .default_width(250.0)
                     .show(ctx, |ui| {
                     ShaderControls::render_media_panel(
@@ -578,7 +580,7 @@ impl ShaderManager for ColorProjection {
                         ui.separator();
                         
                         egui::CollapsingHeader::new("Visual Settings")
-                            .default_open(true)
+                            .default_open(false)
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.intensity, 0.1..=12.0).text("Intensity")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.scale, 0.5..=4.0).text("Scale")).changed();

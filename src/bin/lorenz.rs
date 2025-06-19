@@ -563,6 +563,8 @@ impl ShaderManager for LorenzShader {
             self.base.render_ui(core, |ctx| {
                 ctx.style_mut(|style| {
                     style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(0, 0, 0, 180);
+                    style.text_styles.get_mut(&egui::TextStyle::Body).unwrap().size = 11.0;
+                    style.text_styles.get_mut(&egui::TextStyle::Button).unwrap().size = 10.0;
                 });
                 
                 egui::Window::new("Volumetric Lorenz")
@@ -571,7 +573,7 @@ impl ShaderManager for LorenzShader {
                     .default_width(350.0)
                     .show(ctx, |ui| {
                         egui::CollapsingHeader::new("Attractor Parameters")
-                            .default_open(true)
+                            .default_open(false)
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.sigma, 0.0..=40.0).text("Sigma (σ)")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.rho, 0.0..=100.0).text("Rho (ρ)")).changed();
@@ -603,7 +605,7 @@ impl ShaderManager for LorenzShader {
                             });
                         
                         egui::CollapsingHeader::new("Rendering")
-                            .default_open(true)
+                            .default_open(false)
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.brightness, 0.0001..=0.01).text("Brightness").logarithmic(true)).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.scale, 0.001..=0.1).text("Scale").logarithmic(true)).changed();
@@ -615,7 +617,7 @@ impl ShaderManager for LorenzShader {
                             });
                         
                         egui::CollapsingHeader::new("Colors")
-                            .default_open(true)
+                            .default_open(false)
                             .show(ui, |ui| {
                                 let mut color1 = [params.color1_r, params.color1_g, params.color1_b];
                                 let mut color2 = [params.color2_r, params.color2_g, params.color2_b];

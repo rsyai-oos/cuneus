@@ -433,7 +433,7 @@ impl ShaderManager for Shader {
                     .show(ctx, |ui| {
                         
                         egui::CollapsingHeader::new("IFS Matrices")
-                            .default_open(true)
+                            .default_open(false)
                             .show(ui, |ui| {
                                 ui.label("Matrix 1:");
                                 changed |= ui.add(egui::Slider::new(&mut params.m1_scale, 0.1..=1.2).text("Scale")).changed();
@@ -460,7 +460,7 @@ impl ShaderManager for Shader {
                             });
 
                         egui::CollapsingHeader::new("Colors")
-                            .default_open(true)
+                            .default_open(false)
                             .show(ui, |ui| {
                                 ui.horizontal(|ui| {
                                     ui.label("Primary:");

@@ -372,14 +372,16 @@ impl ShaderManager for ParticleShader {
             self.base.render_ui(core, |ctx| {
                 ctx.style_mut(|style| {
                     style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(0, 0, 0, 180);
+                    style.text_styles.get_mut(&egui::TextStyle::Body).unwrap().size = 11.0;
+                    style.text_styles.get_mut(&egui::TextStyle::Button).unwrap().size = 10.0;
                 });
                 egui::Window::new("Particle System")
                     .collapsible(true)
-                    .resizable(false)
+                    .resizable(true)
                     .default_width(280.0)
                     .show(ctx, |ui| {
                         egui::CollapsingHeader::new("Attractor Parameters")
-                            .default_open(true)
+                            .default_open(false)
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.a, -3.0..=3.0).text("Parameter A")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.b, -3.0..=3.0).text("Parameter B")).changed();
@@ -388,7 +390,7 @@ impl ShaderManager for ParticleShader {
                                 ui.separator();
                             });
                         egui::CollapsingHeader::new("Visual Settings")
-                            .default_open(true)
+                            .default_open(false)
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.num_circles, 1.0..=10.0).text("Number of Circles")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.num_points, 1.0..=10.0).text("Points per Circle")).changed();
@@ -398,7 +400,7 @@ impl ShaderManager for ParticleShader {
                                 changed |= ui.add(egui::Slider::new(&mut params.scale, 0.1..=10.0).text("Attractor Scale")).changed();
                             });
                         egui::CollapsingHeader::new("Animation & Feedback")
-                            .default_open(true)
+                            .default_open(false)
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.animation_speed, 0.0..=1.0).text("Animation Speed")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.feedback_decay, 0.0..=2.5).text("Feedback Decay")).changed();

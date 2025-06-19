@@ -322,7 +322,11 @@ impl ShaderManager for SpiralShader {
             self.base.render_ui(core, |ctx| {
                 ctx.style_mut(|style| {
                     style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(0, 0, 0, 180);
-                });                egui::Window::new("Shader Settings").show(ctx, |ui| {
+                    style.text_styles.get_mut(&egui::TextStyle::Body).unwrap().size = 11.0;
+                    style.text_styles.get_mut(&egui::TextStyle::Button).unwrap().size = 10.0;
+                });
+                
+                egui::Window::new("Shader Settings").resizable(true).show(ctx, |ui| {
                     ShaderControls::render_media_panel(
                         ui,
                         &mut controls_request,
