@@ -108,40 +108,17 @@ fn aces_tonemap(color: v3) -> v3 {
     return m2 * (a / b);
 }
 
-fn get_iteration_buffers(c: v2, max_iters: u32) -> array<u32, 3> {
+fn escapes_within_range(c: v2, max_iters: u32) -> bool {
     var z = v2(0.0, 0.0);
-    var path: array<v2, 10000>;
     var n: u32 = 0;
     
     for (; n < max_iters; n++) {
         z = cmul(z, z) + c;
-        if (n < 10000u) {
-            path[n] = z;
-        }
         if (dot(z, z) > params.escape_radius) {
-            break;
+            return n >= 20u && n < max_iters;
         }
     }
-
-    if (n == max_iters || n < 20u) {
-        return array<u32, 3>(0u, 0u, 0u);
-    }
-    var counts: array<u32, 3>;
-    counts[0] = 0u;
-    counts[1] = 0u;
-    counts[2] = 0u;
-    
-    for (var i: u32 = 0u; i < n && i < 10000u; i++) {
-        if (i >= params.high_iterations) {
-            counts[0]++;
-        } else if (i >= params.low_iterations) {
-            counts[1]++;
-        } else {
-            counts[2]++;
-        }
-    }
-    
-    return counts;
+    return false;
 }
 
 fn complex_to_screen(p: v2) -> v2 {
@@ -153,15 +130,14 @@ fn complex_to_screen(p: v2) -> v2 {
     return uv * 0.5 + 0.5;
 }
 
-@compute @workgroup_size(256, 1, 1)
+@compute @workgroup_size(64, 1, 1)
 fn Splat(@builtin(global_invocation_id) id: vec3<u32>) {
     let Ru = vec2<u32>(textureDimensions(output));
     R = v2(Ru);
     seed = id.x + hash_u(time_data.frame);
     
     let actual_max_iters = params.max_iterations + u32(sin(time_data.time * 0.1) * 50.0);
-    
-    let samples_per_thread = 15u + u32(params.sample_density * 15.0);
+    let samples_per_thread = 8u + u32(params.sample_density * 12.0);
     
     for (var s: u32 = 0u; s < samples_per_thread; s++) {
         var c: v2;
@@ -188,8 +164,7 @@ fn Splat(@builtin(global_invocation_id) id: vec3<u32>) {
                 sin(angle) * base_radius
             );
         }
-        let buffers = get_iteration_buffers(c, actual_max_iters);
-        if (buffers[0] == 0u && buffers[1] == 0u && buffers[2] == 0u) {
+        if (!escapes_within_range(c, actual_max_iters)) {
             continue;
         }
         var z = v2(0.0, 0.0);
@@ -201,11 +176,11 @@ fn Splat(@builtin(global_invocation_id) id: vec3<u32>) {
                 break;
             }
 
-            if (n % 3u != 0u) {
+            if (n < 15u || n % 2u != 0u) {
                 continue;
             }
 
-            if (abs(z.x) > 2.0 || abs(z.y) > 2.0) {
+            if (abs(z.x) > 3.0 || abs(z.y) > 3.0) {
                 continue;
             }
 
@@ -217,13 +192,15 @@ fn Splat(@builtin(global_invocation_id) id: vec3<u32>) {
                 let pixel_idx = pixel_x + Ru.x * pixel_y;
 
                 if (pixel_idx < Ru.x * Ru.y) {
+                    var buffer_offset: u32;
                     if (n >= params.high_iterations) {
-                        atomicAdd(&atomic_buffer[pixel_idx], 1u);
+                        buffer_offset = 0u;
                     } else if (n >= params.low_iterations) {
-                        atomicAdd(&atomic_buffer[pixel_idx + Ru.x * Ru.y], 1u);
+                        buffer_offset = Ru.x * Ru.y;
                     } else {
-                        atomicAdd(&atomic_buffer[pixel_idx + 2u * Ru.x * Ru.y], 1u);
+                        buffer_offset = 2u * Ru.x * Ru.y;
                     }
+                    atomicAdd(&atomic_buffer[pixel_idx + buffer_offset], 1u);
                 }
             }
         }

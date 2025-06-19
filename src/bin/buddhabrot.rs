@@ -194,20 +194,9 @@ impl BuddhabrotShader {
     }
     
     fn clear_buffers(&mut self, core: &Core) {
-        let encoder = core.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Clear Buffers Encoder"),
-        });
-        let buffer_size = core.size.width * core.size.height * 3;
-        let clear_data = vec![0u32; buffer_size as usize];
-        
-        core.queue.write_buffer(
-            &self.atomic_buffer.buffer,
-            0,
-            bytemuck::cast_slice(&clear_data),
-        );
-        
-        core.queue.submit(Some(encoder.finish()));
-
+        if !self.accumulated_rendering {
+            self.atomic_buffer.clear(&core.queue);
+        }
         self.accumulated_rendering = false;
     }
 }
@@ -288,7 +277,7 @@ impl ShaderManager for BuddhabrotShader {
                 offset_x: -0.5,
                 offset_y: 0.0,
                 rotation: 1.5,
-                exposure: 0.00005,
+                exposure: 0.0005,
                 low_iterations: 20,
                 high_iterations: 100,
                 motion_speed: 0.0,
@@ -487,29 +476,31 @@ impl ShaderManager for BuddhabrotShader {
                 
                 egui::Window::new("Buddhabrot Explorer")
                     .collapsible(true)
-                    .resizable(false)
-                    .default_width(250.0)
+                    .resizable(true)
+                    .default_width(300.0)
+                    .min_width(250.0)
+                    .max_width(500.0)
                     .show(ctx, |ui| {
                         egui::CollapsingHeader::new("Fractal Parameters")
                             .default_open(true)
                             .show(ui, |ui| {
-                                changed |= ui.add(egui::Slider::new(&mut params.max_iterations, 100..=500).text("Max iter")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.escape_radius, 2.0..=10.0).text("esc radi")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.low_iterations, 5..=50).text("lic")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.high_iterations, 50..=500).text("hic")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.max_iterations, 100..=500).text("Max Iterations")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.escape_radius, 2.0..=10.0).text("Escape Radius")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.low_iterations, 5..=50).text("Low Iterations")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.high_iterations, 50..=500).text("High Iterations")).changed();
                             });
                         
                         egui::CollapsingHeader::new("View Controls")
                             .default_open(true)
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.zoom, 0.1..=5.0).logarithmic(true).text("Zoom")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.offset_x, -2.0..=1.0).text("X")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.offset_y, -1.5..=1.5).text("Y")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.rotation, -3.14159..=3.14159).text("rot")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.offset_x, -2.0..=1.0).text("Offset X")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.offset_y, -1.5..=1.5).text("Offset Y")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.rotation, -3.14159..=3.14159).text("Rotation")).changed();
                                 ui.add_space(10.0);
                                 ui.separator();
                                 
-                                changed |= ui.add(egui::Slider::new(&mut params.exposure, 0.00001..=0.0005).logarithmic(true).text("exp")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.exposure, 0.0005..=0.001).logarithmic(true).text("Exposure")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.sample_density, 0.1..=2.0).text("Sample Density")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.dithering, 0.0..=1.0).text("Dithering")).changed();
                             });
@@ -518,7 +509,7 @@ impl ShaderManager for BuddhabrotShader {
                             .default_open(true)
                             .show(ui, |ui| {
                                 ui.horizontal(|ui| {
-                                    ui.label("c1:");
+                                    ui.label("Color 1:");
                                     let mut color = [params.color1_r, params.color1_g, params.color1_b];
                                     if ui.color_edit_button_rgb(&mut color).changed() {
                                         params.color1_r = color[0];
@@ -529,7 +520,7 @@ impl ShaderManager for BuddhabrotShader {
                                 });
                                 
                                 ui.horizontal(|ui| {
-                                    ui.label("c2:");
+                                    ui.label("Color 2:");
                                     let mut color = [params.color2_r, params.color2_g, params.color2_b];
                                     if ui.color_edit_button_rgb(&mut color).changed() {
                                         params.color2_r = color[0];
@@ -540,12 +531,14 @@ impl ShaderManager for BuddhabrotShader {
                                 });
                             });
                         
-                        ui.separator();
-                        
-                        ui.horizontal(|ui| {
-                            ui.label("Accumulated?:");
-                            ui.checkbox(&mut self.accumulated_rendering, "");
-                        });
+                        egui::CollapsingHeader::new("Rendering Options")
+                            .default_open(true)
+                            .show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    ui.label("Accumulated?:");
+                                    ui.checkbox(&mut self.accumulated_rendering, "");
+                                });
+                            });
                         
                         ui.separator();
                         
@@ -592,8 +585,8 @@ impl ShaderManager for BuddhabrotShader {
         }
         
         // Only generate new samples if we're not in accumulated mode
-        // or if we're still accumulating (frame count < 300)
-        let should_generate_samples = !self.accumulated_rendering || self.frame_count < 300;
+        // or if we're still accumulating (frame count < 500)
+        let should_generate_samples = !self.accumulated_rendering || self.frame_count < 500;
         
         if should_generate_samples {
             // Pass 1: Generate and splat particles
@@ -609,7 +602,7 @@ impl ShaderManager for BuddhabrotShader {
                 compute_pass.set_bind_group(2, &self.compute_bind_group, &[]);
                 compute_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]);
                 
-                compute_pass.dispatch_workgroups(1024, 1, 1);
+                compute_pass.dispatch_workgroups(2048, 1, 1);
             }
         }
         
