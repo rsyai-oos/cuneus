@@ -1,7 +1,7 @@
 // An example of a simple audio creation using Cuneus
 use cuneus::{Core, ShaderApp, ShaderManager, RenderKit, ShaderControls, UniformBinding};
 use cuneus::compute::{ComputeShaderConfig, COMPUTE_TEXTURE_FORMAT_RGBA16};
-use cuneus::gst::audio::{AudioSynthManager, MusicalNote, AudioSynthUniform};
+use cuneus::gst::synthesis::{AudioSynthManager, MusicalNote, AudioSynthUniform};
 use winit::event::*;
 use winit::keyboard::{KeyCode, PhysicalKey};
 use log::info;
@@ -25,7 +25,7 @@ struct SynthManager {
     pressed_keys: HashSet<KeyCode>,
     pressed_notes: HashSet<MusicalNote>,
     master_volume: f64,
-    current_waveform: cuneus::gst::audio::AudioWaveform,
+    current_waveform: cuneus::gst::synthesis::AudioWaveform,
 }
 
 impl SynthManager {
@@ -265,7 +265,7 @@ impl ShaderManager for SynthManager {
             pressed_keys: HashSet::new(),
             pressed_notes: HashSet::new(),
             master_volume: 0.3,
-            current_waveform: cuneus::gst::audio::AudioWaveform::Sine,
+            current_waveform: cuneus::gst::synthesis::AudioWaveform::Sine,
         }
     }
     
@@ -353,17 +353,17 @@ impl ShaderManager for SynthManager {
                         
                         ui.label("Waveform:");
                         ui.horizontal(|ui| {
-                            if ui.radio_value(&mut self.current_waveform, cuneus::gst::audio::AudioWaveform::Sine, "Sine").changed() {
-                                let _ = self.audio_synth.set_waveform(cuneus::gst::audio::AudioWaveform::Sine);
+                            if ui.radio_value(&mut self.current_waveform, cuneus::gst::synthesis::AudioWaveform::Sine, "Sine").changed() {
+                                let _ = self.audio_synth.set_waveform(cuneus::gst::synthesis::AudioWaveform::Sine);
                             }
-                            if ui.radio_value(&mut self.current_waveform, cuneus::gst::audio::AudioWaveform::Square, "Square").changed() {
-                                let _ = self.audio_synth.set_waveform(cuneus::gst::audio::AudioWaveform::Square);
+                            if ui.radio_value(&mut self.current_waveform, cuneus::gst::synthesis::AudioWaveform::Square, "Square").changed() {
+                                let _ = self.audio_synth.set_waveform(cuneus::gst::synthesis::AudioWaveform::Square);
                             }
-                            if ui.radio_value(&mut self.current_waveform, cuneus::gst::audio::AudioWaveform::Saw, "Saw").changed() {
-                                let _ = self.audio_synth.set_waveform(cuneus::gst::audio::AudioWaveform::Saw);
+                            if ui.radio_value(&mut self.current_waveform, cuneus::gst::synthesis::AudioWaveform::Saw, "Saw").changed() {
+                                let _ = self.audio_synth.set_waveform(cuneus::gst::synthesis::AudioWaveform::Saw);
                             }
-                            if ui.radio_value(&mut self.current_waveform, cuneus::gst::audio::AudioWaveform::Triangle, "Triangle").changed() {
-                                let _ = self.audio_synth.set_waveform(cuneus::gst::audio::AudioWaveform::Triangle);
+                            if ui.radio_value(&mut self.current_waveform, cuneus::gst::synthesis::AudioWaveform::Triangle, "Triangle").changed() {
+                                let _ = self.audio_synth.set_waveform(cuneus::gst::synthesis::AudioWaveform::Triangle);
                             }
                         });
                         

@@ -28,8 +28,6 @@ struct AudioVoice {
 pub struct AudioSynthManager {
     /// The GStreamer pipeline for audio generation
     pipeline: gst::Pipeline,
-    /// The audio mixer element
-    _audiomixer: gst::Element,
     /// Multiple voices for polyphonic synthesis
     voices: Vec<AudioVoice>,
     /// Current waveform type
@@ -128,7 +126,6 @@ impl AudioSynthManager {
         
         let audio_synth = Self {
             pipeline,
-            _audiomixer: audiomixer,
             voices,
             current_waveform: AudioWaveform::Sine,
             master_volume: Arc::new(Mutex::new(0.3)),
@@ -450,83 +447,6 @@ impl MusicalNote {
     }
 }
 
-/// Simple frequency-to-audio-data converter for visualization
-pub struct AudioDataProvider {
-    sample_count: usize,
-}
-
-impl AudioDataProvider {
-    pub fn new() -> Self {
-        Self {
-            sample_count: 0,
-        }
-    }
-    
-    /// Update with current audio synthesis parameters
-    pub fn update(&mut self, _active_notes: &[MusicalNote], _master_volume: f64) {
-        self.sample_count += 1;
-    }
-    
-    /// Generate audio data array for visualization based on active notes
-    /// Maps the 9 keyboard notes (1-9) directly to visualization data
-    pub fn generate_audio_data(&self, active_notes: &[MusicalNote], master_volume: f64) -> [[f32; 4]; 32] {
-        let mut audio_data = [[0.0f32; 4]; 32];
-        
-        // Map notes 1-9 to positions across the audio data array
-        // We'll use the first 9 positions to represent keys 1-9
-        let note_mapping = [
-            MusicalNote::C4,       // Key 1
-            MusicalNote::D4,       // Key 2
-            MusicalNote::E4,       // Key 3
-            MusicalNote::F4,       // Key 4
-            MusicalNote::G4,       // Key 5
-            MusicalNote::A4,       // Key 6
-            MusicalNote::B4,       // Key 7
-            MusicalNote::C5,       // Key 8
-            MusicalNote::CSharp4,  // Key 9
-        ];
-        
-        if master_volume > 0.0 {
-            // Check each of the 9 notes and set corresponding data
-            for (note_index, &mapped_note) in note_mapping.iter().enumerate() {
-                if active_notes.contains(&mapped_note) {
-                    // Calculate the position in the audio_data array for this note
-                    // Spread 9 notes across 32*4=128 positions
-                    let positions_per_note = 128 / 9; // ~14 positions per note
-                    let start_pos = note_index * positions_per_note;
-                    
-                    let amplitude = (master_volume * 0.9) as f32;
-                    
-                    // Fill multiple positions for this note to create a "region"
-                    for i in 0..positions_per_note.min(10) {
-                        let pos = start_pos + i;
-                        if pos < 128 {
-                            let array_index = pos / 4;
-                            let component_index = pos % 4;
-                            
-                            if array_index < 32 {
-                                // Create a peak with falloff from center
-                                let distance_from_center = (i as f32 - positions_per_note as f32 / 2.0).abs();
-                                let falloff = (1.0 - distance_from_center / (positions_per_note as f32 / 2.0)).max(0.0);
-                                let final_amplitude = amplitude * falloff;
-                                
-                                match component_index {
-                                    0 => audio_data[array_index][0] = (audio_data[array_index][0] + final_amplitude).min(1.0),
-                                    1 => audio_data[array_index][1] = (audio_data[array_index][1] + final_amplitude).min(1.0),
-                                    2 => audio_data[array_index][2] = (audio_data[array_index][2] + final_amplitude).min(1.0),
-                                    3 => audio_data[array_index][3] = (audio_data[array_index][3] + final_amplitude).min(1.0),
-                                    _ => {}
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
-        audio_data
-    }
-}
 
 /// Dedicated uniform structure for audio synthesis data (separate from audio visualization)
 #[repr(C)]
@@ -598,8 +518,4 @@ impl AudioSynthUniform {
     }
 }
 
-impl Default for AudioDataProvider {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+
