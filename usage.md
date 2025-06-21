@@ -1,6 +1,6 @@
 # Cuneus Usage Guide
 
-Cuneus is a Rust-based GPU shader engine that simplifies creating interactive visual effect. It supports both traditional fragment shaders and modern compute shaders with built-in UI controls, hot reload, and export capabilities.
+Cuneus is a Rust-based GPU shader engine that simplifies creating interactive visual effects. It supports both traditional fragment shaders and modern compute shaders with built-in UI controls, hot-reloading, and export capabilities.
 
 ## Quick Start
 
@@ -8,27 +8,29 @@ Cuneus is a Rust-based GPU shader engine that simplifies creating interactive vi
    - `debugscreen.rs` - Simple compute shader with text rendering
    - `sinh.rs` - Fragment shader with interactive parameters  
    - `audiovis.rs` - Media processing with audio spectrum analysis
+   - `fft.rs`, `spiral.rs` - Media kit usage (input as video/texture/webcam/hdri)
 
-2. **Customize the template** for your effect
-3. **Write your WGSL shader** and iterate with hot reload
+2.  **Customize the template** for your effect.
+3.  **Write your WGSL shader** and iterate with hot-reloading.
 
 ## Core Structure
 
-Every shader follows this pattern:
+Every shader follows this pattern, using the `RenderKit` helper for common tasks.
 
 ```rust
-use cuneus::{Core, ShaderApp, ShaderManager, RenderKit};
+use cuneus::prelude::*; // Use the prelude for easy access to core types
 
 struct MyShader {
     base: RenderKit,
-    // Custom uniforms/parameters
+    // Your custom uniforms and state
+    params_uniform: UniformBinding<ShaderParams>,
 }
 
 impl ShaderManager for MyShader {
-    fn init(core: &Core) -> Self { /* Setup */ }
-    fn update(&mut self, core: &Core) { /* Per-frame updates */ }
-    fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> { /* Rendering */ }
-    fn handle_input(&mut self, core: &Core, event: &WindowEvent) -> bool { /* Input */ }
+    fn init(core: &Core) -> Self { /* ... Setup RenderKit, uniforms, etc. ... */ }
+    fn update(&mut self, core: &Core) { /* ... Handle hot-reloading, FPS, etc. ... */ }
+    fn render(&mut self, core: &Core) -> Result<(), SurfaceError> { /* ... Render logic ... */ }
+    fn handle_input(&mut self, core: &Core, event: &WindowEvent) -> bool { /* ... Input logic ... */ }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -54,10 +56,11 @@ let base = RenderKit::new(
 ```
 
 **WGSL structure:**
-
 ```wgsl
+// Bind groups match the order provided in Rust
 @group(0) @binding(0) var<uniform> u_time: TimeUniform;
-@group(1) @binding(0) var<uniform> params: MyParams;
+@group(1) @binding(0) var<uniform> u_resolution: ResolutionUniform;
+@group(2) @binding(0) var<uniform> params: ShaderParams;
 
 @fragment
 fn fs_main(@builtin(position) frag_coord: vec4<f32>) -> @location(0) vec4<f32> {
@@ -69,24 +72,25 @@ fn fs_main(@builtin(position) frag_coord: vec4<f32>) -> @location(0) vec4<f32> {
 
 ## Compute Shaders
 
-**Rust setup:**
 
+**Rust (`debugscreen.rs`):**
 ```rust
-let config = ComputeShaderConfig {
+// In init(), create a compute shader config
+let compute_config = ComputeShaderConfig {
     workgroup_size: [16, 16, 1],
-    enable_fonts: true,  // For text rendering
+    enable_fonts: true,  // Optionally enable the font system
     ..Default::default()
 };
 
-base.compute_shader = Some(ComputeShader::new_with_config(
+// Add the compute shader to your RenderKit instance
+base.compute_shader = Some(cuneus::compute::ComputeShader::new_with_config(
     core,
     include_str!("../../shaders/my_compute.wgsl"),
-    config,
+    compute_config,
 ));
 ```
 
-**WGSL structure:**
-
+**WGSL (`debugscreen.wgsl`):**
 ```wgsl
 @group(0) @binding(0) var<uniform> u_time: TimeUniform;
 @group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
@@ -100,104 +104,83 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     textureStore(output, id.xy, vec4<f32>(1.0, 0.0, 0.0, 1.0));
 }
 ```
-
-## Interactive Controls
-
-Add real-time parameter controls with egui:
-
-```rust
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct MyParams {
-    intensity: f32,
-    scale: f32,
-    _padding: [f32; 2],  // GPU alignment
-}
-
-// In render function:
-let full_output = if self.base.key_handler.show_ui {
-    self.base.render_ui(core, |ctx| {
-        egui::Window::new("Controls").show(ctx, |ui| {
-            ui.add(egui::Slider::new(&mut params.intensity, 0.0..=2.0));
-            ui.add(egui::Slider::new(&mut params.scale, 0.1..=10.0));
-        });
-    })
-} else {
-    self.base.render_ui(core, |_| {})
-};
-```
+*For complex effects like particle systems, you can also manage compute pipelines manually instead of using `base.compute_shader`. See `cliffordcompute.rs` for an example.*
 
 ## Media Support
 
-Cuneus provides comprehensive media integration through GStreamer:
+Cuneus provides comprehensive media integration through GStreamer.
 
-### Loading Media
+**Loading & Updating:**
 ```rust
+// Load any supported media file
 self.base.load_media(core, path)?;
+
+// For video/webcam, update the texture each frame in update()
+if self.base.using_video_texture {
+    self.base.update_video_texture(core, &core.queue);
+}
 ```
 
-### Media UI Controls
-Add media panel to your UI:
+**UI Controls:**
 ```rust
+// In your render() UI block
 ShaderControls::render_media_panel(
     ui,
     &mut controls_request,
-    using_video_texture,
-    video_info,
-    using_hdri_texture, 
-    hdri_info,
-    using_webcam_texture,
-    webcam_info
+    self.base.using_video_texture,
+    self.base.get_video_info(),
+    self.base.using_hdri_texture,
+    self.base.get_hdri_info(),
+    self.base.using_webcam_texture,
+    self.base.get_webcam_info(),
 );
 ```
 
-### Supported Formats
-- **Images**: PNG, JPG, JPEG, BMP, TIFF, WebP
-- **Videos**: MP4, AVI, MKV, WebM, MOV (with audio support)
-- **HDRI**: HDR, EXR (with exposure/gamma controls)
-- **Webcam**: Live camera feed
-
-### Using in Shaders
-```wgsl
-@group(0) @binding(0) var input_texture: texture_2d<f32>;
-@group(0) @binding(1) var tex_sampler: sampler;
-
-// Access current media frame
-let media_color = textureSample(input_texture, tex_sampler, uv);
-```
+**Supported Formats:**
+- **Images:** PNG, JPG, JPEG, BMP, TIFF, WebP
+- **Videos:** MP4, AVI, MKV, WebM, MOV (with audio)
+- **HDRI:** HDR, EXR (with exposure/gamma controls)
+- **Webcam:** Live camera feed
 
 ## Advanced Patterns
 
 ### Multi-Pass Rendering (Ping-Pong)
-For effects that need previous frame data:
+For effects that need previous frame data (e.g., feedback loops).
 ```rust
-// Create texture pairs for ping-pong
-let texture_pair = create_feedback_texture_pair(core, width, height, layout);
+// Rust: In init(), create texture pairs
+let texture_pair = create_feedback_texture_pair(core, ...);
+// Rust: In render(), swap textures each frame
+let (source_tex, target_tex) = if frame % 2 == 0 {
+    (&pair.0, &pair.1)
+} else {
+    (&pair.1, &pair.0)
+};
 
-// Swap between frames
-let source_tex = if frame_count % 2 == 0 { &pair.0 } else { &pair.1 };
-let target_tex = if frame_count % 2 == 0 { &pair.1 } else { &pair.0 };
+// WGSL: A pass takes the previous frame's result as input
+@group(0) @binding(0) var prev_frame: texture_2d<f32>;
 ```
 
 ### Compute Shaders with Atomic Buffers
-For GPU accumulation and complex algorithms:
+For GPU accumulation and complex algorithms.
 ```rust
-// Enable atomic buffer in config
-let config = ComputeShaderConfig {
-    enable_atomic_buffer: true,
-    atomic_buffer_multiples: 4,
-    ..Default::default()
-};
+// Rust: Enable in config and create buffer manually
+let config = ComputeShaderConfig { enable_atomic_buffer: true, .. };
+let atomic_buffer = cuneus::AtomicBuffer::new(core.device, size, &layout);
+
+// WGSL: Access the buffer in your shader
+@group(3) @binding(0) var<storage, read_write> atomic_buffer: array<atomic<u32>>;
+
+// ... later in compute shader ...
+atomicAdd(&atomic_buffer[index], 1u);
 ```
 
 ### Audio Spectrum Analysis
+Access real-time audio data from media files.
 ```rust
-// Update audio spectrum (video/webcam sources only)
+// Rust: In update() or render(), call this to populate the uniform
 self.base.update_audio_spectrum(&core.queue);
-```
 
-```wgsl
-// Access in shader
+// WGSL: Access data in the ResolutionUniform
 @group(3) @binding(0) var<uniform> u_resolution: ResolutionUniform;
 let spectrum_value = u_resolution.audio_data[frequency_bin][component];
 let bpm = u_resolution.bpm;
@@ -218,4 +201,3 @@ struct MouseUniform { position: vec2<f32>, click_position: vec2<f32>, wheel: vec
 - **Export**: Built-in frame capture for creating videos/images
 - **Text Rendering**: GPU-accelerated font system for overlays
 - **Drag & Drop**: Load media files by dropping them on the window
-
