@@ -210,18 +210,14 @@ fn volumetricTrace(ray_pos: v3, ray_dir: v3) -> v3 {
 fn Splat(@builtin(global_invocation_id) id: vec3<u32>) {
     let Ru = vec2<u32>(textureDimensions(output));
     R = v2(Ru);
-    
     let muv = v2(params.rotation_x, params.rotation_y);
     seed = id.x + hash_u(time_data.frame);
     
-    let particle_count = u32(params.particle_count);
-    if (id.x >= particle_count) {
-        return;
-    }
+    // Dynamic iterations for smooth particle density
+    let iters = 40 + i32(sin_add(time_data.time * 0.1) * 80.0);
+    let base_time = time_data.time * 0.3 + hash_f() * 0.2;
     
-    let iters = 100 + i32(sin_add(time_data.time * 0.2) * 100.0);
-    let base_time = time_data.time * 0.5 + hash_f() * 100.0;
-    
+    // DOF setup
     var focusDist = params.dof_focal_dist * 2.0 - 1.0;
     if (params.click_state > 0) {
         focusDist = muv.y * 2.0;
@@ -230,63 +226,55 @@ fn Splat(@builtin(global_invocation_id) id: vec3<u32>) {
     
     let lorenz_params = get_cyclic_params(base_time);
     
-    let particle_offset = hash_f() * 20.0;
-    let particle_age = base_time * 0.1 + particle_offset;
-    
-    var p = v3(0.1, 0.1, 0.1);
+    // Proper Lorenz starting positions with small variations
+    var p = v3(
+        0.1 + (hash_f() * 2.0 - 1.0) * 0.1,
+        0.001 + (hash_f() * 2.0 - 1.0) * 0.1,
+        (hash_f() * 2.0 - 1.0) * 0.1
+    );
     
     let dt = params.step_size;
     
-    for(var i = 0; i < 1000; i++) {
+    // Burn-in to get onto the attractor
+    for(var i = 0; i < 100; i++) {
         p = lorenz_step(p, lorenz_params, dt);
     }
     
-    let particle_speed = 1.0 + hash_f() * 2.0; 
-    let particle_size = hash_f() * 0.5 + 0.5; 
-    
-    let time_position = (time_data.time * 0.5 + particle_offset) * particle_speed;
-    let time_period = 1000.0; 
-    
-    let current_step = i32(time_position % time_period);
-    
-    for(var i = 0; i < 2000; i++) {
+    // Main rendering loop
+    for(var i = 0; i < iters; i++) {
         p = lorenz_step(p, lorenz_params, dt);
         
-        if ((i + current_step) % 5 != 0) {
+        // Skip some iterations for better distribution
+        if (i % 2 != 0) {
             continue;
         }
         
-        let phase = f32(i) / 50.0 + time_data.time * 0.2;
-        let alpha = (sin(phase) * 0.5 + 0.5) * particle_size;
-        
-        if (alpha < 0.1 || i > iters) {
-            continue;
-        }
-        
-        var view_p = p * params.scale; 
-        
-        view_p = rotX(muv.y * pi) * view_p;
-        view_p = rotY(muv.x * tau) * view_p;
-        
-        view_p = rotZ(sin(time_data.time * 0.2) * 0.1) * view_p;
+        // Transform and project
+        var view_p = p * params.scale;
+        view_p = rotY(muv.x * 2.0) * view_p;
+        view_p = rotX(muv.y * 1.0) * view_p;
+        view_p = rotZ(sin(time_data.time * 0.05) * 0.2) * view_p;
         
         var q = projParticle(view_p);
         
+        // DOF effect
         var k = q.xy;
         let d = q.z - focusDist;
         k += sample_disk() * abs(d) * 0.08 * dofFac;
         
+        // Map to screen coordinates
         let uv = k.xy/2.0 + 0.5;
         let cc = vec2<u32>(uv.xy * R.xy);
         let idx = cc.x + Ru.x * cc.y;
         
-        let flow_position = f32(i) / f32(iters);
-        let color_shift = sin(flow_position * pi * 2.0 + time_data.time * 0.5) * 0.5 + 0.5;
+        // Beautiful color variation based on position
+        let color_shift = sin(p.x * 1.5) * cos(p.y * 1.5) * 0.5 + 0.5;
         
+        // Store particle
         if (uv.x > 0.0 && uv.x < 1.0 && uv.y > 0.0 && uv.y < 1.0 && idx < u32(Ru.x*Ru.y)) {
-            let intensity = 150.0 * alpha * params.exposure;
-            atomicAdd(&atomic_buffer[idx], u32((1.0 - color_shift) * intensity));
-            atomicAdd(&atomic_buffer[idx + Ru.x*Ru.y], u32(color_shift * intensity));
+            let base_intensity = 120.0 * params.exposure; // Use exposure parameter
+            atomicAdd(&atomic_buffer[idx], u32((1.0 - color_shift) * base_intensity));
+            atomicAdd(&atomic_buffer[idx + Ru.x*Ru.y], u32(color_shift * base_intensity * 1.5 + f32(i % 3) * 30.0));
         }
     }
 }
@@ -333,6 +321,8 @@ fn main_image(@builtin(global_invocation_id) id: vec3<u32>) {
     );
     
     col = aces_tonemap(col);
+    
+    col = pow(col, vec3<f32>(1.0 / params.gamma));
     
     col += vec3<f32>(0.001, 0.001, 0.003);
     

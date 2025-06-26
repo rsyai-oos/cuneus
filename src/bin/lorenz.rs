@@ -5,10 +5,10 @@ use std::path::PathBuf;
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct LorenzParams {
-    sigma: f32,          
-    rho: f32,            
-    beta: f32,           
-    step_size: f32,      
+    sigma: f32,
+    rho: f32,
+    beta: f32,
+    step_size: f32,
     motion_speed: f32,
     rotation_x: f32,
     rotation_y: f32,
@@ -46,19 +46,16 @@ struct LorenzShader {
     
     output_texture: cuneus::TextureManager,
     
-    // Bind group layouts
     compute_bind_group_layout: wgpu::BindGroupLayout,
     atomic_bind_group_layout: wgpu::BindGroupLayout,
     time_bind_group_layout: wgpu::BindGroupLayout,
     params_bind_group_layout: wgpu::BindGroupLayout,
     storage_bind_group_layout: wgpu::BindGroupLayout,
     
-    // Bind groups
     compute_bind_group: wgpu::BindGroup,
     storage_bind_group: wgpu::BindGroup,
     
-    // Storage buffers for particle data
-    particle_buffer: wgpu::Buffer,      // Position and velocity data
+    particle_buffer: wgpu::Buffer,
     atomic_buffer: cuneus::AtomicBuffer,
     
     frame_count: u32,
@@ -78,7 +75,6 @@ impl LorenzShader {
             "Lorenz Output Texture",
         );
         
-        // Create atomic buffer for grid accumulation
         let buffer_size = core.size.width * core.size.height * 4;
         self.atomic_buffer = cuneus::AtomicBuffer::new(
             &core.device,
@@ -311,11 +307,11 @@ impl ShaderManager for LorenzShader {
             &core.device,
             "Lorenz Params",
             LorenzParams {
-                sigma: 10.0,          
-                rho: 28.0,            
-                beta: 8.0 / 3.0,      
-                step_size: 0.005,
-                motion_speed: 1.0,
+                sigma: 40.0,
+                rho: 33.0,
+                beta: 30.0 / 3.0,
+                step_size: 0.02,
+                motion_speed: 2.2,
                 rotation_x: 0.0,
                 rotation_y: 0.0,
                 click_state: 0,
@@ -326,7 +322,7 @@ impl ShaderManager for LorenzShader {
                 color2_r: 0.0,
                 color2_g: 0.5,
                 color2_b: 1.0,
-                scale: 0.01,
+                scale: 0.013,
                 dof_amount: 0.1,
                 dof_focal_dist: 0.5,
                 gamma: 2.2,
@@ -487,16 +483,14 @@ impl ShaderManager for LorenzShader {
             atomic_buffer,
             frame_count: 0,
             hot_reload,
-            mouse_look_enabled: true,
+            mouse_look_enabled: false,
         }
     }
     
     fn update(&mut self, core: &Core) {
-        // Check for shader hot reload
         if let Some(new_shader) = self.hot_reload.reload_compute_shader() {
             println!("Reloading Lorenz shader at time: {:.2}s", self.base.start_time.elapsed().as_secs_f32());
             
-            // Create compute pipeline layout
             let compute_pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Updated Lorenz Compute Pipeline Layout"),
                 bind_group_layouts: &[
@@ -508,7 +502,6 @@ impl ShaderManager for LorenzShader {
                 push_constant_ranges: &[],
             });
             
-            // Recreate pipelines
             self.splat_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some("Updated Splat Pipeline"),
                 layout: Some(&compute_pipeline_layout),
@@ -528,7 +521,6 @@ impl ShaderManager for LorenzShader {
             });
         }
         
-        // Handle export if needed
         if self.base.export_manager.is_exporting() {
             self.handle_export(core);
         }
@@ -547,7 +539,6 @@ impl ShaderManager for LorenzShader {
             label: Some("Render Encoder"),
         });
         
-        // Handle UI interactions
         let mut params = self.params_uniform.data;
         let mut changed = false;
         let mut should_start_export = false;
@@ -557,7 +548,6 @@ impl ShaderManager for LorenzShader {
             &core.size
         );
         
-        // Render UI
         controls_request.current_fps = Some(self.base.fps_tracker.fps());
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
@@ -575,40 +565,33 @@ impl ShaderManager for LorenzShader {
                         egui::CollapsingHeader::new("Attractor Parameters")
                             .default_open(false)
                             .show(ui, |ui| {
-                                changed |= ui.add(egui::Slider::new(&mut params.sigma, 0.0..=40.0).text("Sigma (σ)")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.sigma, 0.0..=80.0).text("Sigma (σ)")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.rho, 0.0..=100.0).text("Rho (ρ)")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.beta, 0.0..=10.0).text("Beta (β)")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.step_size, 0.001..=0.02).text("Step Size").logarithmic(true)).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.motion_speed, 0.0..=5.0).text("Motion Speed")).changed();
+                            });
+                        
+                        egui::CollapsingHeader::new("Camera")
+                            .default_open(true)
+                            .show(ui, |ui| {
+                                ui.checkbox(&mut self.mouse_look_enabled, "Enable Mouse Look");
                                 ui.separator();
-                                ui.label("Presets:");
-                                ui.horizontal(|ui| {
-                                    if ui.button("Classic").clicked() {
-                                        params.sigma = 10.0;
-                                        params.rho = 28.0;
-                                        params.beta = 8.0 / 3.0;
-                                        changed = true;
-                                    }   
-                                    if ui.button("Chaotic").clicked() {
-                                        params.sigma = 10.0;
-                                        params.rho = 99.96;
-                                        params.beta = 8.0 / 3.0;
-                                        changed = true;
-                                    }
-                                    if ui.button("Stable").clicked() {
-                                        params.sigma = 10.0;
-                                        params.rho = 13.0;
-                                        params.beta = 8.0 / 3.0;
-                                        changed = true;
-                                    }
-                                });
+                                
+                                if !self.mouse_look_enabled {
+                                    changed |= ui.add(egui::Slider::new(&mut params.rotation_x, -1.0..=1.0).text("Rotation X")).changed();
+                                    changed |= ui.add(egui::Slider::new(&mut params.rotation_y, -1.0..=1.0).text("Rotation Y")).changed();
+                                } else {
+                                    ui.label("Mouse Look Active - Move mouse to control camera");
+                                }
+                                
+                                changed |= ui.add(egui::Slider::new(&mut params.scale, 0.001..=0.1).text("Zoom").logarithmic(true)).changed();
                             });
                         
                         egui::CollapsingHeader::new("Rendering")
                             .default_open(false)
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.brightness, 0.0001..=0.01).text("Brightness").logarithmic(true)).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.scale, 0.001..=0.1).text("Scale").logarithmic(true)).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.exposure, 0.1..=5.0).text("Exposure")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.gamma, 0.5..=4.0).text("Gamma")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.particle_count, 100.0..=5000.0).text("Particle Count")).changed();
@@ -666,13 +649,13 @@ impl ShaderManager for LorenzShader {
                         ui.separator();
                         
                         ui.separator();
-        ui.label("💡 Controls:");
+        ui.label("Controls:");
         ui.horizontal(|ui| {
             ui.label("• Mouse:");
             if self.mouse_look_enabled {
-                ui.colored_label(egui::Color32::GREEN, "🔓 Active");
+                ui.colored_label(egui::Color32::GREEN, "Active");
             } else {
-                ui.colored_label(egui::Color32::RED, "🔒 Disabled");
+                ui.colored_label(egui::Color32::RED, "Disabled");
             }
         });
         ui.label("• Right click: Toggle mouse control");
@@ -734,7 +717,7 @@ impl ShaderManager for LorenzShader {
             compute_pass.set_bind_group(2, &self.compute_bind_group, &[]);
             compute_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]);
             
-            compute_pass.dispatch_workgroups(1000, 1, 1);
+            compute_pass.dispatch_workgroups(256, 1, 1);
         }
         
         {
