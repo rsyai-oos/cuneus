@@ -3,11 +3,11 @@ use cuneus::compute::{ComputeShaderConfig, COMPUTE_TEXTURE_FORMAT_RGBA16};
 use winit::event::*;
 use std::path::PathBuf;
 
-struct ComputeExample {
+struct DebugScreen {
     base: RenderKit,
 }
 
-impl ShaderManager for ComputeExample {
+impl ShaderManager for DebugScreen {
     fn init(core: &Core) -> Self {
         let texture_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Texture Bind Group Layout"),
@@ -81,7 +81,7 @@ impl ShaderManager for ComputeExample {
         // Create compute shader with our backend
         base.compute_shader = Some(cuneus::compute::ComputeShader::new_with_config(
             core,
-            include_str!("../../shaders/compute_basic.wgsl"),
+            include_str!("../../shaders/debugscreen.wgsl"),
             compute_config,
         ));
         
@@ -96,12 +96,12 @@ impl ShaderManager for ComputeExample {
         if let Some(compute_shader) = &mut base.compute_shader {
             // Create shader module for hot reload
             let shader_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("Basic Compute Shader"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/compute_basic.wgsl").into()),
+                label: Some("Debug Screen Compute Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/debugscreen.wgsl").into()),
             });
             if let Err(e) = compute_shader.enable_hot_reload(
                 core.device.clone(),
-                PathBuf::from("shaders/compute_basic.wgsl"),
+                PathBuf::from("shaders/debugscreen.wgsl"),
                 shader_module,
             ) {
                 eprintln!("Failed to enable compute shader hot reload: {}", e);
@@ -143,7 +143,7 @@ impl ShaderManager for ComputeExample {
                     style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(0, 0, 0, 180);
                 });
                 
-                egui::Window::new("Compute Shader Controls")
+                egui::Window::new("Debug Screen Controls")
                     .show(ctx, |ui| {
                         // Time controls (play/pause/reset)
                         ui.heading("Controls");
@@ -229,9 +229,9 @@ impl ShaderManager for ComputeExample {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
-    let (app, event_loop) = ShaderApp::new("Compute Shader Example", 800, 600);
+    let (app, event_loop) = ShaderApp::new("Debug Screen", 800, 600);
     
     app.run(event_loop, |core| {
-        ComputeExample::init(core)
+        DebugScreen::init(core)
     })
 }
