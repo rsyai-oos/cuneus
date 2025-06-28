@@ -14,18 +14,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     })
 }
 
-// Parameters passed from CPU to GPU shader
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct SynthParams {
     tempo: f32,
-    scale_type: u32,
-    visualizer_mode: u32,
-    bass_boost: f32,
-    melody_octave: f32,
-    harmony_mix: f32,
-    reverb_amount: f32,
+    waveform_type: u32,
+    octave: f32,
     volume: f32,
+    beat_enabled: u32,
+    _padding1: u32,
+    _padding2: u32,
+    _padding3: u32,
+    key_states: [[f32; 4]; 3],
+    key_decay: [[f32; 4]; 3],
 }
 
 impl UniformProvider for SynthParams {
@@ -38,11 +39,26 @@ struct SynthManager {
     base: RenderKit,
     params_uniform: UniformBinding<SynthParams>,
     gpu_synthesis: Option<SynthesisManager>,
+    key_press_times: [Option<std::time::Instant>; 9],
 }
 
 impl SynthManager {
-    fn update_synthesis_visualization(&mut self, _queue: &wgpu::Queue) {
-        // Parameters automatically sync to GPU via params_uniform
+    fn update_synthesis_visualization(&mut self, _queue: &wgpu::Queue) {}
+    
+    fn set_key_state(&mut self, key_index: usize, state: f32) {
+        if key_index < 9 {
+            let vec_idx = key_index / 4;
+            let comp_idx = key_index % 4;
+            self.params_uniform.data.key_states[vec_idx][comp_idx] = state;
+        }
+    }
+    
+    fn set_key_decay(&mut self, key_index: usize, decay: f32) {
+        if key_index < 9 {
+            let vec_idx = key_index / 4;
+            let comp_idx = key_index % 4;
+            self.params_uniform.data.key_decay[vec_idx][comp_idx] = decay;
+        }
     }
 }
 
@@ -96,7 +112,7 @@ impl ShaderManager for SynthManager {
 
         let config = ComputeShaderConfig {
             workgroup_size: [16, 16, 1],
-            workgroup_count: Some([64, 4, 1]), // Fixed workgroups: 64*16=1024 samples in X, independent of window size
+            workgroup_count: None,
             dispatch_once: false,
             storage_texture_format: COMPUTE_TEXTURE_FORMAT_RGBA16,
             enable_atomic_buffer: false,
@@ -116,13 +132,15 @@ impl ShaderManager for SynthManager {
             "Synth Params",
             SynthParams {
                 tempo: 120.0,
-                scale_type: 0,
-                visualizer_mode: 0,
-                bass_boost: 1.0,
-                melody_octave: 4.0,
-                harmony_mix: 0.3,
-                reverb_amount: 0.2,
+                waveform_type: 0,
+                octave: 4.0,
                 volume: 0.3,
+                beat_enabled: 1,
+                _padding1: 0,
+                _padding2: 0,
+                _padding3: 0,
+                key_states: [[0.0; 4]; 3],
+                key_decay: [[0.0; 4]; 3],
             },
             &params_bind_group_layout,
             0,
@@ -169,6 +187,7 @@ impl ShaderManager for SynthManager {
             base,
             params_uniform,
             gpu_synthesis,
+            key_press_times: [None; 9],
         }
     }
     
@@ -179,8 +198,30 @@ impl ShaderManager for SynthManager {
         let delta = 1.0 / 60.0;
         self.base.update_compute_shader_time(current_time, delta, &core.queue);
         
+        let now = std::time::Instant::now();
+        let mut keys_updated = false;
+        for i in 0..9 {
+            if let Some(press_time) = self.key_press_times[i] {
+                let elapsed = now.duration_since(press_time).as_secs_f32();
+                let decay = (-elapsed * 3.0).exp();
+                
+                if decay < 0.01 {
+                    self.key_press_times[i] = None;
+                    self.set_key_state(i, 0.0);
+                    self.set_key_decay(i, 0.0);
+                    keys_updated = true;
+                } else {
+                    self.set_key_decay(i, decay);
+                    keys_updated = true;
+                }
+            }
+        }
         
-        // Read GPU-generated audio parameters for CPU synthesis
+        if keys_updated {
+            self.params_uniform.update(&core.queue);
+        }
+        
+        
         if self.base.time_uniform.data.frame % 180 == 0 {
             if let Some(compute_shader) = &self.base.compute_shader {
                 if let Ok(gpu_samples) = pollster::block_on(compute_shader.read_audio_samples(&core.device, &core.queue)) {
@@ -234,20 +275,42 @@ impl ShaderManager for SynthManager {
                             ui.label("GPU Synthesizer");
                             ui.separator();
                             
-                            ui.label("Musical Parameters:");
-                            changed |= ui.add(egui::Slider::new(&mut params.tempo, 60.0..=180.0).text("Tempo")).changed();
-                            changed |= ui.add(egui::Slider::new(&mut params.melody_octave, 3.0..=6.0).text("Octave")).changed();
+                            ui.label("Piano Controls:");
+                            ui.label("Press keys 1-9 for C D E F G A B C D");
                             
                             ui.separator();
-                            ui.label("🔊 Output:");
+                            ui.label("Settings:");
+                            
+                            let mut beat_enabled = params.beat_enabled > 0;
+                            if ui.checkbox(&mut beat_enabled, "Background Beat").changed() {
+                                params.beat_enabled = if beat_enabled { 1 } else { 0 };
+                                changed = true;
+                            }
+                            
+                            changed |= ui.add(egui::Slider::new(&mut params.tempo, 60.0..=180.0).text("Beat Tempo")).changed();
+                            changed |= ui.add(egui::Slider::new(&mut params.octave, 3.0..=6.0).text("Octave")).changed();
                             changed |= ui.add(egui::Slider::new(&mut params.volume, 0.0..=0.5).text("Volume")).changed();
                             
                             ui.separator();
-                            ui.label("How it works?");
-                            ui.label("• Shader generates frequencies mathematically");
-                            ui.label("• GPU writes to buffer, CPU reads for audio");
-                            ui.label("• Same data drives visual feedback");
-                            ui.label("• Real-time parameter control");
+                            ui.label("Waveform:");
+                            ui.horizontal(|ui| {
+                                let waveform_names = ["Sine", "Saw", "Square"];
+                                for (i, name) in waveform_names.iter().enumerate() {
+                                    let selected = params.waveform_type == i as u32;
+                                    if ui.selectable_label(selected, *name).clicked() {
+                                        params.waveform_type = i as u32;
+                                        changed = true;
+                                    }
+                                }
+                            });
+                            
+                            ui.separator();
+                            ui.label("How it works:");
+                            ui.label("• Press 1-9 keys to trigger musical notes");
+                            ui.label("• Toggle background beat on/off");
+                            ui.label("• Waveform changes tone color");
+                            ui.label("• Visual bars show key activity");
+                            ui.label("• All audio generated on GPU");
                             
                             ui.separator();
                             ShaderControls::render_controls_widget(ui, &mut controls_request);
@@ -313,6 +376,20 @@ impl ShaderManager for SynthManager {
         }
         
         if let WindowEvent::KeyboardInput { event, .. } = event {
+            if event.state == winit::event::ElementState::Pressed {
+                if let winit::keyboard::Key::Character(ref s) = event.logical_key {
+                    if let Some(key_index) = s.chars().next().and_then(|c| c.to_digit(10)) {
+                        if key_index >= 1 && key_index <= 9 {
+                            let index = (key_index - 1) as usize;
+                            self.key_press_times[index] = Some(std::time::Instant::now());
+                            self.set_key_state(index, 1.0);
+                            self.set_key_decay(index, 1.0);
+                            self.params_uniform.update(&core.queue);
+                            return true;
+                        }
+                    }
+                }
+            }
             return self.base.key_handler.handle_keyboard_input(core.window(), event);
         }
         
