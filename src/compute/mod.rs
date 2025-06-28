@@ -68,6 +68,7 @@ pub enum BindGroupLayoutType {
     ExternalTexture,
     MouseUniform,
     FontTexture,
+    FontWithAudio,
     AudioBuffer,
 }
 
@@ -291,6 +292,53 @@ pub fn create_bind_group_layout(
                 label: Some(&format!("{} Font Layout", label)),
             })
         }
+        BindGroupLayoutType::FontWithAudio => {
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    // Font uniforms
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    // Font atlas texture
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                        },
+                        count: None,
+                    },
+                    // Font atlas sampler
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    // Audio buffer
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: false },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
+                label: Some(&format!("{} Font+Audio Layout", label)),
+            })
+        }
         BindGroupLayoutType::AudioBuffer => {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[wgpu::BindGroupLayoutEntry {
@@ -478,7 +526,11 @@ impl ComputeShader {
             let font_system = FontSystem::new(core, font_data);
             let layout = create_bind_group_layout(
                 &core.device,
-                BindGroupLayoutType::FontTexture,
+                if config.enable_audio_buffer {
+                    BindGroupLayoutType::FontWithAudio
+                } else {
+                    BindGroupLayoutType::FontTexture
+                },
                 &config.label
             );
             (Some(font_system), Some(layout))
@@ -486,7 +538,9 @@ impl ComputeShader {
             (None, None)
         };
         
-        let audio_bind_group_layout = if config.enable_audio_buffer {
+        let audio_bind_group_layout = if config.enable_audio_buffer && !config.enable_fonts {
+            // Only create separate audio layout if fonts are not enabled
+            // If fonts are enabled, audio is included in the font layout
             Some(create_bind_group_layout(
                 &core.device, 
                 BindGroupLayoutType::AudioBuffer,
@@ -524,16 +578,23 @@ impl ComputeShader {
                 mapped_at_creation: false,
             });
             
-            let bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some(&format!("{} Audio Bind Group", config.label)),
-                layout: audio_bind_group_layout.as_ref().unwrap(),
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: audio_buffer.as_entire_binding(),
-                }],
-            });
+            // Create bind group - use font layout if fonts are enabled, otherwise use audio layout
+            let bind_group = if config.enable_fonts {
+                // Audio is combined with fonts in group 3
+                None // Will be created with font bind group later
+            } else {
+                // Audio has its own separate bind group
+                Some(core.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some(&format!("{} Audio Bind Group", config.label)),
+                    layout: audio_bind_group_layout.as_ref().unwrap(),
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: audio_buffer.as_entire_binding(),
+                    }],
+                }))
+            };
             
-            (Some(audio_buffer), Some(staging_buffer), Some(bind_group))
+            (Some(audio_buffer), Some(staging_buffer), bind_group)
         } else {
             (None, None, None)
         };
@@ -614,26 +675,46 @@ impl ComputeShader {
         }
         
         let font_bind_group = if let (Some(fs), Some(layout)) = (&font_system, &font_bind_group_layout) {
+            let mut entries = vec![
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: fs.font_uniforms.buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&fs.atlas_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&fs.atlas_texture.sampler),
+                },
+            ];
+            
+            // Add audio buffer if both fonts and audio are enabled
+            if config.enable_audio_buffer {
+                if let Some(ref audio_buf) = audio_buffer {
+                    entries.push(wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: audio_buf.as_entire_binding(),
+                    });
+                }
+            }
+            
             Some(core.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: fs.font_uniforms.buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&fs.atlas_texture.view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::Sampler(&fs.atlas_texture.sampler),
-                    },
-                ],
-                label: Some(&format!("{} Font Bind Group", config.label)),
+                entries: &entries,
+                label: Some(&format!("{} Font+Audio Bind Group", config.label)),
             }))
         } else {
             None
+        };
+        
+        // Determine final audio bind group before moving values
+        let final_audio_bind_group = if config.enable_audio_buffer && config.enable_fonts {
+            // When both fonts and audio are enabled, audio is in the font bind group
+            font_bind_group.clone()
+        } else {
+            audio_bind_group
         };
         
         Self {
@@ -661,7 +742,7 @@ impl ComputeShader {
             font_bind_group,
             font_bind_group_layout,
             audio_buffer,
-            audio_bind_group,
+            audio_bind_group: final_audio_bind_group,
             audio_bind_group_layout,
             audio_staging_buffer,
         }
@@ -869,14 +950,19 @@ impl ComputeShader {
                 compute_pass.set_bind_group(3, font_bind_group, &[]);
             }
             
+            // Only bind audio separately if fonts are not enabled
+            // When fonts are enabled, audio is included in the font bind group
             if let Some(audio_bind_group) = &self.audio_bind_group {
-                let mut audio_idx = 2; // Default after time=0, storage=1
-                if self.mouse_bind_group_index == Some(2) { audio_idx += 1; }
-                if self.font_bind_group.is_some() { audio_idx += 1; }
-                if self.external_texture_bind_group.is_some() { audio_idx += 1; }
-                if self.atomic_buffer.is_some() { audio_idx += 1; }
-                
-                compute_pass.set_bind_group(audio_idx, audio_bind_group, &[]);
+                if self.font_bind_group.is_none() {
+                    // Audio has its own separate bind group only when fonts are disabled
+                    let mut audio_idx = 2; // Default after time=0, storage=1
+                    if self.mouse_bind_group_index == Some(2) { audio_idx += 1; }
+                    if self.external_texture_bind_group.is_some() { audio_idx += 1; }
+                    if self.atomic_buffer.is_some() { audio_idx += 1; }
+                    
+                    compute_pass.set_bind_group(audio_idx, audio_bind_group, &[]);
+                }
+                // If fonts are enabled, audio is already bound with the font bind group at index 3
             }
             
             compute_pass.dispatch_workgroups(
