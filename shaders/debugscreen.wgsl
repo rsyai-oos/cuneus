@@ -26,6 +26,7 @@ struct FontUniforms {
 @group(3) @binding(0) var<uniform> u_font: FontUniforms;
 @group(3) @binding(1) var t_font_atlas: texture_2d<f32>;
 @group(3) @binding(2) var s_font_atlas: sampler;
+@group(3) @binding(3) var<storage, read_write> audio_buffer: array<f32>;
 
 // Crisp SDF character rendering with minimal anti-aliasing
 fn render_char_sdf(pos: vec2<f32>, char_pos: vec2<f32>, ascii: u32, size: f32) -> f32 {
@@ -427,6 +428,21 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let mouse_debug_alpha = render_mouse_color_debug(pixel_pos, vec2<f32>(20.0, 220.0), mouse_sampled_color);
     if (mouse_debug_alpha > 0.01) {
         final_col = mix(final_col, vec3<f32>(0.7, 0.9, 1.0), mouse_debug_alpha);
+    }
+    
+    // Simple audio note generation - write audio parameters to buffer for CPU synthesis
+    // This generates a simple musical note when audio is enabled
+    if (global_id.x == 0u && global_id.y == 0u) {
+        // Generate a simple musical note (C4 = 261.63 Hz)
+        let base_frequency = 261.63; // C4 note
+        let note_frequency = base_frequency * (1.0 + sin(u_time.time * 0.5) * 0.1); // Slight vibrato
+        let note_amplitude = 0.2; // Moderate volume
+        let waveform_type = 0.0; // Sine wave
+        
+        // Write to audio buffer for CPU synthesis
+        audio_buffer[0] = note_frequency;
+        audio_buffer[1] = note_amplitude;
+        audio_buffer[2] = waveform_type;
     }
     
     textureStore(output, global_id.xy, vec4<f32>(final_col, 1.0));

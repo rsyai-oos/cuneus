@@ -1,10 +1,13 @@
 use cuneus::{Core, ShaderApp, ShaderManager, RenderKit, ShaderControls};
 use cuneus::compute::{ComputeShaderConfig, COMPUTE_TEXTURE_FORMAT_RGBA16};
+use cuneus::SynthesisManager;
 use winit::event::*;
 use std::path::PathBuf;
 
 struct DebugScreen {
     base: RenderKit,
+    audio_synthesis: Option<SynthesisManager>,
+    generate_note: bool,
 }
 
 impl ShaderManager for DebugScreen {
@@ -76,6 +79,8 @@ impl ShaderManager for DebugScreen {
             label: "Basic Compute".to_string(),
             mouse_bind_group_layout: Some(mouse_bind_group_layout),
             enable_fonts: true,
+            enable_audio_buffer: true,
+            audio_buffer_size: 1024,
         };
         
         // Create compute shader with our backend
@@ -108,7 +113,24 @@ impl ShaderManager for DebugScreen {
             }
         }
         
-        Self { base }
+        let audio_synthesis = match SynthesisManager::new() {
+            Ok(mut synth) => {
+                if let Err(_e) = synth.start_gpu_synthesis() {
+                    None
+                } else {
+                    Some(synth)
+                }
+            },
+            Err(_e) => {
+                None
+            }
+        };
+        
+        Self { 
+            base,
+            audio_synthesis,
+            generate_note: false,
+        }
     }
 
     fn update(&mut self, core: &Core) {
@@ -118,6 +140,34 @@ impl ShaderManager for DebugScreen {
         self.base.update_compute_shader_time(current_time, delta, &core.queue);
         self.base.update_mouse_uniform(&core.queue);
         self.base.fps_tracker.update();
+        // Handle audio generation when note is requested
+        if self.generate_note {
+            // Read GPU-generated audio parameters for CPU synthesis (check every few frames to reduce overhead)
+            if self.base.time_uniform.data.frame % 60 == 0 {
+                if let Some(compute_shader) = &self.base.compute_shader {
+                    if let Ok(gpu_samples) = pollster::block_on(compute_shader.read_audio_samples(&core.device, &core.queue)) {
+                        if gpu_samples.len() >= 3 {
+                            let frequency = gpu_samples[0];
+                            let amplitude = gpu_samples[1];
+                            let waveform_type = gpu_samples[2] as u32;
+                            
+                            if let Some(ref mut synth) = self.audio_synthesis {
+                                synth.update_synth_params(frequency, amplitude, waveform_type);
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            // Stop audio when not requested
+            if let Some(ref mut synth) = self.audio_synthesis {
+                synth.update_synth_params(0.0, 0.0, 0);
+            }
+        }
+        
+        if let Some(ref mut synth) = self.audio_synthesis {
+            synth.update();
+        }
     }
     fn resize(&mut self, core: &Core) {
         // Update resolution uniform
@@ -157,10 +207,40 @@ impl ShaderManager for DebugScreen {
                         ui.label(format!("Wheel: {:.2}, {:.2}", mouse_wheel[0], mouse_wheel[1]));
                         
                         ui.separator();
-                        ui.label("Left-click to invert colors");
-                        ui.label("Scroll wheel to create pulse effect");
-                        ui.label("Press 'H' to toggle this UI");
-                        ui.label("Press 'F' to toggle fullscreen");
+                        ui.heading("Audio Test");
+                        if ui.button("Press 5 to generate a simple note").clicked() {
+                            self.generate_note = !self.generate_note;
+                        }
+                        
+                        // Check for '5' key in egui context (this handles it properly)
+                        if ui.input(|i| i.key_pressed(egui::Key::Num5)) {
+                            self.generate_note = !self.generate_note;
+                        }
+                        
+                        let audio_status = if self.generate_note { 
+                            "🔊 Note playing" 
+                        } else { 
+                            "🔇 No audio" 
+                        };
+                        ui.label(audio_status);
+                        
+                        if let Some(ref synth) = self.audio_synthesis {
+                            if synth.is_gpu_synthesis_enabled() {
+                                ui.label("✓ Audio synthesis ready");
+                            } else {
+                                ui.label("⚠ Audio synthesis not active");
+                            }
+                        } else {
+                            ui.label("❌ Audio synthesis unavailable");
+                        }
+                        
+                        ui.separator();
+                        ui.label("Controls:");
+                        ui.label("• Left-click to invert colors");
+                        ui.label("• Scroll wheel to create pulse effect");
+                        ui.label("• Press 'H' to toggle this UI");
+                        ui.label("• Press 'F' to toggle fullscreen");
+                        ui.label("• Press '5' to generate audio note");
                     });
             })
         } else {
