@@ -32,6 +32,7 @@ mod fps;
 mod mouse;
 pub mod hdri;
 mod font;
+mod synthesis;
 
 pub use renderer::*;
 pub use shader::*;
@@ -48,6 +49,7 @@ pub use atomic::AtomicBuffer;
 pub use mouse::*;
 pub use hdri::*;
 pub use font::{FontSystem, FontUniforms, CharInfo};
+pub use synthesis::{SynthesisManager, SynthesisUniform, SynthesisWaveform};
 
 pub mod prelude {
     pub use crate::{
@@ -56,6 +58,7 @@ pub mod prelude {
         RenderKit, ShaderControls, ExportManager, ShaderHotReload,
         TextureManager, Renderer, AtomicBuffer,
         KeyInputHandler, ControlsRequest, FontSystem, FontUniforms,
+        SynthesisManager, SynthesisUniform, SynthesisWaveform,
         save_frame, compute::create_bind_group_layout,compute::BindGroupLayoutType
     };
     

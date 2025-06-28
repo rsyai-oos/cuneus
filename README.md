@@ -14,6 +14,7 @@ A tool for experimenting with WGSL shaders, it uses `wgpu` for rendering, `egui`
 - Easily use HDR textures via UI
 - Easily use your own videos/webcam as textures (thanks to the `gstreamer`)
 - Audio/Visual synchronization: Spectrum and BPM detection via `gstreamer`
+- Real-time audio synthesis: Generate music directly from GPU shaders (thanks to `cpal`)
 - Export HQ frames via egui
 
 

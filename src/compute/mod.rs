@@ -33,7 +33,10 @@ pub struct ComputeShaderConfig {
     pub sampler_filter_mode: wgpu::FilterMode,
     pub label: String,
     pub mouse_bind_group_layout: Option<wgpu::BindGroupLayout>,
-    pub enable_fonts: bool,}
+    pub enable_fonts: bool,
+    pub enable_audio_buffer: bool,
+    pub audio_buffer_size: usize,
+}
 
 impl Default for ComputeShaderConfig {
     fn default() -> Self {
@@ -50,6 +53,8 @@ impl Default for ComputeShaderConfig {
             label: "Compute Shader".to_string(),
             mouse_bind_group_layout: None,
             enable_fonts: false,
+            enable_audio_buffer: false,
+            audio_buffer_size: 1024,
         }
     }
 }
@@ -63,6 +68,7 @@ pub enum BindGroupLayoutType {
     ExternalTexture,
     MouseUniform,
     FontTexture,
+    AudioBuffer,
 }
 
 pub fn create_storage_texture(
@@ -285,6 +291,21 @@ pub fn create_bind_group_layout(
                 label: Some(&format!("{} Font Layout", label)),
             })
         }
+        BindGroupLayoutType::AudioBuffer => {
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+                label: Some(&format!("{} Audio Buffer Layout", label)),
+            })
+        }
     }
 }
 
@@ -340,6 +361,10 @@ pub struct ComputeShader {
     pub font_system: Option<FontSystem>,
     pub font_bind_group: Option<wgpu::BindGroup>,
     pub font_bind_group_layout: Option<wgpu::BindGroupLayout>,
+    pub audio_buffer: Option<wgpu::Buffer>,
+    pub audio_bind_group: Option<wgpu::BindGroup>,
+    pub audio_bind_group_layout: Option<wgpu::BindGroupLayout>,
+    pub audio_staging_buffer: Option<wgpu::Buffer>,
 }
 
 impl ComputeShader {
@@ -461,7 +486,16 @@ impl ComputeShader {
             (None, None)
         };
         
-        // Create atomic buffer if needed
+        let audio_bind_group_layout = if config.enable_audio_buffer {
+            Some(create_bind_group_layout(
+                &core.device, 
+                BindGroupLayoutType::AudioBuffer,
+                &config.label
+            ))
+        } else {
+            None
+        };
+        
         let atomic_buffer = if config.enable_atomic_buffer {
             let buffer_size = core.size.width * core.size.height;
             Some(AtomicBuffer::new(
@@ -473,7 +507,37 @@ impl ComputeShader {
             None
         };
         
-        // Storage bind group
+        let (audio_buffer, audio_staging_buffer, audio_bind_group) = if config.enable_audio_buffer {
+            let buffer_size = config.audio_buffer_size * std::mem::size_of::<f32>();
+            
+            let audio_buffer = core.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(&format!("{} Audio Buffer", config.label)),
+                size: buffer_size as u64,
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+                mapped_at_creation: false,
+            });
+            
+            let staging_buffer = core.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(&format!("{} Audio Staging Buffer", config.label)),
+                size: buffer_size as u64,
+                usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            
+            let bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some(&format!("{} Audio Bind Group", config.label)),
+                layout: audio_bind_group_layout.as_ref().unwrap(),
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: audio_buffer.as_entire_binding(),
+                }],
+            });
+            
+            (Some(audio_buffer), Some(staging_buffer), Some(bind_group))
+        } else {
+            (None, None, None)
+        };
+        
         let view = output_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
         let storage_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some(&format!("{} Storage Bind Group", config.label)),
@@ -486,7 +550,6 @@ impl ComputeShader {
             ],
         });
         
-        // Create external texture bind group if needed
         let external_texture_bind_group = if let Some(layout) = &external_texture_bind_group_layout {
             // Temporary solution - using the same texture for input/output
             Some(create_external_texture_bind_group(
@@ -523,6 +586,10 @@ impl ComputeShader {
         }
         
         if let Some(layout) = &atomic_bind_group_layout {
+            bind_group_layouts.push(layout);
+        }
+        
+        if let Some(layout) = &audio_bind_group_layout {
             bind_group_layouts.push(layout);
         }
         
@@ -593,6 +660,10 @@ impl ComputeShader {
             font_system,
             font_bind_group,
             font_bind_group_layout,
+            audio_buffer,
+            audio_bind_group,
+            audio_bind_group_layout,
+            audio_staging_buffer,
         }
     }
     pub fn add_mouse_uniform_binding(
@@ -793,10 +864,19 @@ impl ComputeShader {
                 compute_pass.set_bind_group(bind_idx, &atomic_buffer.bind_group, &[]);
             }
             
-            // If font system is used
             if let Some(font_bind_group) = &self.font_bind_group {
                 // Font system uses bind group 3 (time=0, storage=1, mouse=2, font=3)
                 compute_pass.set_bind_group(3, font_bind_group, &[]);
+            }
+            
+            if let Some(audio_bind_group) = &self.audio_bind_group {
+                let mut audio_idx = 2; // Default after time=0, storage=1
+                if self.mouse_bind_group_index == Some(2) { audio_idx += 1; }
+                if self.font_bind_group.is_some() { audio_idx += 1; }
+                if self.external_texture_bind_group.is_some() { audio_idx += 1; }
+                if self.atomic_buffer.is_some() { audio_idx += 1; }
+                
+                compute_pass.set_bind_group(audio_idx, audio_bind_group, &[]);
             }
             
             compute_pass.dispatch_workgroups(
@@ -876,7 +956,57 @@ impl ComputeShader {
         &self.output_texture
     }
     
-    // Dispatch a specific pipeline by index
+    /// Read audio samples from GPU buffer (async)
+    /// NOTE: This buffer reading approach caused crackling audio on macOS when used for real-time playback.
+    /// Current implementation uses this only for parameter reading, not audio streaming. 
+    /// Real-time audio generation happens in CPU audio callback to prevent artifacts.
+    pub async fn read_audio_samples(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
+        if let (Some(audio_buffer), Some(staging_buffer)) = (&self.audio_buffer, &self.audio_staging_buffer) {
+            let config = self.config.as_ref().unwrap();
+            let buffer_size = config.audio_buffer_size * std::mem::size_of::<f32>();
+            
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Audio Buffer Copy"),
+            });
+            
+            encoder.copy_buffer_to_buffer(
+                audio_buffer,
+                0,
+                staging_buffer,
+                0,
+                buffer_size as u64,
+            );
+            
+            queue.submit(std::iter::once(encoder.finish()));
+            
+            let buffer_slice = staging_buffer.slice(..);
+            let (tx, rx) = std::sync::mpsc::channel();
+            buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+                let _ = tx.send(result);
+            });
+            
+            device.poll(wgpu::Maintain::Wait);
+            
+            match rx.recv() {
+                Ok(Ok(())) => {},
+                Ok(Err(e)) => return Err(e.into()),
+                Err(_) => return Err("Buffer mapping failed".into()),
+            }
+            
+            let samples = {
+                let data = buffer_slice.get_mapped_range();
+                let samples: Vec<f32> = bytemuck::cast_slice(&data).to_vec();
+                samples
+            };
+            
+            staging_buffer.unmap();
+            
+            Ok(samples)
+        } else {
+            Ok(Vec::new())
+        }
+    }
+    
     pub fn dispatch_pipeline(&mut self, encoder: &mut wgpu::CommandEncoder, core: &Core, pipeline_index: usize) {
         if pipeline_index >= self.pipelines.len() {
             warn!("Pipeline index {} out of bounds (max: {})", pipeline_index, self.pipelines.len() - 1);
