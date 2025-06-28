@@ -1,5 +1,6 @@
-use cuneus::{Core, ShaderApp, ShaderManager, RenderKit};
-use cuneus::{SynthesisManager, SynthesisUniform};
+// This example demonstrates a how to generate audio using cunes via compute shaders
+use cuneus::{Core, ShaderApp, ShaderManager, RenderKit, UniformProvider, UniformBinding, ShaderControls};
+use cuneus::SynthesisManager;
 use cuneus::compute::{ComputeShaderConfig, COMPUTE_TEXTURE_FORMAT_RGBA16};
 use winit::event::*;
 use std::path::PathBuf;
@@ -7,23 +8,41 @@ use std::path::PathBuf;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     
-    let (app, event_loop) = ShaderApp::new("Synth", 600, 300);
+    let (app, event_loop) = ShaderApp::new("Synth", 800, 600);
     app.run(event_loop, |core| {
         SynthManager::init(core)
     })
 }
 
+// Parameters passed from CPU to GPU shader
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct SynthParams {
+    tempo: f32,
+    scale_type: u32,
+    visualizer_mode: u32,
+    bass_boost: f32,
+    melody_octave: f32,
+    harmony_mix: f32,
+    reverb_amount: f32,
+    volume: f32,
+}
+
+impl UniformProvider for SynthParams {
+    fn as_bytes(&self) -> &[u8] {
+        bytemuck::bytes_of(self)
+    }
+}
+
 struct SynthManager {
     base: RenderKit,
-    synthesis_uniform: cuneus::UniformBinding<SynthesisUniform>,
+    params_uniform: UniformBinding<SynthParams>,
     gpu_synthesis: Option<SynthesisManager>,
 }
 
 impl SynthManager {
-    
-    fn update_synthesis_visualization(&mut self, queue: &wgpu::Queue) {
-        self.synthesis_uniform.data.master_volume = 0.3;
-        self.synthesis_uniform.update(queue);
+    fn update_synthesis_visualization(&mut self, _queue: &wgpu::Queue) {
+        // Parameters automatically sync to GPU via params_uniform
     }
 }
 
@@ -52,15 +71,7 @@ impl ShaderManager for SynthManager {
             ],
         });
         
-        let mut base = RenderKit::new(
-            core,
-            include_str!("../../shaders/vertex.wgsl"),
-            include_str!("../../shaders/blit.wgsl"),
-            &[&texture_bind_group_layout],
-            None,
-        );
-        
-        let synthesis_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let params_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
                 visibility: wgpu::ShaderStages::COMPUTE,
@@ -71,8 +82,17 @@ impl ShaderManager for SynthManager {
                 },
                 count: None,
             }],
-            label: Some("synthesis_bind_group_layout"),
+            label: Some("params_bind_group_layout"),
         });
+        
+        let mut base = RenderKit::new(
+            core,
+            include_str!("../../shaders/vertex.wgsl"),
+            include_str!("../../shaders/blit.wgsl"),
+            &[&texture_bind_group_layout],
+            None,
+        );
+        
 
         let config = ComputeShaderConfig {
             workgroup_size: [16, 16, 1],
@@ -85,17 +105,26 @@ impl ShaderManager for SynthManager {
             sampler_address_mode: wgpu::AddressMode::ClampToEdge,
             sampler_filter_mode: wgpu::FilterMode::Linear,
             label: "Synth".to_string(),
-            mouse_bind_group_layout: Some(synthesis_bind_group_layout.clone()),
+            mouse_bind_group_layout: Some(params_bind_group_layout.clone()),
             enable_fonts: false,
             enable_audio_buffer: true,
             audio_buffer_size: 1024,
         };
         
-        let synthesis_uniform = cuneus::UniformBinding::new(
+        let params_uniform = UniformBinding::new(
             &core.device,
-            "Synthesis Uniform",
-            SynthesisUniform::new(),
-            &synthesis_bind_group_layout,
+            "Synth Params",
+            SynthParams {
+                tempo: 120.0,
+                scale_type: 0,
+                visualizer_mode: 0,
+                bass_boost: 1.0,
+                melody_octave: 4.0,
+                harmony_mix: 0.3,
+                reverb_amount: 0.2,
+                volume: 0.3,
+            },
+            &params_bind_group_layout,
             0,
         );
 
@@ -106,7 +135,7 @@ impl ShaderManager for SynthManager {
         ));
         
         if let Some(compute_shader) = &mut base.compute_shader {
-            compute_shader.add_mouse_uniform_binding(&synthesis_uniform.bind_group, 2);
+            compute_shader.add_mouse_uniform_binding(&params_uniform.bind_group, 2);
         }
         
         if let Some(compute_shader) = &mut base.compute_shader {
@@ -138,7 +167,7 @@ impl ShaderManager for SynthManager {
         
         Self {
             base,
-            synthesis_uniform,
+            params_uniform,
             gpu_synthesis,
         }
     }
@@ -151,6 +180,7 @@ impl ShaderManager for SynthManager {
         self.base.update_compute_shader_time(current_time, delta, &core.queue);
         
         
+        // Read GPU-generated audio parameters for CPU synthesis
         if self.base.time_uniform.data.frame % 180 == 0 {
             if let Some(compute_shader) = &self.base.compute_shader {
                 if let Ok(gpu_samples) = pollster::block_on(compute_shader.read_audio_samples(&core.device, &core.queue)) {
@@ -178,22 +208,72 @@ impl ShaderManager for SynthManager {
     fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {
         let output = core.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = core.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Synth Render Encoder"),
+        });
         
-        let mut controls_request = self.base.controls.get_ui_request(
-            &self.base.start_time,
-            &core.size
-        );
+        let mut params = self.params_uniform.data;
+        let mut changed = false;
+        let mut controls_request = self.base.controls.get_ui_request(&self.base.start_time, &core.size);
         controls_request.current_fps = Some(self.base.fps_tracker.fps());
         
-        let mut encoder = core.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("GPU Synth Render Encoder"),
-        });
+        let full_output = if self.base.key_handler.show_ui {
+            self.base.render_ui(core, |ctx| {
+                ctx.style_mut(|style| {
+                    style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(0, 0, 0, 180);
+                    style.text_styles.get_mut(&egui::TextStyle::Body).unwrap().size = 11.0;
+                    style.text_styles.get_mut(&egui::TextStyle::Button).unwrap().size = 10.0;
+                });
+                
+                egui::Window::new("Cuneus Synth")
+                    .collapsible(true)
+                    .resizable(true)
+                    .default_width(250.0)
+                    .show(ctx, |ui| {
+                        ui.vertical(|ui| {
+                            ui.label("GPU Synthesizer");
+                            ui.separator();
+                            
+                            ui.label("Musical Parameters:");
+                            changed |= ui.add(egui::Slider::new(&mut params.tempo, 60.0..=180.0).text("Tempo")).changed();
+                            changed |= ui.add(egui::Slider::new(&mut params.melody_octave, 3.0..=6.0).text("Octave")).changed();
+                            
+                            ui.separator();
+                            ui.label("🔊 Output:");
+                            changed |= ui.add(egui::Slider::new(&mut params.volume, 0.0..=0.5).text("Volume")).changed();
+                            
+                            ui.separator();
+                            ui.label("How it works?");
+                            ui.label("• Shader generates frequencies mathematically");
+                            ui.label("• GPU writes to buffer, CPU reads for audio");
+                            ui.label("• Same data drives visual feedback");
+                            ui.label("• Real-time parameter control");
+                            
+                            ui.separator();
+                            ShaderControls::render_controls_widget(ui, &mut controls_request);
+                        });
+                    });
+            })
+        } else {
+            self.base.render_ui(core, |_ctx| {})
+        };
+        
+        if changed {
+            self.params_uniform.data = params;
+            self.params_uniform.update(&core.queue);
+        }
+        
+        let current_time = self.base.controls.get_time(&self.base.start_time);
+        let delta = 1.0 / 60.0;
+        self.base.update_compute_shader_time(current_time, delta, &core.queue);
+        
+        self.update_synthesis_visualization(&core.queue);
         
         self.base.dispatch_compute_shader(&mut encoder, core);
         
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Main Render Pass"),
+                label: Some("Display Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
@@ -215,10 +295,7 @@ impl ShaderManager for SynthManager {
             }
         }
         
-        let full_output = self.base.render_ui(core, |_ctx| {});
-        
         self.base.apply_control_request(controls_request);
-        
         self.base.handle_render_output(core, &view, full_output, &mut encoder);
         core.queue.submit(Some(encoder.finish()));
         output.present();
@@ -231,7 +308,14 @@ impl ShaderManager for SynthManager {
     }
     
     fn handle_input(&mut self, core: &Core, event: &WindowEvent) -> bool {
-        self.base.egui_state.on_window_event(core.window(), event).consumed;
+        if self.base.egui_state.on_window_event(core.window(), event).consumed {
+            return true;
+        }
+        
+        if let WindowEvent::KeyboardInput { event, .. } = event {
+            return self.base.key_handler.handle_keyboard_input(core.window(), event);
+        }
+        
         false
     }
 }
