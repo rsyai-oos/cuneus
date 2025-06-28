@@ -422,3 +422,19 @@ The font system is fully scalable and can be positioned anywhere in your shader 
 2. Define your parameters in the ShaderParams struct
 3. Add UI controls in the render function
 4. Connect parameters to your shader
+
+## Real-time Audio Synthesis
+
+Cuneus supports generating audio directly from GPU shaders. Your compute shader can calculate frequencies and write audio data that gets played in real-time.
+
+### Basic Setup
+```wgsl
+// Write audio data from GPU to CPU
+if global_id.x == 0u && global_id.y == 0u {
+    audio_buffer[0] = frequency;    // Hz
+    audio_buffer[1] = amplitude;    // 0.0-1.0  
+    audio_buffer[2] = waveform;     // 0=sine, 1=square, etc
+}
+```
+
+For complete implementation details, see `src/bin/synth.rs`
