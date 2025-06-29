@@ -171,8 +171,8 @@ fn get_veridis_quo_frequency_and_envelope(time_in_song: f32) -> vec3<f32> {
                 envelope = 0.57 * (1.0 - fade_progress * 0.8); // Fade out B4
             } else {
                 // Start preparing for next section (E5-D5-E5-C5)
-                let prep_progress = (progress - 0.3) / 0.7;
-                frequency = mix(B4, E5, smoothstep(0.0, 1.0, prep_progress));
+                let prep_progress = (progress - 0.3) / 3.7;
+                frequency = mix(B4, E5, smoothstep(0.4, 1.0, prep_progress));
                 note_type = 4.0;
                  // Crescendo into next section
                 envelope = 0.1 + prep_progress * 0.7;

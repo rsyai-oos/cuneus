@@ -77,7 +77,7 @@ impl ShaderManager for VeridisQuo {
             SongParams {
                 volume: 0.6,
                 octave_shift: 0.0,
-                tempo_multiplier: 1.0,
+                tempo_multiplier: 2.0,
                 waveform_type: 0,
             },
             &song_params_bind_group_layout,
@@ -215,17 +215,17 @@ impl ShaderManager for VeridisQuo {
                         
                         ui.horizontal(|ui| {
                             ui.label("Volume:");
-                            ui.add(egui::Slider::new(&mut self.song_params_uniform.data.volume, 0.0..=0.8).text(""));
+                            ui.add(egui::Slider::new(&mut self.song_params_uniform.data.volume, 0.0..=1.0).text(""));
                         });
                         
                         ui.horizontal(|ui| {
                             ui.label("Octave Shift:");
-                            ui.add(egui::Slider::new(&mut self.song_params_uniform.data.octave_shift, -2.0..=2.0).text(""));
+                            ui.add(egui::Slider::new(&mut self.song_params_uniform.data.octave_shift, -4.0..=4.0).text(""));
                         });
                         
                         ui.horizontal(|ui| {
                             ui.label("Tempo:");
-                            ui.add(egui::Slider::new(&mut self.song_params_uniform.data.tempo_multiplier, 0.5..=2.0).text("x"));
+                            ui.add(egui::Slider::new(&mut self.song_params_uniform.data.tempo_multiplier, 0.5..=4.0).text("x"));
                         });
                         
                         ui.separator();
