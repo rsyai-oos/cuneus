@@ -190,8 +190,6 @@ impl ShaderManager for VeridisQuo {
         );
         controls_request.current_fps = Some(self.base.fps_tracker.fps());
         
-        let song_time = self.base.controls.get_time(&self.base.start_time);
-        let is_playing = self.audio_synthesis.as_ref().map(|s| s.is_gpu_synthesis_enabled()).unwrap_or(false);
         
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
@@ -204,17 +202,9 @@ impl ShaderManager for VeridisQuo {
                     .default_size([350.0, 250.0])
                     .show(ctx, |ui| {
                         ui.heading("Veridis Quo");
-                        
                         ui.separator();
-                        ui.label("🎶 Song Status:");
-                        ui.colored_label(
-                            if is_playing { egui::Color32::from_rgb(100, 255, 100) } else { egui::Color32::from_rgb(255, 100, 100) },
-                            format!("♪ Playing: {} | Time: {:.1}s", if is_playing { "YES" } else { "NO" }, song_time)
-                        );
-
                         ui.separator();
                         ui.label("🎛️ Audio Controls:");
-                        
                         ui.horizontal(|ui| {
                             ui.label("Volume:");
                             ui.add(egui::Slider::new(&mut self.song_params_uniform.data.volume, 0.0..=1.0).text(""));

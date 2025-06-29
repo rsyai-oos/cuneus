@@ -1,6 +1,7 @@
 // Enes Altun, 2025; MIT License
 // Veridis Quo - Mathematical/Shader Approach
-// Base frequencies for the main notes used in the song. This is also my first shader song, probably WIP for a while.
+// Base frequencies for the main notes used in the song. This is also my first shader song, but I think it could be a nice example for cuneus. 
+// This song also probably always WIP, I will keep improving it over time by the time I implement more advanced audio synthesis techniques on cuneus.
 struct TimeUniform {
     time: f32,
     delta: f32,
