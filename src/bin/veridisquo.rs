@@ -1,17 +1,28 @@
-use cuneus::{Core, ShaderApp, ShaderManager, RenderKit, ShaderControls};
+use cuneus::{Core, ShaderApp, ShaderManager, RenderKit, ShaderControls, UniformProvider, UniformBinding};
 use cuneus::compute::{ComputeShaderConfig, COMPUTE_TEXTURE_FORMAT_RGBA16};
 use cuneus::SynthesisManager;
 use winit::event::*;
 use std::path::PathBuf;
 
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct SongParams {
+    volume: f32,
+    octave_shift: f32,
+    tempo_multiplier: f32,
+    waveform_type: u32,
+}
+
+impl UniformProvider for SongParams {
+    fn as_bytes(&self) -> &[u8] {
+        bytemuck::bytes_of(self)
+    }
+}
+
 struct VeridisQuo {
     base: RenderKit,
     audio_synthesis: Option<SynthesisManager>,
-    
-    volume: f32,
-    octave_shift: f32,
-    waveform_type: u32,
-    tempo_multiplier: f32,
+    song_params_uniform: UniformBinding<SongParams>,
 }
 
 impl ShaderManager for VeridisQuo {
@@ -46,10 +57,10 @@ impl ShaderManager for VeridisQuo {
             None,
         );
         
-        let mouse_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let song_params_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE,
+                visibility: wgpu::ShaderStages::COMPUTE,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
@@ -57,19 +68,21 @@ impl ShaderManager for VeridisQuo {
                 },
                 count: None,
             }],
-            label: Some("mouse_bind_group_layout"),
+            label: Some("song_params_bind_group_layout"),
         });
         
-        let mouse_uniform = cuneus::UniformBinding::new(
+        let song_params_uniform = UniformBinding::new(
             &core.device,
-            "Mouse Uniform",
-            cuneus::MouseUniform::default(),
-            &mouse_bind_group_layout,
+            "Song Params",
+            SongParams {
+                volume: 0.6,
+                octave_shift: 0.0,
+                tempo_multiplier: 1.0,
+                waveform_type: 0,
+            },
+            &song_params_bind_group_layout,
             0,
         );
-        
-        base.mouse_bind_group_layout = Some(mouse_bind_group_layout.clone());
-        base.mouse_uniform = Some(mouse_uniform);
         
         let compute_config = ComputeShaderConfig {
             workgroup_size: [16, 16, 1],
@@ -82,7 +95,7 @@ impl ShaderManager for VeridisQuo {
             sampler_address_mode: wgpu::AddressMode::ClampToEdge,
             sampler_filter_mode: wgpu::FilterMode::Linear,
             label: "Veridis Quo".to_string(),
-            mouse_bind_group_layout: Some(mouse_bind_group_layout),
+            mouse_bind_group_layout: Some(song_params_bind_group_layout.clone()),
             enable_fonts: true,
             enable_audio_buffer: true,
             audio_buffer_size: 4096,
@@ -94,9 +107,9 @@ impl ShaderManager for VeridisQuo {
             compute_config,
         ));
         
-        if let (Some(compute_shader), Some(mouse_uniform)) = (&mut base.compute_shader, &base.mouse_uniform) {
+        if let Some(compute_shader) = &mut base.compute_shader {
             compute_shader.add_mouse_uniform_binding(
-                &mouse_uniform.bind_group,
+                &song_params_uniform.bind_group,
                 2
             );
         }
@@ -132,10 +145,7 @@ impl ShaderManager for VeridisQuo {
         Self { 
             base,
             audio_synthesis,
-            volume: 0.4,
-            octave_shift: 0.0,
-            waveform_type: 0,
-            tempo_multiplier: 1.0,
+            song_params_uniform,
         }
     }
 
@@ -143,8 +153,9 @@ impl ShaderManager for VeridisQuo {
         let current_time = self.base.controls.get_time(&self.base.start_time);
         let delta = 1.0/60.0;
         self.base.update_compute_shader_time(current_time, delta, &core.queue);
-        self.base.update_mouse_uniform(&core.queue);
         self.base.fps_tracker.update();
+        
+        self.song_params_uniform.update(&core.queue);
         
 
         if self.base.time_uniform.data.frame % 5 == 0 {
@@ -156,9 +167,9 @@ impl ShaderManager for VeridisQuo {
                         
                         if let Some(ref mut synth) = self.audio_synthesis {
                             if amplitude > 0.01 {
-                                let adjusted_frequency = frequency * 2.0_f32.powf(self.octave_shift);
-                                let adjusted_amplitude = amplitude * self.volume;
-                                synth.update_synth_params(adjusted_frequency, adjusted_amplitude, self.waveform_type);
+                                let adjusted_frequency = frequency * 2.0_f32.powf(self.song_params_uniform.data.octave_shift);
+                                let adjusted_amplitude = amplitude * self.song_params_uniform.data.volume;
+                                synth.update_synth_params(adjusted_frequency, adjusted_amplitude, self.song_params_uniform.data.waveform_type);
                             }
                         }
                     }
@@ -204,17 +215,17 @@ impl ShaderManager for VeridisQuo {
                         
                         ui.horizontal(|ui| {
                             ui.label("Volume:");
-                            ui.add(egui::Slider::new(&mut self.volume, 0.0..=0.8).text(""));
+                            ui.add(egui::Slider::new(&mut self.song_params_uniform.data.volume, 0.0..=0.8).text(""));
                         });
                         
                         ui.horizontal(|ui| {
                             ui.label("Octave Shift:");
-                            ui.add(egui::Slider::new(&mut self.octave_shift, -2.0..=2.0).text(""));
+                            ui.add(egui::Slider::new(&mut self.song_params_uniform.data.octave_shift, -2.0..=2.0).text(""));
                         });
                         
                         ui.horizontal(|ui| {
                             ui.label("Tempo:");
-                            ui.add(egui::Slider::new(&mut self.tempo_multiplier, 0.5..=2.0).text("x"));
+                            ui.add(egui::Slider::new(&mut self.song_params_uniform.data.tempo_multiplier, 0.5..=2.0).text("x"));
                         });
                         
                         ui.separator();
@@ -222,9 +233,9 @@ impl ShaderManager for VeridisQuo {
                         ui.horizontal(|ui| {
                             let waveform_names = [("🌊 Sine", 0), ("⚡ Sawtooth", 1), ("⬛ Square", 2)];
                             for (name, wave_type) in waveform_names.iter() {
-                                let selected = self.waveform_type == *wave_type;
+                                let selected = self.song_params_uniform.data.waveform_type == *wave_type;
                                 if ui.selectable_label(selected, *name).clicked() {
-                                    self.waveform_type = *wave_type;
+                                    self.song_params_uniform.data.waveform_type = *wave_type;
                                 }
                             }
                         });
@@ -299,9 +310,6 @@ impl ShaderManager for VeridisQuo {
             return true;
         }
         
-        if self.base.handle_mouse_input(core, event, ui_handled) {
-            return true;
-        }
         
         if let WindowEvent::KeyboardInput { event, .. } = event {
             if event.state == winit::event::ElementState::Pressed {
