@@ -14,6 +14,8 @@ struct AudioState {
     target_frequency: f32,
     target_amplitude: f32,
     target_waveform_type: u32,
+    previous_sample: f32,
+    phase: f32,
 }
 
 impl AudioState {
@@ -27,6 +29,8 @@ impl AudioState {
             target_frequency: 440.0,
             target_amplitude: 0.1,
             target_waveform_type: 0,
+            previous_sample: 0.0,
+            phase: 0.0,
         }
     }
 
@@ -34,6 +38,7 @@ impl AudioState {
         let dt = 1.0 / self.sample_rate;
         self.time += dt;
 
+        // Smooth parameter interpolation 
         let smoothing = 0.999;
         self.frequency = self.frequency * smoothing + self.target_frequency * (1.0 - smoothing);
         self.amplitude = self.amplitude * smoothing + self.target_amplitude * (1.0 - smoothing);
@@ -41,24 +46,54 @@ impl AudioState {
             self.waveform_type = self.target_waveform_type;
         }
 
-        let phase = 2.0 * std::f32::consts::PI * self.frequency * self.time;
-        let sample = match self.waveform_type {
-            0 => phase.sin(),
+        let phase_increment = 2.0 * std::f32::consts::PI * self.frequency * dt;
+        self.phase += phase_increment;
+        
+        // Wrap phase to prevent overflow
+        if self.phase > 2.0 * std::f32::consts::PI {
+            self.phase -= 2.0 * std::f32::consts::PI;
+        }
+        
+        let raw_sample = match self.waveform_type {
+            0 => self.phase.sin(),
             1 => {
-                if phase.sin() > 0.0 { 1.0 } else { -1.0 }
+                if self.phase.sin() > 0.0 { 1.0 } else { -1.0 }
             },
             2 => {
-                let t = (phase / (2.0 * std::f32::consts::PI)) % 1.0;
+                let t = (self.phase / (2.0 * std::f32::consts::PI)) % 1.0;
                 2.0 * t - 1.0
             },
             3 => {
-                let t = (phase / (2.0 * std::f32::consts::PI)) % 1.0;
+                let t = (self.phase / (2.0 * std::f32::consts::PI)) % 1.0;
                 if t < 0.5 { 4.0 * t - 1.0 } else { 3.0 - 4.0 * t }
             },
-            _ => phase.sin(),
+            _ => self.phase.sin(),
         };
+
+        //smooth envelope
+        let envelope = {
+            // Detect amplitude changes to apply attack/release
+            let amp_diff = (self.target_amplitude - self.amplitude).abs();
+            if amp_diff > 0.001 {
+                // Apply gentle attack curve when amplitude increases
+                if self.target_amplitude > self.amplitude {
+                    let attack_factor = 1.0 - (-dt * 10.0).exp(); // Exponential attack
+                    self.amplitude * attack_factor.min(1.0)
+                } else {
+                    // Apply gentle release curve when amplitude decreases
+                    let release_factor = (-dt * 5.0).exp(); // Exponential release
+                    self.amplitude * release_factor
+                }
+            } else {
+                self.amplitude
+            }
+        };
+
+        // Apply low-pass filtering to remove harsh high frequencies
+        let filtered_sample = raw_sample * 0.8 + self.previous_sample * 0.2;
+        self.previous_sample = filtered_sample;
         
-        sample * self.amplitude
+        filtered_sample * envelope
     }
 
     fn update_params(&mut self, frequency: f32, amplitude: f32, waveform_type: u32) {
@@ -128,6 +163,11 @@ impl SynthesisStreamer {
         let stream = device.build_output_stream(
             config,
             move |data: &mut [T], _: &OutputCallbackInfo| {
+                //Always clear the buffer t0 prevent some audio artifacts.
+                for sample in data.iter_mut() {
+                    *sample = T::from_sample(0.0);
+                }
+                
                 if let Ok(mut state) = audio_state.lock() {
                     for frame in data.chunks_mut(channels) {
                         let sample = state.generate_sample();

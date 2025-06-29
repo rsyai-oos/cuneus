@@ -289,7 +289,7 @@ impl ShaderManager for SynthManager {
                             
                             changed |= ui.add(egui::Slider::new(&mut params.tempo, 60.0..=180.0).text("Beat Tempo")).changed();
                             changed |= ui.add(egui::Slider::new(&mut params.octave, 3.0..=6.0).text("Octave")).changed();
-                            changed |= ui.add(egui::Slider::new(&mut params.volume, 0.0..=0.5).text("Volume")).changed();
+                            changed |= ui.add(egui::Slider::new(&mut params.volume, 0.0..=1.0).text("Volume")).changed();
                             
                             ui.separator();
                             ui.label("Waveform:");
