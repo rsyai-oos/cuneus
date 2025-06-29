@@ -220,7 +220,7 @@ impl ShaderManager for VeridisQuo {
                         
                         ui.horizontal(|ui| {
                             ui.label("Octave Shift:");
-                            ui.add(egui::Slider::new(&mut self.song_params_uniform.data.octave_shift, -4.0..=4.0).text(""));
+                            ui.add(egui::Slider::new(&mut self.song_params_uniform.data.octave_shift, -2.0..=2.0).text(""));
                         });
                         
                         ui.horizontal(|ui| {
