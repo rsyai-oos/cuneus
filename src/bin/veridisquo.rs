@@ -11,6 +11,7 @@ struct SongParams {
     octave_shift: f32,
     tempo_multiplier: f32,
     waveform_type: u32,
+    crossfade: f32,
 }
 
 impl UniformProvider for SongParams {
@@ -79,6 +80,7 @@ impl ShaderManager for VeridisQuo {
                 octave_shift: 0.0,
                 tempo_multiplier: 2.0,
                 waveform_type: 0,
+                crossfade: 0.5,
             },
             &song_params_bind_group_layout,
             0,
@@ -133,7 +135,7 @@ impl ShaderManager for VeridisQuo {
                 if let Err(_e) = synth.start_gpu_synthesis() {
                     None
                 } else {
-                    println!("🎵 Veridis Quo synthesis started - enjoy the melody!");
+                    println!("audio should be playing");
                     Some(synth)
                 }
             },
@@ -238,6 +240,13 @@ impl ShaderManager for VeridisQuo {
                                     self.song_params_uniform.data.waveform_type = *wave_type;
                                 }
                             }
+                        });
+
+                        ui.separator();
+                        ui.label("Transitions:");
+                        ui.horizontal(|ui| {
+                            ui.label("Crossfade:");
+                            ui.add(egui::Slider::new(&mut self.song_params_uniform.data.crossfade, 0.0..=1.0).text(""));
                         });
                         
                         ui.separator();

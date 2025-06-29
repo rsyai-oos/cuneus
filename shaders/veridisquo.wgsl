@@ -27,6 +27,7 @@ struct SongParams {
     octave_shift: f32,
     tempo_multiplier: f32,
     waveform_type: u32,
+    crossfade: f32,
 };
 @group(2) @binding(0) var<uniform> u_song: SongParams;
 
@@ -64,8 +65,8 @@ fn get_veridis_quo_frequency_and_envelope(time_in_song: f32) -> vec3<f32> {
             switch current_note {
                 case 0u: { 
                     // Very subtle transitions
-                    if note_progress > 0.8 {
-                        let transition = smoothstep(0.8, 1.0, note_progress);
+                    if note_progress > u_song.crossfade {
+                        let transition = smoothstep(u_song.crossfade, 1.0, note_progress);
                         frequency = mix(F5, E5, transition);
                     } else {
                         frequency = F5;
@@ -73,8 +74,8 @@ fn get_veridis_quo_frequency_and_envelope(time_in_song: f32) -> vec3<f32> {
                     note_type = 5.0;
                 }
                 case 1u: { 
-                    if note_progress > 0.8 {
-                        let transition = smoothstep(0.8, 1.0, note_progress);
+                    if note_progress > u_song.crossfade {
+                        let transition = smoothstep(u_song.crossfade, 1.0, note_progress);
                         frequency = mix(E5, F5, transition);
                     } else {
                         frequency = E5;
@@ -82,8 +83,8 @@ fn get_veridis_quo_frequency_and_envelope(time_in_song: f32) -> vec3<f32> {
                     note_type = 4.0; 
                 }
                 case 2u: { 
-                    if note_progress > 0.8 {
-                        let transition = smoothstep(0.8, 1.0, note_progress);
+                    if note_progress > u_song.crossfade {
+                        let transition = smoothstep(u_song.crossfade, 1.0, note_progress);
                         frequency = mix(F5, D5, transition);
                     } else {
                         frequency = F5;
@@ -111,8 +112,8 @@ fn get_veridis_quo_frequency_and_envelope(time_in_song: f32) -> vec3<f32> {
             
             switch current_note {
                 case 0u: { 
-                    if note_progress > 0.8 {
-                        let transition = smoothstep(0.8, 1.0, note_progress);
+                    if note_progress > u_song.crossfade {
+                        let transition = smoothstep(u_song.crossfade, 1.0, note_progress);
                         frequency = mix(F5, E5, transition);
                     } else {
                         frequency = F5;
@@ -120,8 +121,8 @@ fn get_veridis_quo_frequency_and_envelope(time_in_song: f32) -> vec3<f32> {
                     note_type = 5.0; 
                 }
                 case 1u: { 
-                    if note_progress > 0.8 {
-                        let transition = smoothstep(0.8, 1.0, note_progress);
+                    if note_progress > u_song.crossfade {
+                        let transition = smoothstep(u_song.crossfade, 1.0, note_progress);
                         frequency = mix(E5, F5, transition);
                     } else {
                         frequency = E5;
@@ -129,8 +130,8 @@ fn get_veridis_quo_frequency_and_envelope(time_in_song: f32) -> vec3<f32> {
                     note_type = 4.0; 
                 }
                 case 2u: { 
-                    if note_progress > 0.8 {
-                        let transition = smoothstep(0.8, 1.0, note_progress);
+                    if note_progress > u_song.crossfade {
+                        let transition = smoothstep(u_song.crossfade, 1.0, note_progress);
                         frequency = mix(F5, B4, transition);
                     } else {
                         frequency = F5;
@@ -155,39 +156,31 @@ fn get_veridis_quo_frequency_and_envelope(time_in_song: f32) -> vec3<f32> {
         }
         case 2u: {
             // Measure 3: (7) - B4 TIE
-            frequency = B4;
-            note_type = 1.0;
-
-            let start_envelope = 0.88; 
-            envelope = start_envelope * (1.0 - progress * 0.35);
-        }
-        case 3u: {
-            // Measure 4: Transition from tie back to melody
-            if progress < 0.3 {
-                // Still fading B4 tie in first
+            if progress < 0.5 {
+                // B4 tie for first
                 frequency = B4;
                 note_type = 1.0;
                 let fade_progress = progress / 0.3;
                 envelope = 0.57 * (1.0 - fade_progress * 0.8); // Fade out B4
             } else {
                 // Start preparing for next section (E5-D5-E5-C5)
-                let prep_progress = (progress - 0.3) / 3.7;
-                frequency = mix(B4, E5, smoothstep(0.4, 1.0, prep_progress));
+                let prep_progress = (progress - 0.5) / 0.5;
+                frequency = mix(B4, E5, smoothstep(0.8, 1.0, prep_progress));
                 note_type = 4.0;
                  // Crescendo into next section
                 envelope = 0.1 + prep_progress * 0.7;
             }
         }
-        case 4u: {
-            // Measure 5: 12-10-12-8 (E5-D5-E5-C5)
+        case 3u: {
+            // Measure 4: 12-10-12-8 (E5-D5-E5-C5) - fast rhythm
             let phase = progress * 7.0;
             let current_note = u32(min(phase, 3.99));
             let note_progress = fract(phase);
             
             switch current_note {
                 case 0u: { 
-                    if note_progress > 0.8 {
-                        let transition = smoothstep(0.8, 1.0, note_progress);
+                    if note_progress > u_song.crossfade {
+                        let transition = smoothstep(u_song.crossfade, 1.0, note_progress);
                         frequency = mix(E5, D5, transition);
                     } else {
                         frequency = E5;
@@ -195,8 +188,8 @@ fn get_veridis_quo_frequency_and_envelope(time_in_song: f32) -> vec3<f32> {
                     note_type = 4.0; 
                 }
                 case 1u: { 
-                    if note_progress > 0.8 {
-                        let transition = smoothstep(0.8, 1.0, note_progress);
+                    if note_progress > u_song.crossfade {
+                        let transition = smoothstep(u_song.crossfade, 1.0, note_progress);
                         frequency = mix(D5, E5, transition);
                     } else {
                         frequency = D5;
@@ -204,8 +197,8 @@ fn get_veridis_quo_frequency_and_envelope(time_in_song: f32) -> vec3<f32> {
                     note_type = 3.0; 
                 }
                 case 2u: { 
-                    if note_progress > 0.8 {
-                        let transition = smoothstep(0.8, 1.0, note_progress);
+                    if note_progress > u_song.crossfade {
+                        let transition = smoothstep(u_song.crossfade, 1.0, note_progress);
                         frequency = mix(E5, C5, transition);
                     } else {
                         frequency = E5;
@@ -213,7 +206,6 @@ fn get_veridis_quo_frequency_and_envelope(time_in_song: f32) -> vec3<f32> {
                     note_type = 4.0; 
                 }
                 default: { 
-
                     if phase > 4.0 {
                         let padding_progress = (phase - 4.0) / 3.0;
                         frequency = mix(C5, E5, smoothstep(0.0, 1.0, padding_progress * 0.3));
@@ -226,16 +218,17 @@ fn get_veridis_quo_frequency_and_envelope(time_in_song: f32) -> vec3<f32> {
             }
             envelope = 0.8;
         }
-        case 5u: {
-            // Measure 6: 12-10-12-5 (E5-D5-E5-A4)
+        
+        case 4u: {
+            // Measure 5: 12-10-12-5 (E5-D5-E5-A4) - ending in A4 tie
             let phase = progress * 7.0;
             let current_note = u32(min(phase, 3.99));
             let note_progress = fract(phase);
             
             switch current_note {
                 case 0u: { 
-                    if note_progress > 0.8 {
-                        let transition = smoothstep(0.8, 1.0, note_progress);
+                    if note_progress > u_song.crossfade {
+                        let transition = smoothstep(u_song.crossfade, 1.0, note_progress);
                         frequency = mix(E5, D5, transition);
                     } else {
                         frequency = E5;
@@ -243,8 +236,8 @@ fn get_veridis_quo_frequency_and_envelope(time_in_song: f32) -> vec3<f32> {
                     note_type = 4.0; 
                 }
                 case 1u: { 
-                    if note_progress > 0.8 {
-                        let transition = smoothstep(0.8, 1.0, note_progress);
+                    if note_progress > u_song.crossfade {
+                        let transition = smoothstep(u_song.crossfade, 1.0, note_progress);
                         frequency = mix(D5, E5, transition);
                     } else {
                         frequency = D5;
@@ -252,8 +245,8 @@ fn get_veridis_quo_frequency_and_envelope(time_in_song: f32) -> vec3<f32> {
                     note_type = 3.0; 
                 }
                 case 2u: { 
-                    if note_progress > 0.8 {
-                        let transition = smoothstep(0.8, 1.0, note_progress);
+                    if note_progress > u_song.crossfade {
+                        let transition = smoothstep(u_song.crossfade, 1.0, note_progress);
                         frequency = mix(E5, A4, transition);
                     } else {
                         frequency = E5;
@@ -273,11 +266,25 @@ fn get_veridis_quo_frequency_and_envelope(time_in_song: f32) -> vec3<f32> {
             }
             envelope = 0.8;
         }
+        case 5u: {
+            // Measure 6: (5) - A4 TIE 
+            if progress < 0.5 {
+
+                frequency = A4;
+                note_type = 0.0;
+                envelope = 0.8 * (1.0 - progress * 0.6);
+            } else {
+                let fade_progress = (progress - 0.5) / 0.5;
+                frequency = mix(A4, F5, smoothstep(0.0, 1.0, fade_progress * 0.3)); // Gentle transition
+                note_type = 5.0;
+                envelope = 0.5 * (1.0 - fade_progress * 0.8); // Fade out for loop
+            }
+        }
         case 6u: {
-            // Measure 7: (5) - A4 TIE
-            frequency = A4;
-            note_type = 0.0;
-            envelope = 0.8 * (1.0 - progress * 0.4);
+            // Measure 7: Rest/Pause before loop
+            frequency = F5;
+            note_type = 5.0;
+            envelope = 0.1 + progress * 0.2;
         }
         default: {
             frequency = A4;
