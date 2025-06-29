@@ -104,10 +104,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         
         if key_state > 0.5 {
             let freq = get_note_frequency(i, params.octave);
-            let envelope = key_decay_val;
-            let phase = u_time.time * freq * 2.0 * PI;
+            // SMOOTHING FOR THE REDUCING BOUNCING
+            let envelope = smoothstep(0.9, 1.0, key_decay_val);
+            // SMOOTHING phase calculation to eliminate vibration artifacts
+            let phase = fract(u_time.time * freq) * 2.0 * PI;
             let waveform_sample = generate_waveform(phase, params.waveform_type);
-            let key_amp = envelope * 0.2;
+            let key_amp = envelope * 0.4;
             
             key_sample += waveform_sample * key_amp;
             active_keys += 1.0;
@@ -119,13 +121,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         }
     }
     
-    // Normalize key sample if multiple keys are playing
-    if active_keys > 1.0 {
-        key_sample = key_sample / sqrt(active_keys);
-    }
-    
-    // Mix beat and keys independently - beat should ALWAYS be audible
-    var mixed_sample = beat_sample + key_sample * 0.6;
+    // SIMPLE mixing - no amplitude bouncing
+    var mixed_sample = beat_sample + key_sample;
     
     // Apply volume control
     mixed_sample = mixed_sample * params.volume;
