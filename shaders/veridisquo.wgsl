@@ -161,7 +161,8 @@ fn get_veridis_quo_frequency_and_envelope(time_in_song: f32) -> vec3<f32> {
                 frequency = B4;
                 note_type = 1.0;
                 let fade_progress = progress / 0.3;
-                envelope = 0.57 * (1.0 - fade_progress * 0.8); // Fade out B4
+                 // Fade out B4
+                envelope = 0.57 * (1.0 - fade_progress);
             } else {
                 // Start preparing for next section (E5-D5-E5-C5)
                 let prep_progress = (progress - 0.5) / 0.5;
@@ -257,7 +258,7 @@ fn get_veridis_quo_frequency_and_envelope(time_in_song: f32) -> vec3<f32> {
                     if phase > 4.0 {
                         let padding_progress = (phase - 4.0) / 3.0;
                         frequency = mix(A4, A4, smoothstep(0.0, 1.0, padding_progress));
-                        envelope = 0.8 * (1.0 + padding_progress * 0.1);
+                        envelope = 0.8 * (2.0 + padding_progress * 0.1);
                     } else {
                         frequency = A4;
                     }
@@ -275,14 +276,10 @@ fn get_veridis_quo_frequency_and_envelope(time_in_song: f32) -> vec3<f32> {
         }
         case 6u: {
             // Measure 7: Rest/Pause before loop
-            frequency = F5; 
-            note_type = 5.0;
-            if progress < 0.75 {
-                envelope = 0.0;
-            } else {
-                let ramp_up = (progress - 0.75) / 0.25;
-                envelope = ramp_up * 0.4; 
-            }
+            // This measure is now completely silent to create a clean break before the loop.
+            frequency = 0.0;
+            note_type = 5.0; // Keep for visualizer consistency
+            envelope = 0.0;
         }
         default: {
             frequency = A4;
