@@ -267,24 +267,22 @@ fn get_veridis_quo_frequency_and_envelope(time_in_song: f32) -> vec3<f32> {
             envelope = 0.8;
         }
         case 5u: {
-            // Measure 6: (5) - A4 TIE 
-            if progress < 0.5 {
-
-                frequency = A4;
-                note_type = 0.0;
-                envelope = 0.8 * (1.0 - progress * 0.6);
-            } else {
-                let fade_progress = (progress - 0.5) / 0.5;
-                frequency = mix(A4, F5, smoothstep(0.0, 1.0, fade_progress * 0.3)); // Gentle transition
-                note_type = 5.0;
-                envelope = 0.5 * (1.0 - fade_progress * 0.8); // Fade out for loop
-            }
+            // Measure 6: (5) - A4 TIE
+            frequency = A4;
+            note_type = 0.0;
+            // Fade out the note over the measure.
+            envelope = 0.8 * (1.0 - progress * 0.95);
         }
         case 6u: {
             // Measure 7: Rest/Pause before loop
-            frequency = F5;
+            frequency = F5; 
             note_type = 5.0;
-            envelope = 0.1 + progress * 0.2;
+            if progress < 0.75 {
+                envelope = 0.0;
+            } else {
+                let ramp_up = (progress - 0.75) / 0.25;
+                envelope = ramp_up * 0.4; 
+            }
         }
         default: {
             frequency = A4;
