@@ -88,6 +88,15 @@ impl Voice {
                 let t = (self.phase / (2.0 * std::f32::consts::PI)) % 1.0;
                 2.0 * t - 1.0
             },
+            3 => {
+                // Triangle wave
+                let t = (self.phase / (2.0 * std::f32::consts::PI)) % 1.0;
+                if t < 0.5 { 4.0 * t - 1.0 } else { 3.0 - 4.0 * t }
+            },
+            4 => {
+                // Pulse wave (25% duty cycle)
+                if (self.phase % (2.0 * std::f32::consts::PI)) < (2.0 * std::f32::consts::PI * 0.25) { 1.0 } else { -1.0 }
+            },
             _ => self.phase.sin(),
         };
         
