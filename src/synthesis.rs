@@ -343,7 +343,6 @@ impl SynthesisManager {
     }
     
     pub fn update_frequency(&mut self, frequency: f32) {
-        // MODERN APPROACH: Use voice 0 for simple frequency updates
         if let Some(ref mut streamer) = self.gpu_streamer {
             streamer.update_frequency(frequency);
         }
