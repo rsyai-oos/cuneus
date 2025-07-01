@@ -30,6 +30,9 @@ struct SongParams {
     tempo_multiplier: f32,
     waveform_type: u32,
     crossfade: f32,
+    reverb_mix: f32,
+    chorus_rate: f32,
+    _padding: f32,
 };
 @group(2) @binding(0) var<uniform> u_song: SongParams;
 
@@ -111,16 +114,69 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         if(measure==1u||measure==3u||measure==5u||measure==7u){if(progress_in_measure>=hold_end_point){bass_amp=0.0;}else{bass_amp=0.7*(1.0-progress_in_measure/hold_end_point*0.5);}}
         melody_freq_visualizer=melody_freq;envelope_visualizer=(melody_amp+bass_amp)*u_song.volume;
         let final_melody_freq=melody_freq*pow(2.0,u_song.octave_shift);let final_bass_freq=bass_freq*pow(2.0,u_song.octave_shift);
-        let final_melody_amp=melody_amp*u_song.volume;let final_bass_amp=bass_amp*u_song.volume*0.7;
+        
+        var final_melody_amp=melody_amp*u_song.volume;
+        var final_bass_amp=bass_amp*u_song.volume*0.7;
+        
+        if(u_song.reverb_mix > 0.0) {
+            let reverb_delay = sin(adjusted_time - 0.2) * u_song.reverb_mix * 0.3;
+            final_melody_amp += reverb_delay * final_melody_amp;
+            final_bass_amp += reverb_delay * final_bass_amp;
+        }
+        
+        var chorus_freq_mod = 1.0;
+        if(u_song.chorus_rate > 0.0) {
+            chorus_freq_mod = 1.0 + sin(adjusted_time * u_song.chorus_rate) * 0.02;
+        }
+        
         audio_buffer[0]=melody_freq_visualizer;audio_buffer[1]=envelope_visualizer;audio_buffer[2]=f32(u_song.waveform_type);
-        audio_buffer[3]=final_melody_freq;audio_buffer[4]=final_melody_amp;
-        audio_buffer[5]=final_bass_freq;audio_buffer[6]=final_bass_amp;
+        audio_buffer[3]=final_melody_freq*chorus_freq_mod;audio_buffer[4]=final_melody_amp;
+        audio_buffer[5]=final_bass_freq*chorus_freq_mod;audio_buffer[6]=final_bass_amp;
         for(var i=2u;i<16u;i++){audio_buffer[3u+i*2u]=0.0;audio_buffer[3u+i*2u+1u]=0.0;}
     }
     let frequency=audio_buffer[0];let envelope=audio_buffer[1];let uv=vec2<f32>(global_id.xy)/vec2<f32>(dims);
-    var color=vec3<f32>(0.02,0.01,0.08);let wave_distortion=sin(uv.x*6.0+u_time.time*1.5)*0.3;
-    let freq_factor=(frequency-400.0)/300.0;color+=vec3<f32>(0.05,0.02,0.1)*wave_distortion*freq_factor*envelope;
-    let progress_bar_height=0.02;if(uv.y>0.95&&uv.y<0.95+progress_bar_height){let measure_duration=(60.0/107.0)*4.0;let total_pattern_duration=measure_duration*8.0;let song_progress=(u_time.time*u_song.tempo_multiplier%total_pattern_duration)/total_pattern_duration;if(uv.x<song_progress){color=mix(color,vec3<f32>(0.0,0.7,1.0),0.8);}else{color=mix(color,vec3<f32>(0.15,0.15,0.3),0.8);}}
-    let ambient_glow=envelope*0.15;color+=vec3<f32>(ambient_glow*0.3,ambient_glow*0.5,ambient_glow*0.8);
+    
+    var color=vec3<f32>(0.02,0.01,0.08);
+    
+    let note_freqs = array<f32, 6>(440.0, 493.88, 523.25, 587.33, 659.25, 698.46);
+    let note_names_y = array<f32, 6>(0.25, 0.35, 0.45, 0.55, 0.65, 0.75);
+    
+    for (var i = 0; i < 6; i++) {
+        let note_y = note_names_y[i];
+        if (abs(uv.y - note_y) < 0.003 && uv.x > 0.1 && uv.x < 0.9) {
+            color = mix(color, vec3<f32>(0.3, 0.3, 0.4), 0.6);
+        }
+    }
+    
+    if (envelope > 0.01) {
+        var current_note_y = 0.5;
+        var note_found = false;
+        
+        for (var i = 0; i < 6; i++) {
+            if (abs(frequency - note_freqs[i]) < 20.0) {
+                current_note_y = note_names_y[i];
+                note_found = true;
+                break;
+            }
+        }
+        
+        if (note_found && abs(uv.y - current_note_y) < 0.01 && uv.x > 0.1 && uv.x < 0.9) {
+            let glow = smoothstep(0.01, 0.0, abs(uv.y - current_note_y));
+            color = mix(color, vec3<f32>(0.0, 0.8, 1.0), glow * envelope);
+        }
+    }
+    
+    let progress_bar_height=0.02;
+    if(uv.y>0.95&&uv.y<0.95+progress_bar_height){
+        let measure_duration=(60.0/107.0)*4.0;
+        let total_pattern_duration=measure_duration*8.0;
+        let song_progress=(u_time.time*u_song.tempo_multiplier%total_pattern_duration)/total_pattern_duration;
+        if(uv.x<song_progress){
+            color=mix(color,vec3<f32>(0.0,0.7,1.0),0.8);
+        }else{
+            color=mix(color,vec3<f32>(0.15,0.15,0.3),0.8);
+        }
+    }
+    
     textureStore(output,global_id.xy,vec4<f32>(color,1.0));
 }
