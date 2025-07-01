@@ -35,23 +35,13 @@ struct SongParams {
 
 const PI = 3.14159265359;
 
-const F5 = 698.46; const E5 = 659.25; const D5 = 587.33;
-const C5 = 523.25; const B4 = 493.88; const A4 = 440.00;
+// --- Note Frequencies ---
+const F5=698.46; const E5=659.25; const D5=587.33; const C5=523.25; const B4=493.88; const A4=440.00;
 // --- Bass Frequencies ---
-const F3 = F5 / 4.0; const B2 = B4 / 4.0;
-const E3 = E5 / 4.0; const A2 = A4 / 4.0;
+const F3=F5/4.0; const B2=B4/4.0; const E3=E5/4.0; const A2=A4/4.0;
 
-fn get_note_color(note_name: u32) -> vec3<f32> {
-    switch note_name {
-        case 0u:{return vec3<f32>(1.0,0.3,0.3);} case 1u:{return vec3<f32>(1.0,0.6,0.0);}
-        case 2u:{return vec3<f32>(1.0,1.0,0.2);} case 3u:{return vec3<f32>(0.3,1.0,0.3);}
-        case 4u:{return vec3<f32>(0.2,0.7,1.0);} case 5u:{return vec3<f32>(0.8,0.3,1.0);}
-        default:{return vec3<f32>(0.5,0.5,0.5);}
-    }
-}
-
-fn legato(freq_from: f32, freq_to: f32, progress: f32) -> f32 {
-    let start_point = 1.0 - clamp(u_song.crossfade, 0.0, 1.0); // Allow 0.0 crossfade
+fn legato(freq_from:f32, freq_to:f32, progress:f32) -> f32 {
+    let start_point = 1.0 - clamp(u_song.crossfade, 0.0, 1.0);
     if (progress <= start_point) { return freq_from; }
     let transition = smoothstep(start_point, 1.0, progress);
     return mix(freq_from, freq_to, transition);
@@ -59,10 +49,8 @@ fn legato(freq_from: f32, freq_to: f32, progress: f32) -> f32 {
 
 @compute @workgroup_size(16, 16, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
-    let dims = textureDimensions(output);
-    if (global_id.x >= dims.x || global_id.y >= dims.y) { return; }
-
-    var melody_freq_visualizer = 0.0; var envelope_visualizer = 0.0; var note_type_visualizer = 0.0;
+    let dims=textureDimensions(output); if(global_id.x>=dims.x||global_id.y>=dims.y){return;}
+    var melody_freq_visualizer=0.0; var envelope_visualizer=0.0; var note_type_visualizer=0.0;
 
     if (global_id.x == 0u && global_id.y == 0u) {
         let adjusted_time = u_time.time * u_song.tempo_multiplier;
@@ -72,61 +60,55 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         let measure = u32(loop_time / measure_duration);
         let progress_in_measure = fract(loop_time / measure_duration);
 
-        var melody_freq = 0.0; var melody_amp = 1.0;
-        var bass_freq = 0.0; var bass_amp = 0.7;
+        var melody_freq=0.0; var melody_amp=1.0; var bass_freq=0.0; var bass_amp=0.7;
+
+        let phrase_dur = 0.25;
+        let short_hold_dur = 0.125;
+        let phrase2_start = phrase_dur + short_hold_dur;
+        let phrase2_end = phrase2_start + phrase_dur;
+        let hold_end_point = 0.875; // Hold note for 7/8 of the measure, leaving a 1/8 rest.
 
         switch (measure) {
-            // -- SECTIONS 1, 2, 3 (Normal Speed) --
-            case 0u: {
+            case 0u, 4u: { // Measures 1 & 5
                 bass_freq = F3;
-                if(progress_in_measure<0.5){let p=progress_in_measure*2.0;let i=u32(floor(p*4.0));let n=fract(p*4.0);switch(i){case 0u:{melody_freq=legato(F5,E5,n);note_type_visualizer=5.0;}case 1u:{melody_freq=legato(E5,F5,n);note_type_visualizer=4.0;}case 2u:{melody_freq=legato(F5,D5,n);note_type_visualizer=5.0;}default:{melody_freq=D5;note_type_visualizer=3.0;}}}
-                else{let p=(progress_in_measure-0.5)*2.0;let i=u32(floor(p*4.0));let n=fract(p*4.0);switch(i){case 0u:{melody_freq=legato(F5,E5,n);note_type_visualizer=5.0;}case 1u:{melody_freq=legato(E5,F5,n);note_type_visualizer=4.0;}case 2u:{melody_freq=legato(F5,B4,n);note_type_visualizer=5.0;}default:{melody_freq=B4;note_type_visualizer=1.0;}}}
+                if(progress_in_measure<phrase_dur){let p=progress_in_measure/phrase_dur;let n=fract(p*4.0);switch(u32(floor(p*4.0))){case 0u:{melody_freq=legato(F5,E5,n);note_type_visualizer=5.0;}case 1u:{melody_freq=legato(E5,F5,n);note_type_visualizer=4.0;}case 2u:{melody_freq=legato(F5,D5,n);note_type_visualizer=5.0;}default:{melody_freq=D5;note_type_visualizer=3.0;}}}
+                else if(progress_in_measure<phrase2_start){melody_freq=D5;note_type_visualizer=3.0;}
+                else if(progress_in_measure<phrase2_end){let p=(progress_in_measure-phrase2_start)/phrase_dur;let n=fract(p*4.0);switch(u32(floor(p*4.0))){case 0u:{melody_freq=legato(F5,E5,n);note_type_visualizer=5.0;}case 1u:{melody_freq=legato(E5,F5,n);note_type_visualizer=4.0;}case 2u:{melody_freq=legato(F5,B4,n);note_type_visualizer=5.0;}default:{melody_freq=B4;note_type_visualizer=1.0;}}}
+                else{melody_freq=B4;note_type_visualizer=1.0;}
             }
-            case 1u: { melody_freq=B4;bass_freq=B2;note_type_visualizer=1.0;let s=mix(1.0,0.7,progress_in_measure);let t=sin(adjusted_time*8.0)*0.05;melody_amp=s+t;}
-            case 2u: {
+            case 1u, 5u: { // Measures 2 & 6: Hold B4, then short rest
+                melody_freq = B4; bass_freq = B2; note_type_visualizer = 1.0;
+                if (progress_in_measure < hold_end_point) {
+                    let hold_progress = progress_in_measure / hold_end_point;
+                    let sustain_level = mix(1.0, 0.7, hold_progress);
+                    let tremolo = sin(adjusted_time * 8.0) * 0.05;
+                    melody_amp = sustain_level + tremolo;
+                } else { melody_amp = 0.0; bass_amp = 0.0; }
+            }
+            case 2u: { // Measure 3
                 bass_freq = E3;
-                if(progress_in_measure<0.5){let p=progress_in_measure*2.0;let i=u32(floor(p*4.0));let n=fract(p*4.0);switch(i){case 0u:{melody_freq=legato(E5,D5,n);note_type_visualizer=4.0;}case 1u:{melody_freq=legato(D5,E5,n);note_type_visualizer=3.0;}case 2u:{melody_freq=legato(E5,C5,n);note_type_visualizer=4.0;}default:{melody_freq=C5;note_type_visualizer=2.0;}}}
-                else{let p=(progress_in_measure-0.5)*2.0;let i=u32(floor(p*4.0));let n=fract(p*4.0);switch(i){case 0u:{melody_freq=legato(E5,D5,n);note_type_visualizer=4.0;}case 1u:{melody_freq=legato(D5,E5,n);note_type_visualizer=3.0;}case 2u:{melody_freq=legato(E5,A4,n);note_type_visualizer=4.0;}default:{melody_freq=A4;note_type_visualizer=0.0;}}}
+                if(progress_in_measure<phrase_dur){let p=progress_in_measure/phrase_dur;let n=fract(p*4.0);switch(u32(floor(p*4.0))){case 0u:{melody_freq=legato(E5,D5,n);note_type_visualizer=4.0;}case 1u:{melody_freq=legato(D5,E5,n);note_type_visualizer=3.0;}case 2u:{melody_freq=legato(E5,C5,n);note_type_visualizer=4.0;}default:{melody_freq=C5;note_type_visualizer=2.0;}}}
+                else if(progress_in_measure<phrase2_start){melody_freq=C5;note_type_visualizer=2.0;}
+                else if(progress_in_measure<phrase2_end){let p=(progress_in_measure-phrase2_start)/phrase_dur;let n=fract(p*4.0);switch(u32(floor(p*4.0))){case 0u:{melody_freq=legato(E5,D5,n);note_type_visualizer=4.0;}case 1u:{melody_freq=legato(D5,E5,n);note_type_visualizer=3.0;}case 2u:{melody_freq=legato(E5,A4,n);note_type_visualizer=4.0;}default:{melody_freq=A4;note_type_visualizer=0.0;}}}
+                else{melody_freq=A4;note_type_visualizer=0.0;}
             }
-            case 3u: { melody_freq=A4;bass_freq=A2;note_type_visualizer=0.0;let s=mix(1.0,0.75,progress_in_measure);let t=sin(adjusted_time*8.0)*0.05;melody_amp=s+t;}
-            case 4u: {
-                bass_freq=F3;
-                if(progress_in_measure<0.5){let p=progress_in_measure*2.0;let i=u32(floor(p*4.0));let n=fract(p*4.0);switch(i){case 0u:{melody_freq=legato(F5,E5,n);note_type_visualizer=5.0;}case 1u:{melody_freq=legato(E5,F5,n);note_type_visualizer=4.0;}case 2u:{melody_freq=legato(F5,D5,n);note_type_visualizer=5.0;}default:{melody_freq=D5;note_type_visualizer=3.0;}}}
-                else{let p=(progress_in_measure-0.5)*2.0;let i=u32(floor(p*4.0));let n=fract(p*4.0);switch(i){case 0u:{melody_freq=legato(F5,E5,n);note_type_visualizer=5.0;}case 1u:{melody_freq=legato(E5,F5,n);note_type_visualizer=4.0;}case 2u:{melody_freq=legato(F5,B4,n);note_type_visualizer=5.0;}default:{melody_freq=B4;note_type_visualizer=1.0;}}}
+            case 3u, 7u: { // Measures 4 & 8: Hold A4, then short rest
+                melody_freq = A4; bass_freq = A2; note_type_visualizer = 0.0;
+                if (progress_in_measure < hold_end_point) {
+                    let hold_progress = progress_in_measure / hold_end_point;
+                    let sustain_level = mix(1.0, 0.75, hold_progress);
+                    let tremolo = sin(adjusted_time * 8.0) * 0.05;
+                    melody_amp = sustain_level + tremolo;
+                } else { melody_amp = 0.0; bass_amp = 0.0; } // Silence for anticipation
             }
-            case 5u: { melody_freq=B4;bass_freq=B2;note_type_visualizer=1.0;let s=mix(1.0,0.7,progress_in_measure);let t=sin(adjusted_time*8.0)*0.05;melody_amp=s+t;}
-
-            // -- SECTION 4 (THE FAST PART WITH SCALED SPEED) --
-            case 6u: {
-                bass_freq = E3;
-                // We want the run to last for half a measure *at 1.0x tempo*.
-                // The duration it takes up within the *current, faster measure* is scaled by the tempo.
-                let run_duration_in_measure = 0.5 * u_song.tempo_multiplier;
-                
-                if (progress_in_measure < run_duration_in_measure) {
-                    // Scale the progress within the run so it always goes from 0.0 to 1.0
-                    let phrase_progress = progress_in_measure / run_duration_in_measure;
-                    let note_index = u32(floor(phrase_progress * 8.0));
-                    let note_progress = fract(phrase_progress * 8.0);
-                    
-                    switch(note_index){
-                        case 0u:{melody_freq=legato(E5,D5,note_progress);note_type_visualizer=4.0;}
-                        case 1u:{melody_freq=legato(D5,E5,note_progress);note_type_visualizer=3.0;}
-                        case 2u:{melody_freq=legato(E5,C5,note_progress);note_type_visualizer=4.0;}
-                        case 3u:{melody_freq=legato(C5,E5,note_progress);note_type_visualizer=2.0;}
-                        case 4u:{melody_freq=legato(E5,D5,note_progress);note_type_visualizer=4.0;}
-                        case 5u:{melody_freq=legato(D5,E5,note_progress);note_type_visualizer=3.0;}
-                        case 6u:{melody_freq=legato(E5,A4,note_progress);note_type_visualizer=4.0;}
-                        default:{melody_freq=A4;note_type_visualizer=0.0;}
-                    }
-                } else { // Hold the final note for the rest of the measure
-                    melody_freq = A4; note_type_visualizer = 0.0;
-                }
+            case 6u: { // Measure 7: The FAST 8-note run
+                bass_freq = E3; let run_dur=0.5;
+                if(progress_in_measure<run_dur){let p=progress_in_measure/run_dur;let n=fract(p*8.0);switch(u32(floor(p*8.0))){case 0u:{melody_freq=legato(E5,D5,n);note_type_visualizer=4.0;}case 1u:{melody_freq=legato(D5,E5,n);note_type_visualizer=3.0;}case 2u:{melody_freq=legato(E5,C5,n);note_type_visualizer=4.0;}case 3u:{melody_freq=legato(C5,E5,n);note_type_visualizer=2.0;}case 4u:{melody_freq=legato(E5,D5,n);note_type_visualizer=4.0;}case 5u:{melody_freq=legato(D5,E5,n);note_type_visualizer=3.0;}case 6u:{melody_freq=legato(E5,A4,n);note_type_visualizer=4.0;}default:{melody_freq=A4;note_type_visualizer=0.0;}}}
+                else{melody_freq=A4;note_type_visualizer=0.0;}
             }
-            case 7u: { melody_freq=A4;bass_freq=A2;note_type_visualizer=0.0;let s=mix(1.0,0.75,progress_in_measure);let t=sin(adjusted_time*8.0)*0.05;melody_amp=s+t;}
             default: {}
         }
-        if(measure==1u||measure==3u||measure==5u||measure==7u){bass_amp=0.7*(1.0-progress_in_measure*0.5);}
+        if(measure==1u||measure==3u||measure==5u||measure==7u){if(progress_in_measure>=hold_end_point){bass_amp=0.0;}else{bass_amp=0.7*(1.0-progress_in_measure/hold_end_point*0.5);}}
         melody_freq_visualizer=melody_freq;envelope_visualizer=(melody_amp+bass_amp)*u_song.volume;
         let final_melody_freq=melody_freq*pow(2.0,u_song.octave_shift);let final_bass_freq=bass_freq*pow(2.0,u_song.octave_shift);
         let final_melody_amp=melody_amp*u_song.volume;let final_bass_amp=bass_amp*u_song.volume*0.7;

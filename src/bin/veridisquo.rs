@@ -84,7 +84,7 @@ impl ShaderManager for VeridisQuo {
             SongParams {
                 volume: 0.5,
                 octave_shift: 0.0,
-                tempo_multiplier: 1.4,
+                tempo_multiplier: 1.0,
                 waveform_type: 1,
                 crossfade: 0.0,
             },
