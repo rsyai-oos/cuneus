@@ -145,6 +145,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
             let frequency = get_note_frequency(i, params.octave);
             audio_buffer[3 + i] = frequency;
         }
+        
+        // BACKGROUND BEAT: Add beat information for CPU to use
+        audio_buffer[12] = beat_sample;
+        audio_buffer[13] = params.tempo * 2.0;
     }
     
     var color = vec3<f32>(0.02, 0.02, 0.1) * (1.0 - uv.y * 0.3);

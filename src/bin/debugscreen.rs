@@ -146,13 +146,21 @@ impl ShaderManager for DebugScreen {
             if self.base.time_uniform.data.frame % 60 == 0 {
                 if let Some(compute_shader) = &self.base.compute_shader {
                     if let Ok(gpu_samples) = pollster::block_on(compute_shader.read_audio_samples(&core.device, &core.queue)) {
-                        if gpu_samples.len() >= 3 {
-                            let frequency = gpu_samples[0];
+                        if gpu_samples.len() >= 12 { // Use full polyphonic system
                             let amplitude = gpu_samples[1];
                             let waveform_type = gpu_samples[2] as u32;
                             
                             if let Some(ref mut synth) = self.audio_synthesis {
-                                synth.update_synth_params(frequency, amplitude, waveform_type);
+                                // Update global waveform
+                                synth.update_waveform(waveform_type);
+                                
+                                // Use voice 0 for simple debug audio
+                                let frequency = gpu_samples[3]; // Use first shader-generated frequency
+                                if amplitude > 0.01 {
+                                    synth.start_voice(0, frequency, amplitude * 0.3);
+                                } else {
+                                    synth.release_voice(0);
+                                }
                             }
                         }
                     }
@@ -161,7 +169,7 @@ impl ShaderManager for DebugScreen {
         } else {
             // Stop audio when not requested
             if let Some(ref mut synth) = self.audio_synthesis {
-                synth.update_synth_params(0.0, 0.0, 0);
+                synth.release_voice(0);
             }
         }
         

@@ -148,14 +148,8 @@ impl AudioState {
         mixed_sample.clamp(-0.8, 0.8)
     }
 
-    fn update_params(&mut self, frequency: f32, amplitude: f32, waveform_type: u32) {
-        // 0 = for single-note examples
+    fn update_waveform(&mut self, waveform_type: u32) {
         self.target_waveform_type = waveform_type;
-        if amplitude > 0.01 {
-            self.start_voice(0, frequency, amplitude);
-        } else {
-            self.release_voice(0);
-        }
     }
     
     fn start_voice(&mut self, voice_id: usize, frequency: f32, amplitude: f32) {
@@ -267,9 +261,9 @@ impl SynthesisStreamer {
         }
     }
     
-    pub fn update_params(&mut self, frequency: f32, amplitude: f32, waveform_type: u32) {
+    pub fn update_waveform(&mut self, waveform_type: u32) {
         if let Ok(mut state) = self.audio_state.lock() {
-            state.update_params(frequency, amplitude, waveform_type);
+            state.update_waveform(waveform_type);
         }
     }
     
@@ -355,9 +349,9 @@ impl SynthesisManager {
         }
     }
     
-    pub fn update_synth_params(&mut self, frequency: f32, amplitude: f32, waveform_type: u32) {
+    pub fn update_waveform(&mut self, waveform_type: u32) {
         if let Some(ref mut streamer) = self.gpu_streamer {
-            streamer.update_params(frequency, amplitude, waveform_type);
+            streamer.update_waveform(waveform_type);
         }
     }
     

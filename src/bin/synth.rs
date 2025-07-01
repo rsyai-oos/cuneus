@@ -229,7 +229,7 @@ impl ShaderManager for SynthManager {
         if self.base.time_uniform.data.frame % 60 == 0 { // Check every second at 60fps
             if let Some(compute_shader) = &self.base.compute_shader {
                 if let Ok(gpu_samples) = pollster::block_on(compute_shader.read_audio_samples(&core.device, &core.queue)) {
-                    if gpu_samples.len() >= 12 { // Need at least 12 values (3 base + 9 frequencies)
+                    if gpu_samples.len() >= 14 { // Need at least 14 values (3 base + 9 frequencies + 2 beat)
                         let amplitude = gpu_samples[1];
                         let waveform_type = gpu_samples[2] as u32;
                         
@@ -238,10 +238,13 @@ impl ShaderManager for SynthManager {
                         for i in 0..9 {
                             shader_frequencies[i] = gpu_samples[3 + i];
                         }
+                        // bg
+                        let beat_amplitude = gpu_samples[12];
+                        let beat_frequency = gpu_samples[13];
                         
                         if let Some(ref mut synth) = self.gpu_synthesis {
                             // Update global waveform type from shader
-                            synth.update_synth_params(440.0, amplitude, waveform_type);
+                            synth.update_waveform(waveform_type);
                             
                             // Control individual voices using SHADER-GENERATED frequencies
                             for i in 0..9 {
@@ -251,7 +254,7 @@ impl ShaderManager for SynthManager {
                                 let key_decay = self.params_uniform.data.key_decay[vec_idx][comp_idx];
                                 
                                 if key_state > 0.5 {
-                                    // Key is pressed - use SHADER-GENERATED frequency, this coming from our shader 
+                                    // Key is pressed - use SHADER-GENERATED frequency
                                     let frequency = shader_frequencies[i];
                                     let note_amplitude = amplitude * key_decay * 0.3;
                                     
@@ -260,6 +263,13 @@ impl ShaderManager for SynthManager {
                                     // Key released and fade complete
                                     synth.release_voice(i);
                                 }
+                            }
+                            
+                            //bg
+                            if beat_amplitude > 0.01 {
+                                synth.start_voice(8, beat_frequency, beat_amplitude * 0.5); // Use voice 8 for beat
+                            } else {
+                                synth.release_voice(8);
                             }
                         }
                     }
