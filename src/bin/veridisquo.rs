@@ -1,3 +1,5 @@
+// main.rs
+
 use cuneus::{Core, ShaderApp, ShaderManager, RenderKit, ShaderControls, UniformProvider, UniformBinding};
 use cuneus::compute::{ComputeShaderConfig, COMPUTE_TEXTURE_FORMAT_RGBA16};
 use cuneus::SynthesisManager;
@@ -19,6 +21,10 @@ impl UniformProvider for SongParams {
         bytemuck::bytes_of(self)
     }
 }
+
+// number of voices for our polyphonic synth.
+// 0: Melody(ritim), 1: Bass
+const NUM_VOICES: usize = 2;
 
 struct VeridisQuo {
     base: RenderKit,
@@ -76,11 +82,11 @@ impl ShaderManager for VeridisQuo {
             &core.device,
             "Song Params",
             SongParams {
-                volume: 0.6,
+                volume: 0.5,
                 octave_shift: 0.0,
-                tempo_multiplier: 2.0,
+                tempo_multiplier: 1.0,
                 waveform_type: 0,
-                crossfade: 0.5,
+                crossfade: 0.8,
             },
             &song_params_bind_group_layout,
             0,
@@ -135,7 +141,7 @@ impl ShaderManager for VeridisQuo {
                 if let Err(_e) = synth.start_gpu_synthesis() {
                     None
                 } else {
-                    println!("audio should be playing");
+                    println!("Audio synthesis started.");
                     Some(synth)
                 }
             },
@@ -158,20 +164,31 @@ impl ShaderManager for VeridisQuo {
         self.base.fps_tracker.update();
         
         self.song_params_uniform.update(&core.queue);
-        
-
         if self.base.time_uniform.data.frame % 5 == 0 {
             if let Some(compute_shader) = &self.base.compute_shader {
                 if let Ok(gpu_samples) = pollster::block_on(compute_shader.read_audio_samples(&core.device, &core.queue)) {
-                    if gpu_samples.len() >= 3 {
-                        let frequency = gpu_samples[0];
-                        let amplitude = gpu_samples[1];  
+                    if gpu_samples.len() >= 3 + NUM_VOICES * 2 {
+                        let waveform_type = self.song_params_uniform.data.waveform_type;
                         
                         if let Some(ref mut synth) = self.audio_synthesis {
-                            if amplitude > 0.01 {
-                                let adjusted_frequency = frequency * 2.0_f32.powf(self.song_params_uniform.data.octave_shift);
-                                let adjusted_amplitude = amplitude * self.song_params_uniform.data.volume;
-                                synth.update_synth_params(adjusted_frequency, adjusted_amplitude, self.song_params_uniform.data.waveform_type);
+                            // Update the waveform type for all voices
+                            synth.update_waveform(waveform_type);
+                            
+                            // Loop through each voice (melody, bass, etc.)
+                            for i in 0..NUM_VOICES {
+                                // Calculate the correct index for this voice's frequency and amplitude
+                                let freq_index = 3 + i * 2;
+                                let amp_index = 4 + i * 2;
+
+                                let frequency = gpu_samples[freq_index];
+                                let amplitude = gpu_samples[amp_index];
+                                
+                                // Play the note if its amplitude is audible, otherwise release it
+                                if amplitude > 0.01 && frequency > 10.0 {
+                                    synth.start_voice(i, frequency, amplitude);
+                                } else {
+                                    synth.release_voice(i);
+                                }
                             }
                         }
                     }
@@ -203,7 +220,6 @@ impl ShaderManager for VeridisQuo {
                     .show(ctx, |ui| {
                         ui.heading("Veridis Quo");
                         ui.separator();
-                        ui.separator();
                         ui.label("🎛️ Audio Controls:");
                         ui.horizontal(|ui| {
                             ui.label("Volume:");
@@ -233,9 +249,9 @@ impl ShaderManager for VeridisQuo {
                         });
 
                         ui.separator();
-                        ui.label("Transitions:");
+                        ui.label("Transitions (Melody):");
                         ui.horizontal(|ui| {
-                            ui.label("Crossfade:");
+                            ui.label("Legato:");
                             ui.add(egui::Slider::new(&mut self.song_params_uniform.data.crossfade, 0.0..=1.0).text(""));
                         });
                         
@@ -249,7 +265,6 @@ impl ShaderManager for VeridisQuo {
                         ui.label("R = Restart song");
                         ui.separator();
                         
-                        ui.separator();
                         ui.heading("Playback Controls");
                         ShaderControls::render_controls_widget(ui, &mut controls_request);
                     });
