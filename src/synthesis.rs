@@ -5,17 +5,107 @@ use cpal::traits::{HostTrait, DeviceTrait, StreamTrait};
 use std::sync::{Arc, Mutex};
 
 #[derive(Clone)]
+struct Voice {
+    frequency: f32,
+    amplitude: f32,
+    target_frequency: f32,
+    target_amplitude: f32,
+    phase: f32,
+    previous_sample: f32,
+    is_active: bool,
+    fade_out_time: f32,
+    sustain_level: f32,
+}
+
+impl Voice {
+    fn new() -> Self {
+        Self {
+            frequency: 440.0,
+            amplitude: 0.0,
+            target_frequency: 440.0,
+            target_amplitude: 0.0,
+            phase: 0.0,
+            previous_sample: 0.0,
+            is_active: false,
+            fade_out_time: 0.0,
+            sustain_level: 0.0,
+        }
+    }
+    
+    fn start_note(&mut self, freq: f32, amp: f32) {
+        self.frequency = freq;
+        self.target_frequency = freq;
+        self.target_amplitude = amp;
+        self.is_active = true;
+        self.fade_out_time = 0.0;
+        self.sustain_level = amp;
+    }
+    
+    fn release_note(&mut self) {
+        self.is_active = false;
+        self.fade_out_time = 0.0;
+    }
+    
+    fn generate_sample(&mut self, dt: f32, waveform_type: u32) -> f32 {
+        if !self.is_active && self.amplitude <= 0.001 {
+            return 0.0;
+        }
+        
+        // Smooth parameter interpolation
+        let smoothing = 0.995;
+        self.frequency = self.frequency * smoothing + self.target_frequency * (1.0 - smoothing);
+        
+        // Smooth envelope with proper attack/sustain/release
+        if self.is_active {
+            // Attack: smooth rise to sustain level
+            let attack_speed = 8.0;
+            self.amplitude += (self.sustain_level - self.amplitude) * dt * attack_speed;
+        } else {
+            // Release: smooth fade out
+            self.fade_out_time += dt;
+            let release_speed = 3.0;
+            self.amplitude *= (-dt * release_speed).exp();
+            
+            if self.amplitude <= 0.001 {
+                self.amplitude = 0.0;
+                return 0.0;
+            }
+        }
+        
+        // Phase calculation
+        let phase_increment = 2.0 * std::f32::consts::PI * self.frequency * dt;
+        self.phase += phase_increment;
+        
+        if self.phase > 2.0 * std::f32::consts::PI {
+            self.phase -= 2.0 * std::f32::consts::PI;
+        }
+        
+        // Waveform generation
+        let raw_sample = match waveform_type {
+            0 => self.phase.sin(),
+            1 => if self.phase.sin() > 0.0 { 1.0 } else { -1.0 },
+            2 => {
+                let t = (self.phase / (2.0 * std::f32::consts::PI)) % 1.0;
+                2.0 * t - 1.0
+            },
+            _ => self.phase.sin(),
+        };
+        
+        // Apply smoothing filter
+        let filtered_sample = raw_sample * 0.8 + self.previous_sample * 0.2;
+        self.previous_sample = filtered_sample;
+        
+        filtered_sample * self.amplitude
+    }
+}
+
+#[derive(Clone)]
 struct AudioState {
     sample_rate: f32,
     time: f32,
-    frequency: f32,
-    amplitude: f32,
     waveform_type: u32,
-    target_frequency: f32,
-    target_amplitude: f32,
+    voices: Vec<Voice>,
     target_waveform_type: u32,
-    previous_sample: f32,
-    phase: f32,
 }
 
 impl AudioState {
@@ -23,14 +113,9 @@ impl AudioState {
         Self {
             sample_rate,
             time: 0.0,
-            frequency: 440.0,
-            amplitude: 0.1,
             waveform_type: 0,
-            target_frequency: 440.0,
-            target_amplitude: 0.1,
+            voices: vec![Voice::new(); 9],
             target_waveform_type: 0,
-            previous_sample: 0.0,
-            phase: 0.0,
         }
     }
 
@@ -38,68 +123,58 @@ impl AudioState {
         let dt = 1.0 / self.sample_rate;
         self.time += dt;
 
-        // Smooth parameter interpolation 
-        let smoothing = 0.999;
-        self.frequency = self.frequency * smoothing + self.target_frequency * (1.0 - smoothing);
-        self.amplitude = self.amplitude * smoothing + self.target_amplitude * (1.0 - smoothing);
+        // Update waveform type
         if self.target_waveform_type != self.waveform_type {
             self.waveform_type = self.target_waveform_type;
         }
 
-        let phase_increment = 2.0 * std::f32::consts::PI * self.frequency * dt;
-        self.phase += phase_increment;
+        // Mix all active voices
+        let mut mixed_sample = 0.0;
+        let mut active_voices = 0;
         
-        // Wrap phase to prevent overflow
-        if self.phase > 2.0 * std::f32::consts::PI {
-            self.phase -= 2.0 * std::f32::consts::PI;
+        for voice in &mut self.voices {
+            let voice_sample = voice.generate_sample(dt, self.waveform_type);
+            if voice_sample.abs() > 0.001 {
+                mixed_sample += voice_sample;
+                active_voices += 1;
+            }
         }
         
-        let raw_sample = match self.waveform_type {
-            0 => self.phase.sin(),
-            1 => {
-                if self.phase.sin() > 0.0 { 1.0 } else { -1.0 }
-            },
-            2 => {
-                let t = (self.phase / (2.0 * std::f32::consts::PI)) % 1.0;
-                2.0 * t - 1.0
-            },
-            3 => {
-                let t = (self.phase / (2.0 * std::f32::consts::PI)) % 1.0;
-                if t < 0.5 { 4.0 * t - 1.0 } else { 3.0 - 4.0 * t }
-            },
-            _ => self.phase.sin(),
-        };
-
-        //smooth envelope
-        let envelope = {
-            // Detect amplitude changes to apply attack/release
-            let amp_diff = (self.target_amplitude - self.amplitude).abs();
-            if amp_diff > 0.001 {
-                // Apply gentle attack curve when amplitude increases
-                if self.target_amplitude > self.amplitude {
-                    let attack_factor = 1.0 - (-dt * 10.0).exp(); // Exponential attack
-                    self.amplitude * attack_factor.min(1.0)
-                } else {
-                    // Apply gentle release curve when amplitude decreases
-                    let release_factor = (-dt * 5.0).exp(); // Exponential release
-                    self.amplitude * release_factor
-                }
-            } else {
-                self.amplitude
-            }
-        };
-
-        // Apply low-pass filtering to remove harsh high frequencies
-        let filtered_sample = raw_sample * 0.8 + self.previous_sample * 0.2;
-        self.previous_sample = filtered_sample;
+        // Normalize by number of active voices to prevent clipping
+        if active_voices > 0 {
+            mixed_sample /= (active_voices as f32 * 0.5).max(1.0);
+        }
         
-        filtered_sample * envelope
+        mixed_sample.clamp(-0.8, 0.8)
     }
 
     fn update_params(&mut self, frequency: f32, amplitude: f32, waveform_type: u32) {
-        self.target_frequency = frequency;
-        self.target_amplitude = amplitude;
+        // 0 = for single-note examples
         self.target_waveform_type = waveform_type;
+        if amplitude > 0.01 {
+            self.start_voice(0, frequency, amplitude);
+        } else {
+            self.release_voice(0);
+        }
+    }
+    
+    fn start_voice(&mut self, voice_id: usize, frequency: f32, amplitude: f32) {
+        if voice_id < self.voices.len() {
+            self.voices[voice_id].start_note(frequency, amplitude);
+        }
+    }
+    
+    fn release_voice(&mut self, voice_id: usize) {
+        if voice_id < self.voices.len() {
+            self.voices[voice_id].release_note();
+            self.voices[voice_id].is_active = false;
+        }
+    }
+    
+    fn set_voice_active(&mut self, voice_id: usize, active: bool) {
+        if voice_id < self.voices.len() {
+            self.voices[voice_id].is_active = active;
+        }
     }
 }
 
@@ -188,13 +263,31 @@ impl SynthesisStreamer {
     
     pub fn update_frequency(&mut self, frequency: f32) {
         if let Ok(mut state) = self.audio_state.lock() {
-            state.frequency = frequency;
+            state.start_voice(0, frequency, 0.3);
         }
     }
     
     pub fn update_params(&mut self, frequency: f32, amplitude: f32, waveform_type: u32) {
         if let Ok(mut state) = self.audio_state.lock() {
             state.update_params(frequency, amplitude, waveform_type);
+        }
+    }
+    
+    pub fn start_voice(&mut self, voice_id: usize, frequency: f32, amplitude: f32) {
+        if let Ok(mut state) = self.audio_state.lock() {
+            state.start_voice(voice_id, frequency, amplitude);
+        }
+    }
+    
+    pub fn release_voice(&mut self, voice_id: usize) {
+        if let Ok(mut state) = self.audio_state.lock() {
+            state.release_voice(voice_id);
+        }
+    }
+    
+    pub fn set_voice_active(&mut self, voice_id: usize, active: bool) {
+        if let Ok(mut state) = self.audio_state.lock() {
+            state.set_voice_active(voice_id, active);
         }
     }
     
@@ -256,6 +349,7 @@ impl SynthesisManager {
     }
     
     pub fn update_frequency(&mut self, frequency: f32) {
+        // MODERN APPROACH: Use voice 0 for simple frequency updates
         if let Some(ref mut streamer) = self.gpu_streamer {
             streamer.update_frequency(frequency);
         }
@@ -264,6 +358,24 @@ impl SynthesisManager {
     pub fn update_synth_params(&mut self, frequency: f32, amplitude: f32, waveform_type: u32) {
         if let Some(ref mut streamer) = self.gpu_streamer {
             streamer.update_params(frequency, amplitude, waveform_type);
+        }
+    }
+    
+    pub fn start_voice(&mut self, voice_id: usize, frequency: f32, amplitude: f32) {
+        if let Some(ref mut streamer) = self.gpu_streamer {
+            streamer.start_voice(voice_id, frequency, amplitude);
+        }
+    }
+    
+    pub fn release_voice(&mut self, voice_id: usize) {
+        if let Some(ref mut streamer) = self.gpu_streamer {
+            streamer.release_voice(voice_id);
+        }
+    }
+    
+    pub fn set_voice_active(&mut self, voice_id: usize, active: bool) {
+        if let Some(ref mut streamer) = self.gpu_streamer {
+            streamer.set_voice_active(voice_id, active);
         }
     }
     

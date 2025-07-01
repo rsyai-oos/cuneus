@@ -198,21 +198,24 @@ impl ShaderManager for SynthManager {
         let delta = 1.0 / 60.0;
         self.base.update_compute_shader_time(current_time, delta, &core.queue);
         
-        let now = std::time::Instant::now();
         let mut keys_updated = false;
         for i in 0..9 {
-            if let Some(press_time) = self.key_press_times[i] {
-                let elapsed = now.duration_since(press_time).as_secs_f32();
-                let decay = (-elapsed * 3.0).exp();
-                
-                if decay < 0.01 {
-                    self.key_press_times[i] = None;
-                    self.set_key_state(i, 0.0);
-                    self.set_key_decay(i, 0.0);
+            if let Some(_press_time) = self.key_press_times[i] {
+                // Key is currently held - maintain full intensity for sustain
+                self.set_key_decay(i, 1.0);
+                keys_updated = true;
+            } else {
+                // Key released - apply smooth exponential fade-out
+                let current_decay = self.params_uniform.data.key_decay[i / 4][i % 4];
+                if current_decay > 0.01 {
+                    let fade_speed = 0.95; // Faster fade but still smooth
+                    let new_decay = current_decay * fade_speed;
+                    self.set_key_decay(i, new_decay);
                     keys_updated = true;
                 } else {
-                    self.set_key_decay(i, decay);
-                    keys_updated = true;
+                    // Fade complete
+                    self.set_key_state(i, 0.0);
+                    self.set_key_decay(i, 0.0);
                 }
             }
         }
@@ -222,16 +225,42 @@ impl ShaderManager for SynthManager {
         }
         
         
-        if self.base.time_uniform.data.frame % 180 == 0 {
+        // Read shader-generated audio parameters and control polyphonic voices
+        if self.base.time_uniform.data.frame % 60 == 0 { // Check every second at 60fps
             if let Some(compute_shader) = &self.base.compute_shader {
                 if let Ok(gpu_samples) = pollster::block_on(compute_shader.read_audio_samples(&core.device, &core.queue)) {
-                    if gpu_samples.len() >= 3 {
-                        let frequency = gpu_samples[0];
+                    if gpu_samples.len() >= 12 { // Need at least 12 values (3 base + 9 frequencies)
                         let amplitude = gpu_samples[1];
                         let waveform_type = gpu_samples[2] as u32;
                         
+                        // Read shader-generated frequencies for all 9 keys (positions 3-11)
+                        let mut shader_frequencies = [440.0; 9];
+                        for i in 0..9 {
+                            shader_frequencies[i] = gpu_samples[3 + i];
+                        }
+                        
                         if let Some(ref mut synth) = self.gpu_synthesis {
-                            synth.update_synth_params(frequency, amplitude, waveform_type);
+                            // Update global waveform type from shader
+                            synth.update_synth_params(440.0, amplitude, waveform_type);
+                            
+                            // Control individual voices using SHADER-GENERATED frequencies
+                            for i in 0..9 {
+                                let vec_idx = i / 4;
+                                let comp_idx = i % 4;
+                                let key_state = self.params_uniform.data.key_states[vec_idx][comp_idx];
+                                let key_decay = self.params_uniform.data.key_decay[vec_idx][comp_idx];
+                                
+                                if key_state > 0.5 {
+                                    // Key is pressed - use SHADER-GENERATED frequency, this coming from our shader 
+                                    let frequency = shader_frequencies[i];
+                                    let note_amplitude = amplitude * key_decay * 0.3;
+                                    
+                                    synth.start_voice(i, frequency, note_amplitude);
+                                } else if key_decay < 0.1 {
+                                    // Key released and fade complete
+                                    synth.release_voice(i);
+                                }
+                            }
                         }
                     }
                 }
@@ -381,10 +410,32 @@ impl ShaderManager for SynthManager {
                     if let Some(key_index) = s.chars().next().and_then(|c| c.to_digit(10)) {
                         if key_index >= 1 && key_index <= 9 {
                             let index = (key_index - 1) as usize;
-                            self.key_press_times[index] = Some(std::time::Instant::now());
-                            self.set_key_state(index, 1.0);
-                            self.set_key_decay(index, 1.0);
-                            self.params_uniform.update(&core.queue);
+                            
+                            // Only start if not already pressed (prevent retriggering)
+                            if self.key_press_times[index].is_none() {
+                                self.key_press_times[index] = Some(std::time::Instant::now());
+                                self.set_key_state(index, 1.0);
+                                self.set_key_decay(index, 1.0);
+                                self.params_uniform.update(&core.queue);
+                            }
+                            return true;
+                        }
+                    }
+                }
+            } else if event.state == winit::event::ElementState::Released {
+                // Handle key release for smooth fade-out
+                if let winit::keyboard::Key::Character(ref s) = event.logical_key {
+                    if let Some(key_index) = s.chars().next().and_then(|c| c.to_digit(10)) {
+                        if key_index >= 1 && key_index <= 9 {
+                            let index = (key_index - 1) as usize;
+                            
+                            // Start fade-out process
+                            if self.key_press_times[index].is_some() {
+                                self.key_press_times[index] = None; // This triggers fade-out in update()
+                                self.set_key_state(index, 0.0);
+                                // Keep current decay value for smooth fade
+                                self.params_uniform.update(&core.queue);
+                            }
                             return true;
                         }
                     }

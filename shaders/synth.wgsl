@@ -139,6 +139,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         audio_buffer[0] = dominant_freq;
         audio_buffer[1] = final_amplitude;
         audio_buffer[2] = f32(params.waveform_type);
+        
+        // 9 key frequencies for polyphonic synth
+        for (var i = 0u; i < 9u; i++) {
+            let frequency = get_note_frequency(i, params.octave);
+            audio_buffer[3 + i] = frequency;
+        }
     }
     
     var color = vec3<f32>(0.02, 0.02, 0.1) * (1.0 - uv.y * 0.3);
