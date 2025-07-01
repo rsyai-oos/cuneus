@@ -50,6 +50,30 @@ fn legato(freq_from:f32, freq_to:f32, progress:f32) -> f32 {
     return mix(freq_from, freq_to, transition);
 }
 
+fn get_note_color(note_type: f32) -> vec3<f32> {
+    let note_id = u32(note_type);
+    switch note_id {
+        case 0u: { return vec3<f32>(1.0, 0.3, 0.3); }  // A4 - Red
+        case 1u: { return vec3<f32>(1.0, 0.6, 0.0); }  // B4 - Orange  
+        case 2u: { return vec3<f32>(1.0, 1.0, 0.2); }  // C5 - Yellow
+        case 3u: { return vec3<f32>(0.3, 1.0, 0.3); }  // D5 - Green
+        case 4u: { return vec3<f32>(0.2, 0.7, 1.0); }  // E5 - Blue
+        case 5u: { return vec3<f32>(0.8, 0.3, 1.0); }  // F5 - Purple
+        default: { return vec3<f32>(0.5, 0.5, 0.5); }  // Default - Gray
+    }
+}
+// Returns frequency and note_type for each measure
+fn get_measure_preview(measure: u32) -> vec2<f32> {
+    switch measure {
+        case 0u, 4u: { return vec2<f32>(F5, 5.0); }    // F5 - Purple
+        case 1u, 5u: { return vec2<f32>(B4, 1.0); }    // B4 - Orange
+        case 2u: { return vec2<f32>(E5, 4.0); }        // E5 - Blue  
+        case 3u, 7u: { return vec2<f32>(A4, 0.0); }    // A4 - Red
+        case 6u: { return vec2<f32>(E5, 4.0); }        // E5 - Blue (fast run)
+        default: { return vec2<f32>(440.0, 0.0); }     // Default A4
+    }
+}
+
 @compute @workgroup_size(16, 16, 1)
 fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let dims=textureDimensions(output); if(global_id.x>=dims.x||global_id.y>=dims.y){return;}
@@ -138,31 +162,49 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     
     var color=vec3<f32>(0.02,0.01,0.08);
     
-    let note_freqs = array<f32, 6>(440.0, 493.88, 523.25, 587.33, 659.25, 698.46);
-    let note_names_y = array<f32, 6>(0.25, 0.35, 0.45, 0.55, 0.65, 0.75);
+    let visualizer_center_y = 0.5;
+    let pattern_width = 0.8;
+    let pattern_start_x = 0.1;
+    let pattern_height = 0.4;
     
-    for (var i = 0; i < 6; i++) {
-        let note_y = note_names_y[i];
-        if (abs(uv.y - note_y) < 0.003 && uv.x > 0.1 && uv.x < 0.9) {
-            color = mix(color, vec3<f32>(0.3, 0.3, 0.4), 0.6);
-        }
-    }
+    let measure_duration = (60.0 / 107.0) * 4.0;
+    let total_pattern_duration = measure_duration * 8.0;
+    let song_time = u_time.time * u_song.tempo_multiplier;
+    let current_measure = u32((song_time % total_pattern_duration) / measure_duration);
     
-    if (envelope > 0.01) {
-        var current_note_y = 0.5;
-        var note_found = false;
+    for (var measure = 0u; measure < 8u; measure++) {
+        let measure_width = pattern_width / 8.0;
+        let measure_x = pattern_start_x + f32(measure) * measure_width;
         
-        for (var i = 0; i < 6; i++) {
-            if (abs(frequency - note_freqs[i]) < 20.0) {
-                current_note_y = note_names_y[i];
-                note_found = true;
-                break;
+        if uv.x >= measure_x && uv.x <= measure_x + measure_width * 0.9 {
+            let measure_info = get_measure_preview(measure);
+            let measure_freq = measure_info.x;
+            let measure_note_type = measure_info.y;
+            
+            let freq_norm = (measure_freq - 440.0) / (698.46 - 440.0);
+            let bar_height = mix(0.1, pattern_height, freq_norm);
+            let bar_bottom = visualizer_center_y - bar_height * 0.5;
+            let bar_top = visualizer_center_y + bar_height * 0.5;
+            
+            if uv.y >= bar_bottom && uv.y <= bar_top {
+                if measure == current_measure && envelope > 0.01 {
+                    let pulse = sin(u_time.time * 8.0) * 0.4 + 0.8;
+                    color = vec3<f32>(1.0, 0.9, 0.2) * pulse;
+                } else {
+                    let note_color = get_note_color(measure_note_type);
+                    color = note_color * 0.6;
+                }
             }
         }
-        
-        if (note_found && abs(uv.y - current_note_y) < 0.01 && uv.x > 0.1 && uv.x < 0.9) {
-            let glow = smoothstep(0.01, 0.0, abs(uv.y - current_note_y));
-            color = mix(color, vec3<f32>(0.0, 0.8, 1.0), glow * envelope);
+    }
+    if uv.y < 0.12 {
+        let spectrum_freq = mix(400.0, 800.0, uv.x);
+        let freq_distance = abs(spectrum_freq - frequency);
+        let freq_response = exp(-freq_distance / 30.0);
+        let spectrum_intensity = freq_response * envelope;
+        let spectrum_bar_height = uv.y / 0.12;
+        if spectrum_bar_height < spectrum_intensity && envelope > 0.01 {
+            color += vec3<f32>(spectrum_intensity * 0.8, spectrum_intensity * 0.4, 0.1);
         }
     }
     
@@ -177,6 +219,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
             color=mix(color,vec3<f32>(0.15,0.15,0.3),0.8);
         }
     }
+    let ambient_glow = envelope * 0.1;
+    color += vec3<f32>(ambient_glow * 0.1, ambient_glow * 0.3, ambient_glow * 0.1);
     
     textureStore(output,global_id.xy,vec4<f32>(color,1.0));
 }
