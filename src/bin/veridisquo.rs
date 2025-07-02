@@ -2,7 +2,7 @@
 
 use cuneus::{Core, ShaderApp, ShaderManager, RenderKit, ShaderControls, UniformProvider, UniformBinding};
 use cuneus::compute::{ComputeShaderConfig, COMPUTE_TEXTURE_FORMAT_RGBA16};
-use cuneus::SynthesisManager;
+use cuneus::audio::SynthesisManager;
 use winit::event::*;
 use std::path::PathBuf;
 
@@ -170,7 +170,7 @@ impl ShaderManager for VeridisQuo {
         self.base.fps_tracker.update();
         
         self.song_params_uniform.update(&core.queue);
-        if self.base.time_uniform.data.frame % 5 == 0 {
+        if self.base.time_uniform.data.frame % 2 == 0 {
             if let Some(compute_shader) = &self.base.compute_shader {
                 if let Ok(gpu_samples) = pollster::block_on(compute_shader.read_audio_samples(&core.device, &core.queue)) {
                     if gpu_samples.len() >= 3 + NUM_VOICES * 2 {
@@ -180,18 +180,21 @@ impl ShaderManager for VeridisQuo {
                             // Update the waveform type for all voices
                             synth.update_waveform(waveform_type);
                             
-                            // Loop through each voice (melody, bass, etc.)
-                            for i in 0..NUM_VOICES {
-                                // Calculate the correct index for this voice's frequency and amplitude
-                                let freq_index = 3 + i * 2;
-                                let amp_index = 4 + i * 2;
-
-                                let frequency = gpu_samples[freq_index];
-                                let amplitude = gpu_samples[amp_index];
-                                
-                                let active = amplitude > 0.01 && frequency > 10.0;
-                                synth.set_voice(i, frequency, amplitude, active);
-                            }
+                            // Read melody and bass frequencies from shader's specific audio_buffer indices
+                            // Melody: frequency at index 3, amplitude at index 4  
+                            // Bass: frequency at index 5, amplitude at index 6
+                            let melody_freq = gpu_samples[3];
+                            let melody_amp = gpu_samples[4];
+                            let bass_freq = gpu_samples[5]; 
+                            let bass_amp = gpu_samples[6];
+                            
+                            // Voice 0: Melody
+                            let melody_active = melody_amp > 0.01 && melody_freq > 10.0;
+                            synth.set_voice(0, melody_freq, melody_amp, melody_active);
+                            
+                            // Voice 1: Bass  
+                            let bass_active = bass_amp > 0.01 && bass_freq > 10.0;
+                            synth.set_voice(1, bass_freq, bass_amp, bass_active);
                         }
                     }
                 }
@@ -334,6 +337,9 @@ impl ShaderManager for VeridisQuo {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
+    
+    cuneus::gst::init()?;
+    
     let (app, event_loop) = ShaderApp::new("Veridis Quo", 800, 600);
     
     app.run(event_loop, |core| {
