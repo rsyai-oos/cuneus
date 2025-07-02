@@ -24,7 +24,7 @@ jobs:
           - group: "no-media" 
             features: "--no-default-features"
             gstreamer_required: false
-            shaders: "asahi,buddhabrot,gabor,lorenz,galaxy,lich,mandelbulb,satan,sdvert,sinh,roto,orbits,dna,genuary2025_6,nebula,rorschach,poe2,tree,2dneuron,spiralchaos,cliffordcompute,water"
+            shaders: "asahi,buddhabrot,gabor,lorenz,galaxy,lich,mandelbulb,satan,sdvert,sinh,roto,orbits,dna,genuary2025_6,nebula,rorschach,poe2,tree,2dneuron,spiralchaos,cliffordcompute,water,synth"
         
         include:
           - os: ubuntu-latest
@@ -64,16 +64,19 @@ jobs:
           echo "PKG_CONFIG_PATH=/Library/Frameworks/GStreamer.framework/Versions/1.0/lib/pkgconfig" >> $GITHUB_ENV
           echo "GST_PLUGIN_PATH=/Library/Frameworks/GStreamer.framework/Versions/1.0/lib/gstreamer-1.0" >> $GITHUB_ENV
           echo "DYLD_FALLBACK_LIBRARY_PATH=/Library/Frameworks/GStreamer.framework/Versions/1.0/lib" >> $GITHUB_ENV
-
       # Install GStreamer for Linux (only for media shaders)
+      - name: Install common Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev pkg-config
+
       - name: Install Linux dependencies
         if: runner.os == 'Linux' && matrix.shader_config.gstreamer_required
         run: |
-          sudo apt-get update
           sudo apt-get install -y \
             libgtk-3-dev \
             libudev-dev \
-            pkg-config \
             build-essential \
             libglib2.0-dev \
             libgstreamer1.0-dev \
