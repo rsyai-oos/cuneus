@@ -22,6 +22,18 @@ struct SynthParams {
     octave: f32,
     volume: f32,
     beat_enabled: u32,
+    reverb_mix: f32,
+    delay_time: f32,
+    delay_feedback: f32,
+    filter_cutoff: f32,
+    filter_resonance: f32,
+    distortion_amount: f32,
+    chorus_rate: f32,
+    chorus_depth: f32,
+    attack_time: f32,
+    decay_time: f32,
+    sustain_level: f32,
+    release_time: f32,
     _padding1: u32,
     _padding2: u32,
     _padding3: u32,
@@ -124,7 +136,7 @@ impl ShaderManager for SynthManager {
             mouse_bind_group_layout: Some(params_bind_group_layout.clone()),
             enable_fonts: false,
             enable_audio_buffer: true,
-            audio_buffer_size: 1024,
+            audio_buffer_size: 2048,
         };
         
         let params_uniform = UniformBinding::new(
@@ -134,8 +146,20 @@ impl ShaderManager for SynthManager {
                 tempo: 120.0,
                 waveform_type: 0,
                 octave: 4.0,
-                volume: 0.3,
+                volume: 0.8,
                 beat_enabled: 1,
+                reverb_mix: 0.15,
+                delay_time: 0.3,
+                delay_feedback: 0.4,
+                filter_cutoff: 0.8,
+                filter_resonance: 0.1,
+                distortion_amount: 0.0,
+                chorus_rate: 2.0,
+                chorus_depth: 0.15,
+                attack_time: 0.01,
+                decay_time: 0.3,
+                sustain_level: 0.7,
+                release_time: 0.5,
                 _padding1: 0,
                 _padding2: 0,
                 _padding3: 0,
@@ -226,21 +250,31 @@ impl ShaderManager for SynthManager {
         
         
         // Read shader-generated audio parameters and control polyphonic voices
-        if self.base.time_uniform.data.frame % 60 == 0 { // Check every second at 60fps
+        // Check "X" per second:
+        if self.base.time_uniform.data.frame % 60 == 0 {
             if let Some(compute_shader) = &self.base.compute_shader {
                 if let Ok(gpu_samples) = pollster::block_on(compute_shader.read_audio_samples(&core.device, &core.queue)) {
-                    if gpu_samples.len() >= 14 { // Need at least 14 values (3 base + 9 frequencies + 2 beat)
+                    if gpu_samples.len() >= 21 { // Need at least 21 values (3 base + 9 frequencies + 2 beat + 7 effects)
                         let amplitude = gpu_samples[1];
                         let waveform_type = gpu_samples[2] as u32;
                         
-                        // Read shader-generated frequencies for all 9 keys (positions 3-11)
                         let mut shader_frequencies = [440.0; 9];
                         for i in 0..9 {
                             shader_frequencies[i] = gpu_samples[3 + i];
                         }
-                        // bg
+                        
                         let beat_amplitude = gpu_samples[12];
                         let beat_frequency = gpu_samples[13];
+                        
+                        // TODO
+                        // Read effect parameters from shader (for potential future use)
+                        let _reverb_mix = gpu_samples[14];
+                        let _delay_time = gpu_samples[15];
+                        let _delay_feedback = gpu_samples[16];
+                        let _filter_cutoff = gpu_samples[17];
+                        let _distortion_amount = gpu_samples[18];
+                        let _chorus_rate = gpu_samples[19];
+                        let _chorus_depth = gpu_samples[20];
                         
                         if let Some(ref mut synth) = self.gpu_synthesis {
                             // Update global waveform type from shader
@@ -305,55 +339,82 @@ impl ShaderManager for SynthManager {
                     style.text_styles.get_mut(&egui::TextStyle::Button).unwrap().size = 10.0;
                 });
                 
-                egui::Window::new("Cuneus Synth")
+                egui::Window::new("Cuneus GPU Synth")
                     .collapsible(true)
                     .resizable(true)
-                    .default_width(250.0)
+                    .default_width(280.0)
                     .show(ctx, |ui| {
-                        ui.vertical(|ui| {
-                            ui.label("GPU Synthesizer");
-                            ui.separator();
-                            
-                            ui.label("Piano Controls:");
-                            ui.label("Press keys 1-9 for C D E F G A B C D");
-                            
-                            ui.separator();
-                            ui.label("Settings:");
-                            
-                            let mut beat_enabled = params.beat_enabled > 0;
-                            if ui.checkbox(&mut beat_enabled, "Background Beat").changed() {
-                                params.beat_enabled = if beat_enabled { 1 } else { 0 };
-                                changed = true;
-                            }
-                            
-                            changed |= ui.add(egui::Slider::new(&mut params.tempo, 60.0..=180.0).text("Beat Tempo")).changed();
-                            changed |= ui.add(egui::Slider::new(&mut params.octave, 3.0..=6.0).text("Octave")).changed();
-                            changed |= ui.add(egui::Slider::new(&mut params.volume, 0.0..=1.0).text("Volume")).changed();
-                            
-                            ui.separator();
-                            ui.label("Waveform:");
-                            ui.horizontal(|ui| {
-                                let waveform_names = ["Sine", "Saw", "Square"];
-                                for (i, name) in waveform_names.iter().enumerate() {
-                                    let selected = params.waveform_type == i as u32;
-                                    if ui.selectable_label(selected, *name).clicked() {
-                                        params.waveform_type = i as u32;
-                                        changed = true;
-                                    }
-                                }
+                        egui::CollapsingHeader::new("About")
+                            .default_open(false)
+                            .show(ui, |ui| {
+                                ui.label("🎹 GPU-powered polyphonic synthesizer");
+                                ui.label("• Press keys 1-9 for musical notes");
+                                ui.label("• All audio generated on GPU compute shaders");
+                                ui.label("• Real-time effects processing");
+                                ui.label("• Visual feedback with spectrum bars");
                             });
-                            
-                            ui.separator();
-                            ui.label("How it works:");
-                            ui.label("• Press 1-9 keys to trigger musical notes");
-                            ui.label("• Toggle background beat on/off");
-                            ui.label("• Waveform changes tone color");
-                            ui.label("• Visual bars show key activity");
-                            ui.label("• All audio generated on GPU");
-                            
-                            ui.separator();
-                            ShaderControls::render_controls_widget(ui, &mut controls_request);
-                        });
+                        
+                        egui::CollapsingHeader::new("Playback")
+                            .default_open(true)
+                            .show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    ui.label("Keys:");
+                                    ui.label("1-9 for C D E F G A B C D");
+                                });
+                                
+                                let mut beat_enabled = params.beat_enabled > 0;
+                                if ui.checkbox(&mut beat_enabled, "Background Beat").changed() {
+                                    params.beat_enabled = if beat_enabled { 1 } else { 0 };
+                                    changed = true;
+                                }
+                                
+                                changed |= ui.add(egui::Slider::new(&mut params.tempo, 60.0..=180.0).text("Tempo")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.octave, 2.0..=7.0).text("Octave")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.volume, 0.0..=1.0).text("Master Volume")).changed();
+                                
+                                ui.horizontal(|ui| {
+                                    ui.label("Waveform:");
+                                    let waveform_names = ["Sin", "Saw", "Sqr", "Tri", "Nse"];
+                                    for (i, name) in waveform_names.iter().enumerate() {
+                                        let selected = params.waveform_type == i as u32;
+                                        if ui.selectable_label(selected, *name).clicked() {
+                                            params.waveform_type = i as u32;
+                                            changed = true;
+                                        }
+                                    }
+                                });
+                            });
+                        
+                        egui::CollapsingHeader::new("Envelope (ADSR)")
+                            .default_open(false)
+                            .show(ui, |ui| {
+                                changed |= ui.add(egui::Slider::new(&mut params.attack_time, 0.001..=2.0).logarithmic(true).text("Attack")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.decay_time, 0.01..=3.0).logarithmic(true).text("Decay")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.sustain_level, 0.0..=1.0).text("Sustain")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.release_time, 0.01..=5.0).logarithmic(true).text("Release")).changed();
+                            });
+                        
+                        egui::CollapsingHeader::new("Filter")
+                            .default_open(false)
+                            .show(ui, |ui| {
+                                changed |= ui.add(egui::Slider::new(&mut params.filter_cutoff, 0.0..=1.0).text("Cutoff")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.filter_resonance, 0.0..=0.9).text("Resonance")).changed();
+                            });
+                        
+                        egui::CollapsingHeader::new("Effects")
+                            .default_open(false)
+                            .show(ui, |ui| {
+                                changed |= ui.add(egui::Slider::new(&mut params.reverb_mix, 0.0..=0.8).text("Reverb")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.delay_time, 0.01..=1.0).text("Delay Time")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.delay_feedback, 0.0..=0.8).text("Delay Feedback")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.distortion_amount, 0.0..=0.9).text("Distortion")).changed();
+                                ui.separator();
+                                changed |= ui.add(egui::Slider::new(&mut params.chorus_rate, 0.1..=10.0).text("Chorus Rate")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.chorus_depth, 0.0..=0.5).text("Chorus Depth")).changed();
+                            });
+                        
+                        ui.separator();
+                        ShaderControls::render_controls_widget(ui, &mut controls_request);
                     });
             })
         } else {
