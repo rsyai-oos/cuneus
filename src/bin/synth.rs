@@ -144,7 +144,7 @@ impl ShaderManager for SynthManager {
             "Synth Params",
             SynthParams {
                 tempo: 120.0,
-                waveform_type: 0,
+                waveform_type: 1,
                 octave: 4.0,
                 volume: 0.8,
                 beat_enabled: 1,
