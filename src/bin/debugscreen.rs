@@ -156,20 +156,18 @@ impl ShaderManager for DebugScreen {
                                 
                                 // Use voice 0 for simple debug audio
                                 let frequency = gpu_samples[3]; // Use first shader-generated frequency
-                                if amplitude > 0.01 {
-                                    synth.start_voice(0, frequency, amplitude * 0.3);
-                                } else {
-                                    synth.release_voice(0);
-                                }
+                                let active = amplitude > 0.01;
+                                let amp = if active { amplitude * 0.3 } else { 0.0 };
+                                synth.set_voice(0, frequency, amp, active);
                             }
                         }
                     }
                 }
             }
         } else {
-            // Stop audio when not requested
+            // Stop audio when not requested using unified API
             if let Some(ref mut synth) = self.audio_synthesis {
-                synth.release_voice(0);
+                synth.set_voice(0, 440.0, 0.0, false);
             }
         }
         

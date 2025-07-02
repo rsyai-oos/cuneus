@@ -156,10 +156,10 @@ impl ShaderManager for SynthManager {
                 distortion_amount: 0.0,
                 chorus_rate: 2.0,
                 chorus_depth: 0.15,
-                attack_time: 0.01,
-                decay_time: 0.3,
-                sustain_level: 0.7,
-                release_time: 0.5,
+                attack_time: 0.003,
+                decay_time: 0.8,
+                sustain_level: 0.4,
+                release_time: 1.2,
                 _padding1: 0,
                 _padding2: 0,
                 _padding3: 0,
@@ -222,17 +222,19 @@ impl ShaderManager for SynthManager {
         let delta = 1.0 / 60.0;
         self.base.update_compute_shader_time(current_time, delta, &core.queue);
         
+        // Update key states for GPU shader envelope computation
         let mut keys_updated = false;
         for i in 0..9 {
             if let Some(_press_time) = self.key_press_times[i] {
-                // Key is currently held - maintain full intensity for sustain
+                // Key is currently held - let GPU handle envelope progression
                 self.set_key_decay(i, 1.0);
                 keys_updated = true;
             } else {
-                // Key released - apply smooth exponential fade-out
+                // Key released - smooth piano-like fade to silence
                 let current_decay = self.params_uniform.data.key_decay[i / 4][i % 4];
-                if current_decay > 0.01 {
-                    let fade_speed = 0.95; // Faster fade but still smooth
+                if current_decay > 0.005 {
+                    // Natural piano fade speed - not too fast, not too slow
+                    let fade_speed = 0.985; // Smooth piano-like release
                     let new_decay = current_decay * fade_speed;
                     self.set_key_decay(i, new_decay);
                     keys_updated = true;
@@ -249,61 +251,51 @@ impl ShaderManager for SynthManager {
         }
         
         
-        // Read shader-generated audio parameters and control polyphonic voices
-        // Check "X" per second:
-        if self.base.time_uniform.data.frame % 60 == 0 {
+        // Read GPU shader-generated audio parameters with per-voice envelope amplitudes
+        // Check every "X" (in here 5) frames responsiveness
+        if self.base.time_uniform.data.frame % 5 == 0 {
             if let Some(compute_shader) = &self.base.compute_shader {
                 if let Ok(gpu_samples) = pollster::block_on(compute_shader.read_audio_samples(&core.device, &core.queue)) {
-                    if gpu_samples.len() >= 21 { // Need at least 21 values (3 base + 9 frequencies + 2 beat + 7 effects)
-                        let amplitude = gpu_samples[1];
+                    if gpu_samples.len() >= 30 { // Need at least 30 values (3 base + 9 frequencies + 9 envelopes + 9 effects)
                         let waveform_type = gpu_samples[2] as u32;
                         
+                        // Extract all 9 GPU-computed frequencies (indices 3-11)
                         let mut shader_frequencies = [440.0; 9];
                         for i in 0..9 {
                             shader_frequencies[i] = gpu_samples[3 + i];
                         }
                         
-                        let beat_amplitude = gpu_samples[12];
-                        let beat_frequency = gpu_samples[13];
+                        // Extract all 9 GPU-computed envelope amplitudes (indices 12-20)
+                        let mut envelope_amplitudes = [0.0; 9];
+                        for i in 0..9 {
+                            envelope_amplitudes[i] = gpu_samples[12 + i];
+                        }
                         
-                        // TODO
-                        // Read effect parameters from shader (for potential future use)
-                        let _reverb_mix = gpu_samples[14];
-                        let _delay_time = gpu_samples[15];
-                        let _delay_feedback = gpu_samples[16];
-                        let _filter_cutoff = gpu_samples[17];
-                        let _distortion_amount = gpu_samples[18];
-                        let _chorus_rate = gpu_samples[19];
-                        let _chorus_depth = gpu_samples[20];
+                        let beat_amplitude = gpu_samples[21];
+                        let beat_frequency = gpu_samples[22];
                         
                         if let Some(ref mut synth) = self.gpu_synthesis {
-                            // Update global waveform type from shader
+                            // Update global waveform type from GPU shader
                             synth.update_waveform(waveform_type);
                             
                             // Control individual voices using SHADER-GENERATED frequencies
                             for i in 0..9 {
-                                let vec_idx = i / 4;
-                                let comp_idx = i % 4;
-                                let key_state = self.params_uniform.data.key_states[vec_idx][comp_idx];
-                                let key_decay = self.params_uniform.data.key_decay[vec_idx][comp_idx];
+                                let frequency = shader_frequencies[i];
+                                let gpu_envelope_amplitude = envelope_amplitudes[i];
                                 
-                                if key_state > 0.5 {
-                                    // Key is pressed - use SHADER-GENERATED frequency
-                                    let frequency = shader_frequencies[i];
-                                    let note_amplitude = amplitude * key_decay * 0.3;
-                                    
-                                    synth.start_voice(i, frequency, note_amplitude);
-                                } else if key_decay < 0.1 {
-                                    // Key released and fade complete
-                                    synth.release_voice(i);
-                                }
+                                // Check if voice should be active based on GPU envelope
+                                let active = gpu_envelope_amplitude > 0.001;
+                                
+                                // Use GPU-computed envelope amplitude directly for fades
+                                synth.set_voice(i, frequency, gpu_envelope_amplitude, active);
                             }
                             
-                            //bg
-                            if beat_amplitude > 0.01 {
-                                synth.start_voice(8, beat_frequency, beat_amplitude * 0.5); // Use voice 8 for beat
-                            } else {
-                                synth.release_voice(8);
+                            // Background beat with GPU-generated frequency
+                            let beat_active = beat_amplitude > 0.01;
+                            let beat_amp = if beat_active { beat_amplitude * 0.5 } else { 0.0 };
+                            // Use a separate voice slot for beat (voice 8 is still available)
+                            if shader_frequencies.len() > 8 {
+                                synth.set_voice(8, beat_frequency, beat_amp, beat_active);
                             }
                         }
                     }

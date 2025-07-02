@@ -140,20 +140,21 @@ fn apply_delay(sample: f32, time: f32, delay_time: f32, feedback: f32) -> f32 {
     return sample + delayed_sample * 0.6 + multi_tap * 0.4;
 }
 
-fn adsr_envelope(time_pressed: f32, attack: f32, decay: f32, sustain: f32, release: f32, key_released: bool) -> f32 {
-    if !key_released {
-        if time_pressed < attack {
-            return time_pressed / attack;
-        } else if time_pressed < attack + decay {
-            let decay_progress = (time_pressed - attack) / decay;
-            return 1.0 - decay_progress * (1.0 - sustain);
-        } else {
-            return sustain;
-        }
+fn piano_envelope(key_state: f32, key_decay: f32, attack: f32, decay: f32, sustain: f32, release: f32) -> f32 {
+    if key_state > 0.5 {
+        return sustain * 1.2;
     } else {
-        let release_progress = time_pressed / release;
-        return sustain * (1.0 - release_progress);
+        // Key released - smooth exponential fade using key_decay value
+        // key_decay goes from 1.0 -> 0.0 as CPU fades it
+        return sustain * key_decay * key_decay;
     }
+}
+
+fn get_voice_time(key_state: f32, key_decay: f32, global_time: f32) -> f32 {
+    // Use key_decay as a simple time progression value
+    // When key pressed: key_decay stays at 1.0 (sustain phase)
+    // When key released: key_decay slowly decreases (release phase)
+    return key_decay * 2.0;
 }
 
 @compute @workgroup_size(16, 16, 1)
@@ -196,29 +197,29 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
             key_decay_val = params.key_decay[vec_idx].w;
         }
         
-        if key_state > 0.5 {
+        if key_state > 0.5 || key_decay_val > 0.01 {
             let freq = get_note_frequency(i, params.octave);
             
-            let envelope = adsr_envelope(
-                key_decay_val * 2.0, 
+            // Simple envelope calculation
+            let envelope = piano_envelope(
+                key_state,
+                key_decay_val,
                 params.attack_time, 
                 params.decay_time, 
                 params.sustain_level, 
-                params.release_time, 
-                key_state < 0.5
+                params.release_time
             );
             
-            // Special handling for sine waves to prevent phase interference
+            // Anti-crackling: detuning and phase offsets for all waveforms to prevent interference
             var adjusted_freq = freq;
             var phase_offset = 0.0;
             
-            if params.waveform_type == 0u { // Sine wave
-                // Add tiny frequency detuning per voice to break phase alignment
-                let detune_amount = (f32(i) - 4.0) * 0.0015; // Very small detuning
-                adjusted_freq = freq * (1.0 + detune_amount);
-                // Add phase offset as well
-                phase_offset = f32(i) * 0.61803398875;
-            }
+            // Apply subtle detuning to each voice to prevent phase alignment crackling
+            let detune_amount = (f32(i) - 4.0) * 0.002; // Small detuning per voice
+            adjusted_freq = freq * (1.0 + detune_amount);
+            
+            // Golden ratio phase offset for natural harmonic spacing
+            phase_offset = f32(i) * 0.61803398875;
             
             let phase = (u_time.time * adjusted_freq + phase_offset) * 2.0 * PI;
             var waveform_sample = generate_waveform(phase, params.waveform_type);
@@ -265,21 +266,58 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         audio_buffer[1] = final_amplitude;
         audio_buffer[2] = f32(params.waveform_type);
         
+        // Output per-voice frequencies and smooth envelope amplitudes
         for (var i = 0u; i < 9u; i++) {
+            let vec_idx = i / 4u;
+            let comp_idx = i % 4u;
+            
+            var key_state = 0.0;
+            var key_decay_val = 0.0;
+            
+            if comp_idx == 0u {
+                key_state = params.key_states[vec_idx].x;
+                key_decay_val = params.key_decay[vec_idx].x;
+            } else if comp_idx == 1u {
+                key_state = params.key_states[vec_idx].y;
+                key_decay_val = params.key_decay[vec_idx].y;
+            } else if comp_idx == 2u {
+                key_state = params.key_states[vec_idx].z;
+                key_decay_val = params.key_decay[vec_idx].z;
+            } else {
+                key_state = params.key_states[vec_idx].w;
+                key_decay_val = params.key_decay[vec_idx].w;
+            }
+            
             let frequency = get_note_frequency(i, params.octave);
             audio_buffer[3 + i] = frequency;
+            
+            // Calculate and output smooth envelope amplitude for each voice
+            if key_state > 0.5 || key_decay_val > 0.01 {
+                let envelope = piano_envelope(
+                    key_state,
+                    key_decay_val,
+                    params.attack_time, 
+                    params.decay_time, 
+                    params.sustain_level, 
+                    params.release_time
+                );
+                
+                audio_buffer[12 + i] = envelope * params.volume * 0.4;
+            } else {
+                audio_buffer[12 + i] = 0.0;
+            }
         }
         
-        audio_buffer[12] = beat_sample;
-        audio_buffer[13] = params.tempo * 2.0;
+        audio_buffer[21] = beat_sample;
+        audio_buffer[22] = params.tempo * 2.0;
         
-        audio_buffer[14] = params.reverb_mix;
-        audio_buffer[15] = params.delay_time;
-        audio_buffer[16] = params.delay_feedback;
-        audio_buffer[17] = params.filter_cutoff;
-        audio_buffer[18] = params.distortion_amount;
-        audio_buffer[19] = params.chorus_rate;
-        audio_buffer[20] = params.chorus_depth;
+        audio_buffer[23] = params.reverb_mix;
+        audio_buffer[24] = params.delay_time;
+        audio_buffer[25] = params.delay_feedback;
+        audio_buffer[26] = params.filter_cutoff;
+        audio_buffer[27] = params.distortion_amount;
+        audio_buffer[28] = params.chorus_rate;
+        audio_buffer[29] = params.chorus_depth;
     }
     
     var color = vec3<f32>(0.02, 0.02, 0.1) * (1.0 - uv.y * 0.3);

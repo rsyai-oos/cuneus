@@ -189,12 +189,8 @@ impl ShaderManager for VeridisQuo {
                                 let frequency = gpu_samples[freq_index];
                                 let amplitude = gpu_samples[amp_index];
                                 
-                                // Play the note if its amplitude is audible, otherwise release it
-                                if amplitude > 0.01 && frequency > 10.0 {
-                                    synth.start_voice(i, frequency, amplitude);
-                                } else {
-                                    synth.release_voice(i);
-                                }
+                                let active = amplitude > 0.01 && frequency > 10.0;
+                                synth.set_voice(i, frequency, amplitude, active);
                             }
                         }
                     }

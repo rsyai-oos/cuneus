@@ -8,13 +8,8 @@ use std::sync::{Arc, Mutex};
 struct Voice {
     frequency: f32,
     amplitude: f32,
-    target_frequency: f32,
-    target_amplitude: f32,
     phase: f32,
-    previous_sample: f32,
     is_active: bool,
-    fade_out_time: f32,
-    sustain_level: f32,
 }
 
 impl Voice {
@@ -22,57 +17,23 @@ impl Voice {
         Self {
             frequency: 440.0,
             amplitude: 0.0,
-            target_frequency: 440.0,
-            target_amplitude: 0.0,
             phase: 0.0,
-            previous_sample: 0.0,
             is_active: false,
-            fade_out_time: 0.0,
-            sustain_level: 0.0,
         }
     }
     
-    fn start_note(&mut self, freq: f32, amp: f32) {
+    fn set_parameters(&mut self, freq: f32, amp: f32, active: bool) {
         self.frequency = freq;
-        self.target_frequency = freq;
-        self.target_amplitude = amp;
-        self.is_active = true;
-        self.fade_out_time = 0.0;
-        self.sustain_level = amp;
-    }
-    
-    fn release_note(&mut self) {
-        self.is_active = false;
-        self.fade_out_time = 0.0;
+        self.amplitude = amp;
+        self.is_active = active;
     }
     
     fn generate_sample(&mut self, dt: f32, waveform_type: u32) -> f32 {
-        if !self.is_active && self.amplitude <= 0.001 {
+        if !self.is_active || self.amplitude <= 0.001 {
             return 0.0;
         }
         
-        // Smooth parameter interpolation
-        let smoothing = 0.995;
-        self.frequency = self.frequency * smoothing + self.target_frequency * (1.0 - smoothing);
-        
-        // Smooth envelope with proper attack/sustain/release
-        if self.is_active {
-            // Attack: smooth rise to sustain level
-            let attack_speed = 8.0;
-            self.amplitude += (self.sustain_level - self.amplitude) * dt * attack_speed;
-        } else {
-            // Release: smooth fade out
-            self.fade_out_time += dt;
-            let release_speed = 3.0;
-            self.amplitude *= (-dt * release_speed).exp();
-            
-            if self.amplitude <= 0.001 {
-                self.amplitude = 0.0;
-                return 0.0;
-            }
-        }
-        
-        // Phase calculation
+        // Simple phase calculation - no smoothing, use GPU values directly
         let phase_increment = 2.0 * std::f32::consts::PI * self.frequency * dt;
         self.phase += phase_increment;
         
@@ -80,7 +41,7 @@ impl Voice {
             self.phase -= 2.0 * std::f32::consts::PI;
         }
         
-        // Waveform generation
+        // Direct waveform generation - no filtering, let GPU handle all processing
         let raw_sample = match waveform_type {
             0 => self.phase.sin(),
             1 => if self.phase.sin() > 0.0 { 1.0 } else { -1.0 },
@@ -100,11 +61,8 @@ impl Voice {
             _ => self.phase.sin(),
         };
         
-        // Apply smoothing filter
-        let filtered_sample = raw_sample * 0.8 + self.previous_sample * 0.2;
-        self.previous_sample = filtered_sample;
-        
-        filtered_sample * self.amplitude
+        // Direct output - no additional filtering, GPU has already processed everything
+        raw_sample * self.amplitude
     }
 }
 
@@ -161,24 +119,12 @@ impl AudioState {
         self.target_waveform_type = waveform_type;
     }
     
-    fn start_voice(&mut self, voice_id: usize, frequency: f32, amplitude: f32) {
+    fn set_voice(&mut self, voice_id: usize, frequency: f32, amplitude: f32, active: bool) {
         if voice_id < self.voices.len() {
-            self.voices[voice_id].start_note(frequency, amplitude);
+            self.voices[voice_id].set_parameters(frequency, amplitude, active);
         }
     }
     
-    fn release_voice(&mut self, voice_id: usize) {
-        if voice_id < self.voices.len() {
-            self.voices[voice_id].release_note();
-            self.voices[voice_id].is_active = false;
-        }
-    }
-    
-    fn set_voice_active(&mut self, voice_id: usize, active: bool) {
-        if voice_id < self.voices.len() {
-            self.voices[voice_id].is_active = active;
-        }
-    }
 }
 
 pub struct SynthesisStreamer {
@@ -264,10 +210,14 @@ impl SynthesisStreamer {
         Ok(stream)
     }
     
-    pub fn update_frequency(&mut self, frequency: f32) {
+    pub fn set_voice(&mut self, voice_id: usize, frequency: f32, amplitude: f32, active: bool) {
         if let Ok(mut state) = self.audio_state.lock() {
-            state.start_voice(0, frequency, 0.3);
+            state.set_voice(voice_id, frequency, amplitude, active);
         }
+    }
+    
+    pub fn update_frequency(&mut self, frequency: f32) {
+        self.set_voice(0, frequency, 0.3, true);
     }
     
     pub fn update_waveform(&mut self, waveform_type: u32) {
@@ -276,23 +226,6 @@ impl SynthesisStreamer {
         }
     }
     
-    pub fn start_voice(&mut self, voice_id: usize, frequency: f32, amplitude: f32) {
-        if let Ok(mut state) = self.audio_state.lock() {
-            state.start_voice(voice_id, frequency, amplitude);
-        }
-    }
-    
-    pub fn release_voice(&mut self, voice_id: usize) {
-        if let Ok(mut state) = self.audio_state.lock() {
-            state.release_voice(voice_id);
-        }
-    }
-    
-    pub fn set_voice_active(&mut self, voice_id: usize, active: bool) {
-        if let Ok(mut state) = self.audio_state.lock() {
-            state.set_voice_active(voice_id, active);
-        }
-    }
     
     pub fn stop(&mut self) -> Result<()> {
         if let Some(stream) = self.stream.take() {
@@ -363,23 +296,12 @@ impl SynthesisManager {
         }
     }
     
-    pub fn start_voice(&mut self, voice_id: usize, frequency: f32, amplitude: f32) {
+    pub fn set_voice(&mut self, voice_id: usize, frequency: f32, amplitude: f32, active: bool) {
         if let Some(ref mut streamer) = self.gpu_streamer {
-            streamer.start_voice(voice_id, frequency, amplitude);
+            streamer.set_voice(voice_id, frequency, amplitude, active);
         }
     }
     
-    pub fn release_voice(&mut self, voice_id: usize) {
-        if let Some(ref mut streamer) = self.gpu_streamer {
-            streamer.release_voice(voice_id);
-        }
-    }
-    
-    pub fn set_voice_active(&mut self, voice_id: usize, active: bool) {
-        if let Some(ref mut streamer) = self.gpu_streamer {
-            streamer.set_voice_active(voice_id, active);
-        }
-    }
     
     pub fn stream_gpu_samples(&mut self, _samples: &[f32]) {
     }
