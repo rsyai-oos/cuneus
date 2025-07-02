@@ -2,7 +2,7 @@
 
 use cuneus::{Core, ShaderApp, ShaderManager, RenderKit, ShaderControls, UniformProvider, UniformBinding};
 use cuneus::compute::{ComputeShaderConfig, COMPUTE_TEXTURE_FORMAT_RGBA16};
-use cuneus::gst::audio::SynthesisManager;
+use cuneus::audio::SynthesisManager;
 use winit::event::*;
 use std::path::PathBuf;
 

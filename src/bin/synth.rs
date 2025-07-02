@@ -1,6 +1,6 @@
 // This example demonstrates a how to generate audio using cunes via compute shaders
 use cuneus::{Core, ShaderApp, ShaderManager, RenderKit, UniformProvider, UniformBinding, ShaderControls};
-use cuneus::gst::audio::SynthesisManager;
+use cuneus::audio::SynthesisManager;
 use cuneus::compute::{ComputeShaderConfig, COMPUTE_TEXTURE_FORMAT_RGBA16};
 use winit::event::*;
 use std::path::PathBuf;

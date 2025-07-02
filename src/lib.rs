@@ -48,9 +48,14 @@ pub use mouse::*;
 pub use hdri::*;
 pub use font::{FontSystem, FontUniforms, CharInfo};
 
-// Audio synthesis types re-exported from gst module
 #[cfg(feature = "media")]
-pub use gst::audio::{SynthesisManager, SynthesisUniform, SynthesisWaveform};
+pub mod audio {
+    pub use crate::gst::audio::{
+        SynthesisManager, SynthesisUniform, SynthesisWaveform,
+        AudioSynthManager, AudioWaveform, MusicalNote, AudioDataProvider, AudioSynthUniform
+    };
+}
+
 
 pub mod prelude {
     pub use crate::{
@@ -64,8 +69,8 @@ pub mod prelude {
     
     #[cfg(feature = "media")]
     pub use crate::{
-        gst,
-        gst::audio::{SynthesisManager, SynthesisUniform, SynthesisWaveform}
+        audio::{SynthesisManager, SynthesisUniform, SynthesisWaveform, AudioWaveform, MusicalNote},
+        gst
     };
     
     pub use crate::wgpu;
