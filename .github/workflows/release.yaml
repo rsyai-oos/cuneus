@@ -24,7 +24,7 @@ jobs:
           - group: "no-media" 
             features: "--no-default-features"
             gstreamer_required: false
-            shaders: "asahi,buddhabrot,gabor,lorenz,galaxy,lich,mandelbulb,satan,sdvert,sinh,roto,orbits,dna,genuary2025_6,nebula,rorschach,poe2,tree,2dneuron,spiralchaos,cliffordcompute,water,synth"
+            shaders: "asahi,buddhabrot,gabor,lorenz,galaxy,lich,mandelbulb,satan,sdvert,sinh,roto,orbits,dna,genuary2025_6,nebula,rorschach,poe2,tree,2dneuron,spiralchaos,cliffordcompute,water"
         
         include:
           - os: ubuntu-latest
