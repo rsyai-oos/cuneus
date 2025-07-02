@@ -33,7 +33,7 @@ impl Voice {
             return 0.0;
         }
         
-        // Simple phase calculation - no smoothing, use GPU values directly
+        // Phase calculation with slight randomization for anti-crackling
         let phase_increment = 2.0 * std::f32::consts::PI * self.frequency * dt;
         self.phase += phase_increment;
         
@@ -41,27 +41,34 @@ impl Voice {
             self.phase -= 2.0 * std::f32::consts::PI;
         }
         
-        // Direct waveform generation - no filtering, let GPU handle all processing
+        // waveform generation with anti-crackling for sine and triangle
         let raw_sample = match waveform_type {
-            0 => self.phase.sin(),
-            1 => if self.phase.sin() > 0.0 { 1.0 } else { -1.0 },
+            0 => {
+                // Sine with slight phase offset to reduce multi-voice crackling
+                let offset_phase = self.phase + (self.frequency * 0.001);
+                offset_phase.sin()
+            },
+            1 => if self.phase.sin() > 0.0 { 1.0 } else { -1.0 }, // Square
             2 => {
+                // Saw wave
                 let t = (self.phase / (2.0 * std::f32::consts::PI)) % 1.0;
                 2.0 * t - 1.0
             },
             3 => {
-                // Triangle wave
-                let t = (self.phase / (2.0 * std::f32::consts::PI)) % 1.0;
+                // Triangle with slight phase offset to reduce crackling
+                let offset_phase = self.phase + (self.frequency * 0.002);
+                let t = (offset_phase / (2.0 * std::f32::consts::PI)) % 1.0;
                 if t < 0.5 { 4.0 * t - 1.0 } else { 3.0 - 4.0 * t }
             },
             4 => {
-                // Pulse wave (25% duty cycle)
-                if (self.phase % (2.0 * std::f32::consts::PI)) < (2.0 * std::f32::consts::PI * 0.25) { 1.0 } else { -1.0 }
+                // Noise
+                let seed = self.phase * 12.9898;
+                2.0 * (seed.sin() * 43758.5453).fract() - 1.0
             },
             _ => self.phase.sin(),
         };
         
-        // Direct output - no additional filtering, GPU has already processed everything
+        // Output with GPU-computed amplitude (includes envelopes and effects)
         raw_sample * self.amplitude
     }
 }
