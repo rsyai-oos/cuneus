@@ -36,176 +36,235 @@ struct SongParams {
 };
 @group(2) @binding(0) var<uniform> u_song: SongParams;
 
-const PI = 3.14159265359;
+const PI=3.14159265;
+const F5=698.46;
+const E5=659.25;
+const D5=587.33;
+const C5=523.25;
+const B4=493.88;
+const A4=440.;
+const F3=F5/4.;
+const B2=B4/4.;
+const E3=E5/4.;
+const A2=A4/4.;
 
-// --- Note Frequencies ---
-const F5=698.46; const E5=659.25; const D5=587.33; const C5=523.25; const B4=493.88; const A4=440.00;
-// --- Bass Frequencies ---
-const F3=F5/4.0; const B2=B4/4.0; const E3=E5/4.0; const A2=A4/4.0;
-
-fn legato(freq_from:f32, freq_to:f32, progress:f32) -> f32 {
-    let start_point = 1.0 - clamp(u_song.crossfade, 0.0, 1.0);
-    if (progress <= start_point) { return freq_from; }
-    let transition = smoothstep(start_point, 1.0, progress);
-    return mix(freq_from, freq_to, transition);
+fn legato(a:f32,b:f32,t:f32)->f32{
+    let s=1.-clamp(u_song.crossfade,0.,1.);
+    if(t<=s){return a;}
+    return mix(a,b,smoothstep(s,1.,t));
 }
 
-fn get_note_color(note_type: f32) -> vec3<f32> {
-    let note_id = u32(note_type);
-    switch note_id {
-        case 0u: { return vec3<f32>(1.0, 0.3, 0.3); }  // A4 - Red
-        case 1u: { return vec3<f32>(1.0, 0.6, 0.0); }  // B4 - Orange  
-        case 2u: { return vec3<f32>(1.0, 1.0, 0.2); }  // C5 - Yellow
-        case 3u: { return vec3<f32>(0.3, 1.0, 0.3); }  // D5 - Green
-        case 4u: { return vec3<f32>(0.2, 0.7, 1.0); }  // E5 - Blue
-        case 5u: { return vec3<f32>(0.8, 0.3, 1.0); }  // F5 - Purple
-        default: { return vec3<f32>(0.5, 0.5, 0.5); }  // Default - Gray
-    }
-}
-// Returns frequency and note_type for each measure
-fn get_measure_preview(measure: u32) -> vec2<f32> {
-    switch measure {
-        case 0u, 4u: { return vec2<f32>(F5, 5.0); }    // F5 - Purple
-        case 1u, 5u: { return vec2<f32>(B4, 1.0); }    // B4 - Orange
-        case 2u: { return vec2<f32>(E5, 4.0); }        // E5 - Blue  
-        case 3u, 7u: { return vec2<f32>(A4, 0.0); }    // A4 - Red
-        case 6u: { return vec2<f32>(E5, 4.0); }        // E5 - Blue (fast run)
-        default: { return vec2<f32>(440.0, 0.0); }     // Default A4
+fn note_col(n:f32)->vec3<f32>{
+    switch u32(n){
+        case 0u:{return vec3(1.,.3,.3);}
+        case 1u:{return vec3(1.,.6,0.);}
+        case 2u:{return vec3(1.,1.,.2);}
+        case 3u:{return vec3(.3,1.,.3);}
+        case 4u:{return vec3(.2,.7,1.);}
+        case 5u:{return vec3(.8,.3,1.);}
+        default:{return vec3(.5);}
     }
 }
 
-@compute @workgroup_size(16, 16, 1)
-fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
-    let dims=textureDimensions(output); if(global_id.x>=dims.x||global_id.y>=dims.y){return;}
-    var melody_freq_visualizer=0.0; var envelope_visualizer=0.0; var note_type_visualizer=0.0;
+fn measure_data(m:u32)->vec2<f32>{
+    switch m{
+        case 0u,4u:{return vec2(F5,5.);}
+        case 1u,5u:{return vec2(B4,1.);}
+        case 2u,6u:{return vec2(E5,4.);}
+        case 3u,7u:{return vec2(A4,0.);}
+        default:{return vec2(A4,0.);}
+    }
+}
 
-    if (global_id.x == 0u && global_id.y == 0u) {
-        let adjusted_time = u_time.time * u_song.tempo_multiplier;
-        let measure_duration = (60.0 / 107.0) * 4.0;
-        let total_pattern_duration = measure_duration * 8.0;
-        let loop_time = adjusted_time % total_pattern_duration;
-        let measure = u32(loop_time / measure_duration);
-        let progress_in_measure = fract(loop_time / measure_duration);
+@compute @workgroup_size(16,16,1)
+fn main(@builtin(global_invocation_id) g:vec3<u32>){
+    let d=textureDimensions(output);
+    if(g.x>=d.x||g.y>=d.y){return;}
+    var mf=0.;
+    var ev=0.;
+    var nt=0.;
 
-        var melody_freq=0.0; var melody_amp=1.0; var bass_freq=0.0; var bass_amp=0.7;
-
-        let phrase_dur=0.25; let short_hold_dur=0.125;
-        let phrase2_start=phrase_dur+short_hold_dur; let phrase2_end=phrase2_start+phrase_dur;
-
-        switch (measure) {
-            case 0u, 4u: {
-                bass_freq=F3;
-                if(progress_in_measure<phrase_dur){let p=progress_in_measure/phrase_dur;let n=fract(p*4.0);switch(u32(floor(p*4.0))){case 0u:{melody_freq=legato(F5,E5,n);note_type_visualizer=5.0;}case 1u:{melody_freq=legato(E5,F5,n);note_type_visualizer=4.0;}case 2u:{melody_freq=legato(F5,D5,n);note_type_visualizer=5.0;}default:{melody_freq=D5;note_type_visualizer=3.0;}}}
-                else if(progress_in_measure<phrase2_start){melody_freq=D5;note_type_visualizer=3.0;}
-                else if(progress_in_measure<phrase2_end){let p=(progress_in_measure-phrase2_start)/phrase_dur;let n=fract(p*4.0);switch(u32(floor(p*4.0))){case 0u:{melody_freq=legato(F5,E5,n);note_type_visualizer=5.0;}case 1u:{melody_freq=legato(E5,F5,n);note_type_visualizer=4.0;}case 2u:{melody_freq=legato(F5,B4,n);note_type_visualizer=5.0;}default:{melody_freq=B4;note_type_visualizer=1.0;}}}
-                else{melody_freq=B4;note_type_visualizer=1.0;}
+    if(g.x<1u&&g.y<1u){
+        let T=u_time.time*u_song.tempo_multiplier;
+        let md=(60./107.)*4.;
+        let td=md*8.;
+        let lt=T%td;
+        let m=u32(lt/md);
+        let pm=fract(lt/md);
+        var mel=0.;
+        var ma=1.;
+        var bas=0.;
+        var ba=.7;
+        let pd=.25;
+        let sh=.125;
+        let p2s=pd+sh;
+        let p2e=p2s+pd;
+        
+        switch m{
+            case 0u,4u:{
+                bas=F3;
+                if(pm<pd){
+                    let p=pm/pd;
+                    let n=fract(p*4.);
+                    switch u32(floor(p*4.)){
+                        case 0u:{mel=legato(F5,E5,n);nt=5.;}
+                        case 1u:{mel=legato(E5,F5,n);nt=4.;}
+                        case 2u:{mel=legato(F5,D5,n);nt=5.;}
+                        default:{mel=D5;nt=3.;}
+                    }
+                }
+                else if(pm<p2s){mel=D5;nt=3.;}
+                else if(pm<p2e){
+                    let p=(pm-p2s)/pd;
+                    let n=fract(p*4.);
+                    switch u32(floor(p*4.)){
+                        case 0u:{mel=legato(F5,E5,n);nt=5.;}
+                        case 1u:{mel=legato(E5,F5,n);nt=4.;}
+                        case 2u:{mel=legato(F5,B4,n);nt=5.;}
+                        default:{mel=B4;nt=1.;}
+                    }
+                }
+                else{mel=B4;nt=1.;}
             }
-            case 1u, 5u: {
-                melody_freq=B4; bass_freq=B2; note_type_visualizer=1.0;
-                // A main decay plus a reverb bloom that swells to fill the space.
-                 // Main note fades significantly
-                let main_decay = mix(1.0, 0.1, progress_in_measure);
-                let tremolo = sin(adjusted_time * 8.0) * 0.05;
-                // Reverb swells up (using sin()) as main note decays. Mix controlled by uniform.
-                let reverb_bloom = sin(progress_in_measure * PI) * u_song.reverb_mix * 0.5;
-                melody_amp = main_decay + tremolo + reverb_bloom;
+            case 1u,5u:{
+                mel=B4;bas=B2;nt=1.;
+                let dc=mix(1.,.1,pm);
+                let tr=sin(T*8.)*.05;
+                let rb=sin(pm*PI)*u_song.reverb_mix*.5;
+                ma=dc+tr+rb;
             }
-            case 2u: {
-                bass_freq=E3;
-                if(progress_in_measure<phrase_dur){let p=progress_in_measure/phrase_dur;let n=fract(p*4.0);switch(u32(floor(p*4.0))){case 0u:{melody_freq=legato(E5,D5,n);note_type_visualizer=4.0;}case 1u:{melody_freq=legato(D5,E5,n);note_type_visualizer=3.0;}case 2u:{melody_freq=legato(E5,C5,n);note_type_visualizer=4.0;}default:{melody_freq=C5;note_type_visualizer=2.0;}}}
-                else if(progress_in_measure<phrase2_start){melody_freq=C5;note_type_visualizer=2.0;}
-                else if(progress_in_measure<phrase2_end){let p=(progress_in_measure-phrase2_start)/phrase_dur;let n=fract(p*4.0);switch(u32(floor(p*4.0))){case 0u:{melody_freq=legato(E5,D5,n);note_type_visualizer=4.0;}case 1u:{melody_freq=legato(D5,E5,n);note_type_visualizer=3.0;}case 2u:{melody_freq=legato(E5,A4,n);note_type_visualizer=4.0;}default:{melody_freq=A4;note_type_visualizer=0.0;}}}
-                else{melody_freq=A4;note_type_visualizer=0.0;}
+            case 2u:{
+                bas=E3;
+                if(pm<pd){
+                    let p=pm/pd;
+                    let n=fract(p*4.);
+                    switch u32(floor(p*4.)){
+                        case 0u:{mel=legato(E5,D5,n);nt=4.;}
+                        case 1u:{mel=legato(D5,E5,n);nt=3.;}
+                        case 2u:{mel=legato(E5,C5,n);nt=4.;}
+                        default:{mel=C5;nt=2.;}
+                    }
+                }
+                else if(pm<p2s){mel=C5;nt=2.;}
+                else if(pm<p2e){
+                    let p=(pm-p2s)/pd;
+                    let n=fract(p*4.);
+                    switch u32(floor(p*4.)){
+                        case 0u:{mel=legato(E5,D5,n);nt=4.;}
+                        case 1u:{mel=legato(D5,E5,n);nt=3.;}
+                        case 2u:{mel=legato(E5,A4,n);nt=4.;}
+                        default:{mel=A4;nt=0.;}
+                    }
+                }
+                else{mel=A4;nt=0.;}
             }
-            case 3u, 7u: {
-                melody_freq=A4; bass_freq=A2; note_type_visualizer=0.0;
-                let main_decay = mix(1.0, 0.15, progress_in_measure);
-                let tremolo = sin(adjusted_time * 8.0) * 0.05;
-                let reverb_bloom = sin(progress_in_measure * PI) * u_song.reverb_mix * 0.5;
-                melody_amp = main_decay + tremolo + reverb_bloom;
+            case 3u,7u:{
+                mel=A4;bas=A2;nt=0.;
+                let dc=mix(1.,.15,pm);
+                let tr=sin(T*8.)*.05;
+                let rb=sin(pm*PI)*u_song.reverb_mix*.5;
+                ma=dc+tr+rb;
             }
-            case 6u: {
-                bass_freq=E3; let run_dur=0.5;
-                if(progress_in_measure<run_dur){let p=progress_in_measure/run_dur;let n=fract(p*8.0);switch(u32(floor(p*8.0))){case 0u:{melody_freq=legato(E5,D5,n);note_type_visualizer=4.0;}case 1u:{melody_freq=legato(D5,E5,n);note_type_visualizer=3.0;}case 2u:{melody_freq=legato(E5,C5,n);note_type_visualizer=4.0;}case 3u:{melody_freq=legato(C5,E5,n);note_type_visualizer=2.0;}case 4u:{melody_freq=legato(E5,D5,n);note_type_visualizer=4.0;}case 5u:{melody_freq=legato(D5,E5,n);note_type_visualizer=3.0;}case 6u:{melody_freq=legato(E5,A4,n);note_type_visualizer=4.0;}default:{melody_freq=A4;note_type_visualizer=0.0;}}}
-                else{melody_freq=A4;note_type_visualizer=0.0;}
+            case 6u:{
+                bas=E3;
+                let rd=.5;
+                if(pm<rd){
+                    let p=pm/rd;
+                    let n=fract(p*8.);
+                    switch u32(floor(p*8.)){
+                        case 0u:{mel=legato(E5,D5,n);nt=4.;}
+                        case 1u:{mel=legato(D5,E5,n);nt=3.;}
+                        case 2u:{mel=legato(E5,C5,n);nt=4.;}
+                        case 3u:{mel=legato(C5,E5,n);nt=2.;}
+                        case 4u:{mel=legato(E5,D5,n);nt=4.;}
+                        case 5u:{mel=legato(D5,E5,n);nt=3.;}
+                        case 6u:{mel=legato(E5,A4,n);nt=4.;}
+                        default:{mel=A4;nt=0.;}
+                    }
+                }
+                else{mel=A4;nt=0.;}
             }
             default:{}
         }
-        if(measure==1u||measure==3u||measure==5u||measure==7u){bass_amp=0.7*(1.0-progress_in_measure*0.5);}
-        melody_freq_visualizer=melody_freq;envelope_visualizer=clamp(melody_amp,0.0,1.0);
-        let final_melody_freq=melody_freq*pow(2.0,u_song.octave_shift);let final_bass_freq=bass_freq*pow(2.0,u_song.octave_shift);
+        if(m==1u||m==3u||m==5u||m==7u){ba*=1.-pm*.5;}
+        mf=mel;
+        ev=clamp(ma,0.,1.);
+        let fm=mel*pow(2.,u_song.octave_shift);
+        let fb=bas*pow(2.,u_song.octave_shift);
+        let fma=ma*u_song.volume;
+        let fba=ba*u_song.volume*.7;
+        var cm=1.;
+        if(u_song.chorus_rate>0.){
+            cm=1.+sin(T*u_song.chorus_rate)*.005;
+        }
         
-        let final_melody_amp=melody_amp*u_song.volume;
-        let final_bass_amp=bass_amp*u_song.volume*0.7;
-        
-        var chorus_freq_mod=1.0; if(u_song.chorus_rate>0.0){chorus_freq_mod=1.0+sin(adjusted_time*u_song.chorus_rate)*0.005;}
-        
-        audio_buffer[0]=melody_freq_visualizer;audio_buffer[1]=envelope_visualizer;audio_buffer[2]=f32(u_song.waveform_type);
-        audio_buffer[3]=final_melody_freq*chorus_freq_mod;audio_buffer[4]=final_melody_amp;
-        audio_buffer[5]=final_bass_freq*chorus_freq_mod;audio_buffer[6]=final_bass_amp;
-        for(var i=2u;i<16u;i++){audio_buffer[3u+i*2u]=0.0;audio_buffer[3u+i*2u+1u]=0.0;}
+        audio_buffer[0]=mf;
+        audio_buffer[1]=ev;
+        audio_buffer[2]=f32(u_song.waveform_type);
+        audio_buffer[3]=fm*cm;
+        audio_buffer[4]=fma;
+        audio_buffer[5]=fb*cm;
+        audio_buffer[6]=fba;
+        for(var i=2u;i<16u;i++){
+            audio_buffer[3u+i*2u]=0.;
+            audio_buffer[3u+i*2u+1u]=0.;
+        }
     }
-    let frequency=audio_buffer[0]; let envelope=audio_buffer[1]; let uv=vec2<f32>(global_id.xy)/vec2<f32>(dims);
-    var color=vec3<f32>(0.02,0.01,0.08);
-    let visualizer_center_y = 0.5;
-    let pattern_width = 0.8;
-    let pattern_start_x = 0.1;
-    let pattern_height = 0.4;
     
-    let measure_duration = (60.0 / 107.0) * 4.0;
-    let total_pattern_duration = measure_duration * 8.0;
-    let song_time = u_time.time * u_song.tempo_multiplier;
-    let current_measure = u32((song_time % total_pattern_duration) / measure_duration);
+    let freq=audio_buffer[0];
+    let env=audio_buffer[1];
+    let uv=vec2<f32>(g.xy)/vec2<f32>(d);
+    var col=vec3(.02,.01,.08);
+    let cy=.5;
+    let pw=.8;
+    let px=.1;
+    let ph=.4;
+    let md=(60./107.)*4.;
+    let td=md*8.;
+    let st=u_time.time*u_song.tempo_multiplier;
+    let cm=u32((st%td)/md);
     
-    for (var measure = 0u; measure < 8u; measure++) {
-        let measure_width = pattern_width / 8.0;
-        let measure_x = pattern_start_x + f32(measure) * measure_width;
-        
-        if uv.x >= measure_x && uv.x <= measure_x + measure_width * 0.9 {
-            let measure_info = get_measure_preview(measure);
-            let measure_freq = measure_info.x;
-            let measure_note_type = measure_info.y;
-            
-            let freq_norm = (measure_freq - 440.0) / (698.46 - 440.0);
-            let bar_height = mix(0.1, pattern_height, freq_norm);
-            let bar_bottom = visualizer_center_y - bar_height * 0.5;
-            let bar_top = visualizer_center_y + bar_height * 0.5;
-            
-            if uv.y >= bar_bottom && uv.y <= bar_top {
-                if measure == current_measure && envelope > 0.01 {
-                    let pulse = sin(u_time.time * 8.0) * 0.4 + 0.8;
-                    color = vec3<f32>(1.0, 0.9, 0.2) * pulse;
-                } else {
-                    let note_color = get_note_color(measure_note_type);
-                    color = note_color * 0.6;
+    for(var m=0u;m<8u;m++){
+        let mw=pw/8.;
+        let mx=px+f32(m)*mw;
+        if(uv.x>=mx&&uv.x<=mx+mw*.9){
+            let mi=measure_data(m);
+            let mf=mi.x;
+            let mn=mi.y;
+            let fr=(mf-440.)/(698.46-440.);
+            let bh=mix(.1,ph,fr);
+            let bb=cy-bh*.5;
+            let bt=cy+bh*.5;
+            if(uv.y>=bb&&uv.y<=bt){
+                if(m==cm&&env>.01){
+                    col=vec3(1.,.9,.2)*(sin(u_time.time*8.)*.4+.8);
+                }else{
+                    col=note_col(mn)*.6;
                 }
             }
         }
     }
-    if uv.y < 0.12 {
-        let spectrum_freq = mix(400.0, 800.0, uv.x);
-        let freq_distance = abs(spectrum_freq - frequency);
-        let freq_response = exp(-freq_distance / 30.0);
-        let spectrum_intensity = freq_response * envelope;
-        let spectrum_bar_height = uv.y / 0.12;
-        if spectrum_bar_height < spectrum_intensity && envelope > 0.01 {
-            color += vec3<f32>(spectrum_intensity * 0.8, spectrum_intensity * 0.4, 0.1);
-        }
+    
+    if(uv.y<.12){
+        let sf=mix(400.,800.,uv.x);
+        let fd=abs(sf-freq);
+        let fr=exp(-fd/30.);
+        let si=fr*env;
+        let sh=uv.y/.12;
+        if(sh<si&&env>.01){col+=vec3(si*.8,si*.4,.1);}
     }
     
-    let progress_bar_height=0.02;
-    if(uv.y>0.95&&uv.y<0.95+progress_bar_height){
-        let measure_duration=(60.0/107.0)*4.0;
-        let total_pattern_duration=measure_duration*8.0;
-        let song_progress=(u_time.time*u_song.tempo_multiplier%total_pattern_duration)/total_pattern_duration;
-        if(uv.x<song_progress){
-            color=mix(color,vec3<f32>(0.0,0.7,1.0),0.8);
+    let pbh=.02;
+    if(uv.y>.95&&uv.y<.95+pbh){
+        let sp=(st%td)/td;
+        if(uv.x<sp){
+            col=mix(col,vec3(0.,.7,1.),.8);
         }else{
-            color=mix(color,vec3<f32>(0.15,0.15,0.3),0.8);
+            col=mix(col,vec3(.15,.15,.3),.8);
         }
     }
-    let ambient_glow = envelope * 0.1;
-    color += vec3<f32>(ambient_glow * 0.1, ambient_glow * 0.3, ambient_glow * 0.1);
     
-    textureStore(output,global_id.xy,vec4<f32>(color,1.0));
+    let ag=env*.1;
+    col+=vec3(ag*.1,ag*.3,ag*.1);
+    textureStore(output,g.xy,vec4(col,1.));
 }
