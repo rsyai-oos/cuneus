@@ -1041,7 +1041,6 @@ impl ComputeShader {
     pub fn get_output_texture(&self) -> &TextureManager {
         &self.output_texture
     }
-    /// NOTE: This buffer reading approach caused crackling audio on macOS when used for real-time playback.
     /// Read GPU-computed audio parameters from shader's audio_buffer
     /// Reduced blocking operations and faster polling for GPU↔CPU parameter communication
     /// GPU shaders write computed frequencies/amplitudes to audio_buffer, CPU reads for real-time synthesis
