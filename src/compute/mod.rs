@@ -1041,6 +1041,7 @@ impl ComputeShader {
     pub fn get_output_texture(&self) -> &TextureManager {
         &self.output_texture
     }
+    /// NOTE: This buffer reading approach caused crackling audio on macOS when used for real-time playback.
     /// Read GPU-computed audio parameters from shader's audio_buffer
     /// Reduced blocking operations and faster polling for GPU↔CPU parameter communication
     /// GPU shaders write computed frequencies/amplitudes to audio_buffer, CPU reads for real-time synthesis
@@ -1069,22 +1070,23 @@ impl ComputeShader {
                 let _ = tx.send(result);
             });
             
-            // A minimal polling to avoid blocking
-            device.poll(wgpu::Maintain::Poll);
+            device.poll(wgpu::Maintain::Wait);
             
-            match rx.try_recv() {
-                Ok(Ok(())) => {
-                    let data = buffer_slice.get_mapped_range();
-                    let samples: Vec<f32> = bytemuck::cast_slice(&data).to_vec();
-                    drop(data);
-                    staging_buffer.unmap();
-                    Ok(samples)
-                },
-                Ok(Err(_)) | Err(_) => {
-                    // Mapping failed or not ready - return empty data to avoid blocking
-                    Ok(vec![0.0; config.audio_buffer_size])
-                },
+            match rx.recv() {
+                Ok(Ok(())) => {},
+                Ok(Err(e)) => return Err(e.into()),
+                Err(_) => return Err("Buffer mapping failed".into()),
             }
+            
+            let samples = {
+                let data = buffer_slice.get_mapped_range();
+                let samples: Vec<f32> = bytemuck::cast_slice(&data).to_vec();
+                samples
+            };
+            
+            staging_buffer.unmap();
+            
+            Ok(samples)
         } else {
             Ok(Vec::new())
         }
