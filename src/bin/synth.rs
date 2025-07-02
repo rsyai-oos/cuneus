@@ -1,12 +1,14 @@
 // This example demonstrates a how to generate audio using cunes via compute shaders
 use cuneus::{Core, ShaderApp, ShaderManager, RenderKit, UniformProvider, UniformBinding, ShaderControls};
-use cuneus::SynthesisManager;
+use cuneus::gst::audio::SynthesisManager;
 use cuneus::compute::{ComputeShaderConfig, COMPUTE_TEXTURE_FORMAT_RGBA16};
 use winit::event::*;
 use std::path::PathBuf;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
+    
+    cuneus::gst::init()?;
     
     let (app, event_loop) = ShaderApp::new("Synth", 800, 600);
     app.run(event_loop, |core| {
@@ -156,9 +158,9 @@ impl ShaderManager for SynthManager {
                 distortion_amount: 0.0,
                 chorus_rate: 2.0,
                 chorus_depth: 0.15,
-                attack_time: 0.003,
+                attack_time: 0.001,
                 decay_time: 0.8,
-                sustain_level: 0.4,
+                sustain_level: 0.5,
                 release_time: 1.2,
                 _padding1: 0,
                 _padding2: 0,
@@ -230,11 +232,17 @@ impl ShaderManager for SynthManager {
                 self.set_key_decay(i, 1.0);
                 keys_updated = true;
             } else {
-                // Key released - smooth piano-like fade to silence
+                // Key released - fade to silence
                 let current_decay = self.params_uniform.data.key_decay[i / 4][i % 4];
-                if current_decay > 0.005 {
-                    // Natural piano fade speed - not too fast, not too slow
-                    let fade_speed = 0.985; // Smooth piano-like release
+                if current_decay > 0.01 {
+                    // fast initial fade, then smoother
+                    let fade_speed = if current_decay > 0.7 { 
+                        0.89  // Fast initial drop when key released
+                    } else if current_decay > 0.3 {
+                        0.94  // Medium fade for sustain
+                    } else {
+                        0.97  // Slower fade for natural tail
+                    };
                     let new_decay = current_decay * fade_speed;
                     self.set_key_decay(i, new_decay);
                     keys_updated = true;

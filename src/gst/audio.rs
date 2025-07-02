@@ -265,6 +265,63 @@ impl AudioSynthManager {
         Ok(())
     }
 
+    /// Play a frequency (polyphonic - can play multiple frequencies simultaneously)
+    /// This allows arbitrary frequencies, not just predefined musical notes
+    pub fn play_frequency(&mut self, frequency: f64, voice_id: usize) -> Result<()> {
+        if voice_id >= self.voices.len() {
+            return Err(anyhow!("Voice ID {} out of range", voice_id));
+        }
+
+        let voice = &mut self.voices[voice_id];
+        let volume_level = 0.4; // Individual voice volume
+
+        // Configure voice with arbitrary frequency
+        voice.audiotestsrc.set_property("freq", frequency);
+        voice.audiotestsrc.set_property("volume", volume_level);
+        voice.volume.set_property("volume", volume_level);
+        voice.frequency = frequency;
+        voice.volume_level = volume_level;
+        voice.is_active = true;
+         // Not tied to a specific musical note
+        voice.note = None;
+
+        info!("Playing frequency {:.2} Hz on voice {}", frequency, voice_id);
+        Ok(())
+    }
+
+    /// Stop a specific voice by ID
+    pub fn stop_voice(&mut self, voice_id: usize) -> Result<()> {
+        if voice_id >= self.voices.len() {
+            return Err(anyhow!("Voice ID {} out of range", voice_id));
+        }
+
+        let voice = &mut self.voices[voice_id];
+        voice.audiotestsrc.set_property("volume", 0.0f64);
+        voice.volume.set_property("volume", 0.0f64);
+        voice.is_active = false;
+        voice.note = None;
+
+        info!("Stopped voice {}", voice_id);
+        Ok(())
+    }
+
+    /// Update frequency and amplitude for an already active voice
+    pub fn update_voice_frequency(&mut self, voice_id: usize, frequency: f64, amplitude: f64) -> Result<()> {
+        if voice_id >= self.voices.len() {
+            return Err(anyhow!("Voice ID {} out of range", voice_id));
+        }
+
+        let voice = &mut self.voices[voice_id];
+        if voice.is_active {
+            voice.audiotestsrc.set_property("freq", frequency);
+            voice.volume.set_property("volume", amplitude);
+            voice.frequency = frequency;
+            voice.volume_level = amplitude;
+        }
+
+        Ok(())
+    }
+
     /// Play a note (polyphonic - can play multiple notes simultaneously)
     /// Little bit tricky, I tried to up to 8 notes at once 
     pub fn play_note(&mut self, note: MusicalNote) -> Result<()> {
@@ -601,5 +658,166 @@ impl AudioSynthUniform {
 impl Default for AudioDataProvider {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// High-level synthesis manager that bridges GPU-computed parameters to GStreamer audio
+pub struct SynthesisManager {
+    audio_manager: Option<AudioSynthManager>,
+    sample_rate: u32,
+    last_update: std::time::Instant,
+    synthesis_enabled: bool,
+     // Track which voices are active
+    active_voices: Vec<bool>,
+}
+
+impl SynthesisManager {
+    pub fn new() -> anyhow::Result<Self> {
+        let audio_manager = match AudioSynthManager::new(Some(44100)) {
+            Ok(manager) => Some(manager),
+            Err(e) => {
+                eprintln!("Failed to create GStreamer audio manager: {}", e);
+                None
+            }
+        };
+
+        Ok(Self {
+            audio_manager,
+            sample_rate: 44100,
+            last_update: std::time::Instant::now(),
+            synthesis_enabled: false,
+            active_voices: vec![false; 9], // Track 9 voices
+        })
+    }
+
+    pub fn start_gpu_synthesis(&mut self) -> anyhow::Result<()> {
+        if let Some(ref mut manager) = self.audio_manager {
+            manager.start()?;
+            self.synthesis_enabled = true;
+        }
+        Ok(())
+    }
+
+    pub fn stop_gpu_synthesis(&mut self) -> anyhow::Result<()> {
+        if let Some(ref mut manager) = self.audio_manager {
+            manager.stop()?;
+            self.synthesis_enabled = false;
+        }
+        Ok(())
+    }
+
+    pub fn update_frequency(&mut self, frequency: f32) {
+        self.set_voice(0, frequency, 0.3, true);
+    }
+
+    pub fn update_waveform(&mut self, waveform_type: u32) {
+        if let Some(ref mut manager) = self.audio_manager {
+            let gst_waveform = match waveform_type {
+                0 => AudioWaveform::Sine,
+                1 => AudioWaveform::Square,
+                2 => AudioWaveform::Saw,
+                3 => AudioWaveform::Triangle,
+                _ => AudioWaveform::Sine,
+            };
+            let _ = manager.set_waveform(gst_waveform);
+        }
+    }
+
+    pub fn set_voice(&mut self, voice_id: usize, frequency: f32, amplitude: f32, active: bool) {
+        if voice_id >= self.active_voices.len() {
+            return;
+        }
+
+        let should_be_active = active && amplitude > 0.001;
+
+        if let Some(ref mut manager) = self.audio_manager {
+            if should_be_active && !self.active_voices[voice_id] {
+                // Start the voice
+                let _ = manager.play_frequency(frequency as f64, voice_id);
+                self.active_voices[voice_id] = true;
+            } else if !should_be_active && self.active_voices[voice_id] {
+                // Stop the voice
+                let _ = manager.stop_voice(voice_id);
+                self.active_voices[voice_id] = false;
+            } else if should_be_active && self.active_voices[voice_id] {
+                // Voice is already active, but update frequency and amplitude
+                let _ = manager.update_voice_frequency(voice_id, frequency as f64, amplitude as f64);
+            }
+        }
+    }
+
+
+    pub fn stream_gpu_samples(&mut self, _samples: &[f32]) {
+        // This method is kept for compatibility (my impl on CPAL approach) but not used in GStreamer implementation
+    }
+
+    pub fn update(&mut self) {
+        self.last_update = std::time::Instant::now();
+        // Update GStreamer manager if needed
+        if let Some(ref mut manager) = self.audio_manager {
+            manager.update();
+        }
+    }
+
+    pub fn get_buffer_info(&self) -> Option<(usize, bool)> {
+        Some((0, self.synthesis_enabled))
+    }
+
+    pub fn is_gpu_synthesis_enabled(&self) -> bool {
+        self.synthesis_enabled
+    }
+
+    pub fn sample_rate(&self) -> u32 {
+        self.sample_rate
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct SynthesisUniform {
+    pub note_frequencies: [[f32; 4]; 4],
+    pub note_amplitudes: [[f32; 4]; 4],
+    pub master_volume: f32,
+    pub waveform_type: u32,
+    pub active_note_count: u32,
+}
+
+unsafe impl bytemuck::Pod for SynthesisUniform {}
+unsafe impl bytemuck::Zeroable for SynthesisUniform {}
+
+impl crate::UniformProvider for SynthesisUniform {
+    fn as_bytes(&self) -> &[u8] {
+        bytemuck::bytes_of(self)
+    }
+}
+
+impl SynthesisUniform {
+    pub fn new() -> Self {
+        Self {
+            note_frequencies: [[0.0; 4]; 4],
+            note_amplitudes: [[0.0; 4]; 4],
+            master_volume: 0.3,
+            waveform_type: 0,
+            active_note_count: 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SynthesisWaveform {
+    Sine,
+    Square,
+    Saw,
+    Triangle,
+}
+
+impl SynthesisWaveform {
+    pub fn to_u32(self) -> u32 {
+        match self {
+            SynthesisWaveform::Sine => 0,
+            SynthesisWaveform::Square => 1,
+            SynthesisWaveform::Saw => 2,
+            SynthesisWaveform::Triangle => 3,
+        }
     }
 }

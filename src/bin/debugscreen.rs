@@ -1,6 +1,6 @@
 use cuneus::{Core, ShaderApp, ShaderManager, RenderKit, ShaderControls};
 use cuneus::compute::{ComputeShaderConfig, COMPUTE_TEXTURE_FORMAT_RGBA16};
-use cuneus::SynthesisManager;
+use cuneus::gst::audio::SynthesisManager;
 use winit::event::*;
 use std::path::PathBuf;
 
@@ -315,6 +315,9 @@ impl ShaderManager for DebugScreen {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
+    
+    cuneus::gst::init()?;
+    
     let (app, event_loop) = ShaderApp::new("Debug Screen", 800, 600);
     
     app.run(event_loop, |core| {

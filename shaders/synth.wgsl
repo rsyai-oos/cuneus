@@ -142,11 +142,16 @@ fn apply_delay(sample: f32, time: f32, delay_time: f32, feedback: f32) -> f32 {
 
 fn piano_envelope(key_state: f32, key_decay: f32, attack: f32, decay: f32, sustain: f32, release: f32) -> f32 {
     if key_state > 0.5 {
-        return sustain * 1.2;
+        return sustain * 1.4;
     } else {
-        // Key released - smooth exponential fade using key_decay value
-        // key_decay goes from 1.0 -> 0.0 as CPU fades it
-        return sustain * key_decay * key_decay;
+        // Key released - 
+        if key_decay > 0.7 {
+            // Fast initial fade when key first released
+            return sustain * key_decay * 0.75;
+        } else {
+            let smooth_decay = key_decay * key_decay * 1.2;
+            return sustain * smooth_decay;
+        }
     }
 }
 
