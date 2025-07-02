@@ -36,9 +36,10 @@ struct SynthParams {
     decay_time: f32,
     sustain_level: f32,
     release_time: f32,
+    fade_speed_initial: f32,
+    fade_speed_sustain: f32,
+    fade_speed_tail: f32,
     _padding1: u32,
-    _padding2: u32,
-    _padding3: u32,
     key_states: [[f32; 4]; 3],
     key_decay: [[f32; 4]; 3],
 }
@@ -148,7 +149,7 @@ impl ShaderManager for SynthManager {
                 tempo: 120.0,
                 waveform_type: 1,
                 octave: 4.0,
-                volume: 0.8,
+                volume: 0.85,
                 beat_enabled: 1,
                 reverb_mix: 0.15,
                 delay_time: 0.3,
@@ -158,13 +159,14 @@ impl ShaderManager for SynthManager {
                 distortion_amount: 0.0,
                 chorus_rate: 2.0,
                 chorus_depth: 0.15,
-                attack_time: 0.001,
-                decay_time: 0.8,
-                sustain_level: 0.5,
+                attack_time: 0.015,
+                decay_time: 0.6,
+                sustain_level: 0.6,
                 release_time: 1.2,
+                fade_speed_initial: 0.92,
+                fade_speed_sustain: 0.96,
+                fade_speed_tail: 0.98,
                 _padding1: 0,
-                _padding2: 0,
-                _padding3: 0,
                 key_states: [[0.0; 4]; 3],
                 key_decay: [[0.0; 4]; 3],
             },
@@ -234,14 +236,14 @@ impl ShaderManager for SynthManager {
             } else {
                 // Key released - fade to silence
                 let current_decay = self.params_uniform.data.key_decay[i / 4][i % 4];
-                if current_decay > 0.01 {
-                    // fast initial fade, then smoother
-                    let fade_speed = if current_decay > 0.7 { 
-                        0.89  // Fast initial drop when key released
-                    } else if current_decay > 0.3 {
-                        0.94  // Medium fade for sustain
+                if current_decay > 0.005 {
+                    // Use customizable piano fade speeds see egui:
+                    let fade_speed = if current_decay > 0.8 { 
+                        self.params_uniform.data.fade_speed_initial 
+                    } else if current_decay > 0.4 {
+                        self.params_uniform.data.fade_speed_sustain 
                     } else {
-                        0.97  // Slower fade for natural tail
+                        self.params_uniform.data.fade_speed_tail
                     };
                     let new_decay = current_decay * fade_speed;
                     self.set_key_decay(i, new_decay);
@@ -392,6 +394,21 @@ impl ShaderManager for SynthManager {
                                 changed |= ui.add(egui::Slider::new(&mut params.decay_time, 0.01..=3.0).logarithmic(true).text("Decay")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.sustain_level, 0.0..=1.0).text("Sustain")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.release_time, 0.01..=5.0).logarithmic(true).text("Release")).changed();
+                            });
+                        
+                        egui::CollapsingHeader::new("Response")
+                            .default_open(false)
+                            .show(ui, |ui| {
+                                changed |= ui.add(egui::Slider::new(&mut params.fade_speed_initial, 0.5..=0.999).text("Initial").custom_formatter(|n, _| format!("{:.3}", n))).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.fade_speed_sustain, 0.5..=0.999).text("Sustain").custom_formatter(|n, _| format!("{:.3}", n))).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.fade_speed_tail, 0.5..=0.999).text("Tail").custom_formatter(|n, _| format!("{:.3}", n))).changed();
+                                
+                                if ui.small_button("Reset").clicked() {
+                                    params.fade_speed_initial = 0.92;
+                                    params.fade_speed_sustain = 0.96;
+                                    params.fade_speed_tail = 0.98;
+                                    changed = true;
+                                }
                             });
                         
                         egui::CollapsingHeader::new("Filter")

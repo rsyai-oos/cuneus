@@ -142,15 +142,15 @@ fn apply_delay(sample: f32, time: f32, delay_time: f32, feedback: f32) -> f32 {
 
 fn piano_envelope(key_state: f32, key_decay: f32, attack: f32, decay: f32, sustain: f32, release: f32) -> f32 {
     if key_state > 0.5 {
-        return sustain * 1.4;
+        return sustain * 1.6;
     } else {
-        // Key released - 
-        if key_decay > 0.7 {
-            // Fast initial fade when key first released
-            return sustain * key_decay * 0.75;
+        if key_decay > 0.8 {
+            return sustain * key_decay * 0.9;
+        } else if key_decay > 0.4 {
+            return sustain * key_decay * 1.1;
         } else {
-            let smooth_decay = key_decay * key_decay * 1.2;
-            return sustain * smooth_decay;
+            let bright_tail = key_decay * 1.3;
+            return sustain * bright_tail;
         }
     }
 }
@@ -256,7 +256,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     mixed_sample = apply_reverb(mixed_sample, params.reverb_mix * 0.4, u_time.time);
     mixed_sample = apply_delay(mixed_sample, u_time.time, params.delay_time * 0.8, params.delay_feedback * 0.5);
     
-    mixed_sample = mixed_sample * params.volume * 3.5;
+    mixed_sample = mixed_sample * params.volume * 4.0;
     
     // Simple limiting
     let limit = 0.9;
