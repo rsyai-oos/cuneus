@@ -32,7 +32,7 @@ mod fps;
 mod mouse;
 pub mod hdri;
 mod font;
-mod synthesis;
+mod sound;
 
 pub use renderer::*;
 pub use shader::*;
@@ -49,7 +49,7 @@ pub use atomic::AtomicBuffer;
 pub use mouse::*;
 pub use hdri::*;
 pub use font::{FontSystem, FontUniforms, CharInfo};
-pub use synthesis::{SynthesisManager, SynthesisUniform, SynthesisWaveform};
+pub use sound::{SynthesisManager, SynthesisUniform, SynthesisWaveform};
 
 pub mod prelude {
     pub use crate::{
