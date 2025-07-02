@@ -1,3 +1,8 @@
+// Hybrid Audio System:
+// synth.rs + synth.wgsl → GPU computes amplitude & frequency
+//                      ↓
+// sound.rs (backend)   → CPU generates waveforms → speakers
+
 use anyhow::Result;
 use std::time::Instant;
 use cpal::{Stream, SampleFormat, OutputCallbackInfo};
