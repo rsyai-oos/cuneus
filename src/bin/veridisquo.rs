@@ -1,3 +1,5 @@
+// main.rs
+
 use cuneus::{Core, ShaderApp, ShaderManager, RenderKit, ShaderControls, UniformProvider, UniformBinding};
 use cuneus::compute::{ComputeShaderConfig, COMPUTE_TEXTURE_FORMAT_RGBA16};
 use cuneus::SynthesisManager;
@@ -12,6 +14,9 @@ struct SongParams {
     tempo_multiplier: f32,
     waveform_type: u32,
     crossfade: f32,
+    reverb_mix: f32,
+    chorus_rate: f32,
+    _padding: f32,
 }
 
 impl UniformProvider for SongParams {
@@ -19,6 +24,10 @@ impl UniformProvider for SongParams {
         bytemuck::bytes_of(self)
     }
 }
+
+// number of voices for our polyphonic synth.
+// 0: Melody(ritim), 1: Bass
+const NUM_VOICES: usize = 2;
 
 struct VeridisQuo {
     base: RenderKit,
@@ -76,11 +85,14 @@ impl ShaderManager for VeridisQuo {
             &core.device,
             "Song Params",
             SongParams {
-                volume: 0.6,
+                volume: 0.5,
                 octave_shift: 0.0,
-                tempo_multiplier: 2.0,
-                waveform_type: 0,
-                crossfade: 0.5,
+                tempo_multiplier: 1.0,
+                waveform_type: 1,
+                crossfade: 0.0,
+                reverb_mix: 0.0,
+                chorus_rate: 0.0,
+                _padding: 0.0,
             },
             &song_params_bind_group_layout,
             0,
@@ -135,7 +147,7 @@ impl ShaderManager for VeridisQuo {
                 if let Err(_e) = synth.start_gpu_synthesis() {
                     None
                 } else {
-                    println!("audio should be playing");
+                    println!("Audio synthesis started.");
                     Some(synth)
                 }
             },
@@ -158,20 +170,27 @@ impl ShaderManager for VeridisQuo {
         self.base.fps_tracker.update();
         
         self.song_params_uniform.update(&core.queue);
-        
-
         if self.base.time_uniform.data.frame % 5 == 0 {
             if let Some(compute_shader) = &self.base.compute_shader {
                 if let Ok(gpu_samples) = pollster::block_on(compute_shader.read_audio_samples(&core.device, &core.queue)) {
-                    if gpu_samples.len() >= 3 {
-                        let frequency = gpu_samples[0];
-                        let amplitude = gpu_samples[1];  
+                    if gpu_samples.len() >= 3 + NUM_VOICES * 2 {
+                        let waveform_type = self.song_params_uniform.data.waveform_type;
                         
                         if let Some(ref mut synth) = self.audio_synthesis {
-                            if amplitude > 0.01 {
-                                let adjusted_frequency = frequency * 2.0_f32.powf(self.song_params_uniform.data.octave_shift);
-                                let adjusted_amplitude = amplitude * self.song_params_uniform.data.volume;
-                                synth.update_synth_params(adjusted_frequency, adjusted_amplitude, self.song_params_uniform.data.waveform_type);
+                            // Update the waveform type for all voices
+                            synth.update_waveform(waveform_type);
+                            
+                            // Loop through each voice (melody, bass, etc.)
+                            for i in 0..NUM_VOICES {
+                                // Calculate the correct index for this voice's frequency and amplitude
+                                let freq_index = 3 + i * 2;
+                                let amp_index = 4 + i * 2;
+
+                                let frequency = gpu_samples[freq_index];
+                                let amplitude = gpu_samples[amp_index];
+                                
+                                let active = amplitude > 0.01 && frequency > 10.0;
+                                synth.set_voice(i, frequency, amplitude, active);
                             }
                         }
                     }
@@ -194,63 +213,47 @@ impl ShaderManager for VeridisQuo {
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
                 ctx.style_mut(|style| {
-                    style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(30, 20, 50, 220);
-                    style.text_styles.get_mut(&egui::TextStyle::Body).unwrap().size = 13.0;
+                    style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(0, 0, 0, 180);
+                    style.text_styles.get_mut(&egui::TextStyle::Body).unwrap().size = 11.0;
+                    style.text_styles.get_mut(&egui::TextStyle::Button).unwrap().size = 10.0;
                 });
 
-                egui::Window::new("🎵 Veridis Quo - Daft Punk")
-                    .default_size([350.0, 250.0])
+                egui::Window::new("Veridis Quo")
+                    .collapsible(true)
+                    .resizable(true)
+                    .default_width(250.0)
                     .show(ctx, |ui| {
-                        ui.heading("Veridis Quo");
-                        ui.separator();
-                        ui.separator();
-                        ui.label("🎛️ Audio Controls:");
-                        ui.horizontal(|ui| {
-                            ui.label("Volume:");
-                            ui.add(egui::Slider::new(&mut self.song_params_uniform.data.volume, 0.0..=1.0).text(""));
-                        });
+                        egui::CollapsingHeader::new("Audio Controls")
+                            .default_open(true)
+                            .show(ui, |ui| {
+                                ui.add(egui::Slider::new(&mut self.song_params_uniform.data.volume, 0.0..=1.0).text("Volume"));
+                                ui.add(egui::Slider::new(&mut self.song_params_uniform.data.octave_shift, -2.0..=2.0).text("Octave"));
+                                ui.add(egui::Slider::new(&mut self.song_params_uniform.data.tempo_multiplier, 0.5..=4.0).text("Tempo"));
+                            });
                         
-                        ui.horizontal(|ui| {
-                            ui.label("Octave Shift:");
-                            ui.add(egui::Slider::new(&mut self.song_params_uniform.data.octave_shift, -2.0..=2.0).text(""));
-                        });
-                        
-                        ui.horizontal(|ui| {
-                            ui.label("Tempo:");
-                            ui.add(egui::Slider::new(&mut self.song_params_uniform.data.tempo_multiplier, 0.5..=4.0).text("x"));
-                        });
-                        
-                        ui.separator();
-                        ui.label("🌊 Waveform:");
-                        ui.horizontal(|ui| {
-                            let waveform_names = [("🌊 Sine", 0), ("⚡ Sawtooth", 1), ("⬛ Square", 2)];
-                            for (name, wave_type) in waveform_names.iter() {
-                                let selected = self.song_params_uniform.data.waveform_type == *wave_type;
-                                if ui.selectable_label(selected, *name).clicked() {
-                                    self.song_params_uniform.data.waveform_type = *wave_type;
+                        egui::CollapsingHeader::new("Waveforms")
+                            .default_open(false)
+                            .show(ui, |ui| {
+                                let waveform_names = [
+                                    ("Sine", 0), ("Square", 1), ("Saw", 2), 
+                                    ("Triangle", 3), ("Pulse", 4)
+                                ];
+                                for (name, wave_type) in waveform_names.iter() {
+                                    let selected = self.song_params_uniform.data.waveform_type == *wave_type;
+                                    if ui.selectable_label(selected, *name).clicked() {
+                                        self.song_params_uniform.data.waveform_type = *wave_type;
+                                    }
                                 }
-                            }
-                        });
+                            });
 
-                        ui.separator();
-                        ui.label("Transitions:");
-                        ui.horizontal(|ui| {
-                            ui.label("Crossfade:");
-                            ui.add(egui::Slider::new(&mut self.song_params_uniform.data.crossfade, 0.0..=1.0).text(""));
-                        });
+                        egui::CollapsingHeader::new("Effects")
+                            .default_open(false)
+                            .show(ui, |ui| {
+                                ui.add(egui::Slider::new(&mut self.song_params_uniform.data.crossfade, 0.0..=1.0).text("Legato"));
+                                ui.add(egui::Slider::new(&mut self.song_params_uniform.data.reverb_mix, 0.0..=1.0).text("Reverb"));
+                                ui.add(egui::Slider::new(&mut self.song_params_uniform.data.chorus_rate, 0.1..=8.0).text("Chorus Rate"));
+                            });
                         
-                        ui.separator();
-                        ui.label("ℹ️ About:");
-                        ui.label("• Melody from Daft Punk's \"Veridis Quo\"");
-                        ui.separator();
-                        ui.label("⌨️ Controls:");
-                        ui.label("H = Hide/Show UI");
-                        ui.label("F = Fullscreen");
-                        ui.label("R = Restart song");
-                        ui.separator();
-                        
-                        ui.separator();
-                        ui.heading("Playback Controls");
                         ShaderControls::render_controls_widget(ui, &mut controls_request);
                     });
             })
@@ -331,7 +334,7 @@ impl ShaderManager for VeridisQuo {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
-    let (app, event_loop) = ShaderApp::new("Veridis Quo", 1200, 800);
+    let (app, event_loop) = ShaderApp::new("Veridis Quo", 800, 600);
     
     app.run(event_loop, |core| {
         VeridisQuo::init(core)

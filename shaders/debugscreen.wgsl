@@ -443,6 +443,15 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         audio_buffer[0] = note_frequency;
         audio_buffer[1] = note_amplitude;
         audio_buffer[2] = waveform_type;
+        // in screen, we are playing first note.
+        let base_frequencies = array<f32, 9>(
+            261.63, 293.66, 329.63, 349.23, 392.00, 
+            440.00, 493.88, 523.25, 587.33
+        );
+        
+        for (var i = 0u; i < 9u; i++) {
+            audio_buffer[3 + i] = base_frequencies[i];
+        }
     }
     
     textureStore(output, global_id.xy, vec4<f32>(final_col, 1.0));

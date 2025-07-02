@@ -1041,11 +1041,10 @@ impl ComputeShader {
     pub fn get_output_texture(&self) -> &TextureManager {
         &self.output_texture
     }
-    
-    /// Read audio samples from GPU buffer (async)
     /// NOTE: This buffer reading approach caused crackling audio on macOS when used for real-time playback.
-    /// Current implementation uses this only for parameter reading, not audio streaming. 
-    /// Real-time audio generation happens in CPU audio callback to prevent artifacts.
+    /// Read GPU-computed audio parameters from shader's audio_buffer
+    /// Reduced blocking operations and faster polling for GPU↔CPU parameter communication
+    /// GPU shaders write computed frequencies/amplitudes to audio_buffer, CPU reads for real-time synthesis
     pub async fn read_audio_samples(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
         if let (Some(audio_buffer), Some(staging_buffer)) = (&self.audio_buffer, &self.audio_staging_buffer) {
             let config = self.config.as_ref().unwrap();

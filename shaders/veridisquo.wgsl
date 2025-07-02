@@ -2,6 +2,8 @@
 // Veridis Quo - Mathematical/Shader Approach
 // Base frequencies for the main notes used in the song. This is also my first shader song, but I think it could be a nice example for cuneus. 
 // This song also probably always WIP, I will keep improving it over time by the time I implement more advanced audio synthesis techniques on cuneus.
+// Note numbers (basically tabs) based on my guitar feelings :-P so don't be confuse about those numbers and sorry for ignorance about music theory :D
+
 struct TimeUniform {
     time: f32,
     delta: f32,
@@ -10,7 +12,6 @@ struct TimeUniform {
 };
 @group(0) @binding(0) var<uniform> u_time: TimeUniform;
 @group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
-
 
 struct FontUniforms {
     atlas_size: vec2<f32>,
@@ -29,446 +30,241 @@ struct SongParams {
     tempo_multiplier: f32,
     waveform_type: u32,
     crossfade: f32,
+    reverb_mix: f32,
+    chorus_rate: f32,
+    _padding: f32,
 };
 @group(2) @binding(0) var<uniform> u_song: SongParams;
 
-const PI = 3.14159265359;
+const PI=3.14159265;
+const F5=698.46;
+const E5=659.25;
+const D5=587.33;
+const C5=523.25;
+const B4=493.88;
+const A4=440.;
+const F3=F5/4.;
+const B2=B4/4.;
+const E3=E5/4.;
+const A2=A4/4.;
 
-
-const F5 = 698.46;  // Fret 13
-const E5 = 659.25;  // Fret 12  
-const D5 = 587.33;  // Fret 10
-const C5 = 523.25;  // Fret 8
-const B4 = 493.88;  // Fret 7
-const A4 = 440.00;  // Fret 5
-
-fn get_veridis_quo_frequency_and_envelope(time_in_song: f32) -> vec3<f32> {
-    // 107 BPM = 107 quarter notes per minute = 1.785 quarter notes per second
-    // Each measure in 4/4 = 4 quarter notes = 4/1.785 = 2.24 seconds per measure
-    let measure_duration = 60.0 / 107.0 * 4.0;
-    let total_pattern = measure_duration * 7.0; 
-    let loop_time = time_in_song % total_pattern;
-    let measure = u32(loop_time / measure_duration);
-    let progress = fract(loop_time / measure_duration);
-    
-    var frequency = 440.0;
-    var envelope = 0.8;
-    var note_type = 0.0;
-    
-    switch measure {
-        case 0u: {
-            // Measure 1: 13-12-13-10 (F5-E5-F5-D5)
-            // first 4 notes in veridis quo is fast right? 
-            let phase = progress * 7.0;
-            let current_note = u32(min(phase, 3.99));
-            let note_progress = fract(phase);
-            
-            switch current_note {
-                case 0u: { 
-                    // Very subtle transitions
-                    if note_progress > u_song.crossfade {
-                        let transition = smoothstep(u_song.crossfade, 1.0, note_progress);
-                        frequency = mix(F5, E5, transition);
-                    } else {
-                        frequency = F5;
-                    }
-                    note_type = 5.0;
-                }
-                case 1u: { 
-                    if note_progress > u_song.crossfade {
-                        let transition = smoothstep(u_song.crossfade, 1.0, note_progress);
-                        frequency = mix(E5, F5, transition);
-                    } else {
-                        frequency = E5;
-                    }
-                    note_type = 4.0; 
-                }
-                case 2u: { 
-                    if note_progress > u_song.crossfade {
-                        let transition = smoothstep(u_song.crossfade, 1.0, note_progress);
-                        frequency = mix(F5, D5, transition);
-                    } else {
-                        frequency = F5;
-                    }
-                    note_type = 5.0; 
-                }
-                default: { 
-                    if phase > 4.0 {
-                        let padding_progress = (phase - 4.0) / 3.0; // Adjusted for phase * 7.0
-                        frequency = mix(D5, F5, smoothstep(0.0, 1.0, padding_progress * 0.3));
-                        envelope = 0.8 * (1.0 + padding_progress * 0.05);
-                    } else {
-                        frequency = D5;
-                    }
-                    note_type = 3.0; 
-                }
-            }
-            envelope = 0.8;
-        }
-        case 1u: {
-            // Measure 2: 13-12-13-7 (F5-E5-F5-B4)
-            let phase = progress * 7.0;
-            let current_note = u32(min(phase, 3.99));
-            let note_progress = fract(phase);
-            
-            switch current_note {
-                case 0u: { 
-                    if note_progress > u_song.crossfade {
-                        let transition = smoothstep(u_song.crossfade, 1.0, note_progress);
-                        frequency = mix(F5, E5, transition);
-                    } else {
-                        frequency = F5;
-                    }
-                    note_type = 5.0; 
-                }
-                case 1u: { 
-                    if note_progress > u_song.crossfade {
-                        let transition = smoothstep(u_song.crossfade, 1.0, note_progress);
-                        frequency = mix(E5, F5, transition);
-                    } else {
-                        frequency = E5;
-                    }
-                    note_type = 4.0; 
-                }
-                case 2u: { 
-                    if note_progress > u_song.crossfade {
-                        let transition = smoothstep(u_song.crossfade, 1.0, note_progress);
-                        frequency = mix(F5, B4, transition);
-                    } else {
-                        frequency = F5;
-                    }
-                    note_type = 5.0; 
-                }
-                default: { 
-                    if phase > 4.0 {
-                        let padding_progress = (phase - 4.0) / 3.0; 
-                        frequency = mix(B4, B4, smoothstep(0.0, 1.0, padding_progress));
-                        envelope = 0.8 * (1.0 + padding_progress * 0.1);
-                    } else {
-                        frequency = B4;
-                    }
-                    note_type = 1.0; 
-                }
-            }
-            // Don't override envelope if it was set in padding area
-            if phase <= 4.0 {
-                envelope = 0.8;
-            }
-        }
-        case 2u: {
-            // Measure 3: (7) - B4 TIE
-            if progress < 0.5 {
-                // B4 tie for first
-                frequency = B4;
-                note_type = 1.0;
-                let fade_progress = progress / 0.3;
-                 // Fade out B4
-                envelope = 0.57 * (1.0 - fade_progress);
-            } else {
-                // Start preparing for next section (E5-D5-E5-C5)
-                let prep_progress = (progress - 0.5) / 0.5;
-                frequency = mix(B4, E5, smoothstep(0.8, 1.0, prep_progress));
-                note_type = 4.0;
-                 // Crescendo into next section
-                envelope = 0.1 + prep_progress * 0.7;
-            }
-        }
-        case 3u: {
-            // Measure 4: 12-10-12-8 (E5-D5-E5-C5) - fast rhythm
-            let phase = progress * 7.0;
-            let current_note = u32(min(phase, 3.99));
-            let note_progress = fract(phase);
-            
-            switch current_note {
-                case 0u: { 
-                    if note_progress > u_song.crossfade {
-                        let transition = smoothstep(u_song.crossfade, 1.0, note_progress);
-                        frequency = mix(E5, D5, transition);
-                    } else {
-                        frequency = E5;
-                    }
-                    note_type = 4.0; 
-                }
-                case 1u: { 
-                    if note_progress > u_song.crossfade {
-                        let transition = smoothstep(u_song.crossfade, 1.0, note_progress);
-                        frequency = mix(D5, E5, transition);
-                    } else {
-                        frequency = D5;
-                    }
-                    note_type = 3.0; 
-                }
-                case 2u: { 
-                    if note_progress > u_song.crossfade {
-                        let transition = smoothstep(u_song.crossfade, 1.0, note_progress);
-                        frequency = mix(E5, C5, transition);
-                    } else {
-                        frequency = E5;
-                    }
-                    note_type = 4.0; 
-                }
-                default: { 
-                    if phase > 4.0 {
-                        let padding_progress = (phase - 4.0) / 3.0;
-                        frequency = mix(C5, E5, smoothstep(0.0, 1.0, padding_progress * 0.3));
-                        envelope = 0.8 * (1.0 + padding_progress * 0.05);
-                    } else {
-                        frequency = C5;
-                    }
-                    note_type = 2.0; 
-                }
-            }
-            envelope = 0.8;
-        }
-        
-        case 4u: {
-            // Measure 5: 12-10-12-5 (E5-D5-E5-A4) - ending in A4 tie
-            let phase = progress * 7.0;
-            let current_note = u32(min(phase, 3.99));
-            let note_progress = fract(phase);
-            
-            switch current_note {
-                case 0u: { 
-                    if note_progress > u_song.crossfade {
-                        let transition = smoothstep(u_song.crossfade, 1.0, note_progress);
-                        frequency = mix(E5, D5, transition);
-                    } else {
-                        frequency = E5;
-                    }
-                    note_type = 4.0; 
-                }
-                case 1u: { 
-                    if note_progress > u_song.crossfade {
-                        let transition = smoothstep(u_song.crossfade, 1.0, note_progress);
-                        frequency = mix(D5, E5, transition);
-                    } else {
-                        frequency = D5;
-                    }
-                    note_type = 3.0; 
-                }
-                case 2u: { 
-                    if note_progress > u_song.crossfade {
-                        let transition = smoothstep(u_song.crossfade, 1.0, note_progress);
-                        frequency = mix(E5, A4, transition);
-                    } else {
-                        frequency = E5;
-                    }
-                    note_type = 4.0; 
-                }
-                default: { 
-                    if phase > 4.0 {
-                        let padding_progress = (phase - 4.0) / 3.0;
-                        frequency = mix(A4, A4, smoothstep(0.0, 1.0, padding_progress));
-                        envelope = 0.8 * (2.0 + padding_progress * 0.1);
-                    } else {
-                        frequency = A4;
-                    }
-                    note_type = 0.0; 
-                }
-            }
-            envelope = 0.8;
-        }
-        case 5u: {
-            // Measure 6: (5) - A4 TIE
-            frequency = A4;
-            note_type = 0.0;
-            // Fade out the note over the measure.
-            envelope = 0.8 * (1.0 - progress * 0.95);
-        }
-        case 6u: {
-            // Measure 7: Rest/Pause before loop
-            // This measure is now completely silent to create a clean break before the loop.
-            frequency = 0.0;
-            note_type = 5.0; // Keep for visualizer consistency
-            envelope = 0.0;
-        }
-        default: {
-            frequency = A4;
-            note_type = 0.0;
-            envelope = 0.5;
-        }
-    }
-    envelope = max(envelope, 0.05);
-    
-    return vec3<f32>(frequency, envelope, note_type);
+fn legato(a:f32,b:f32,t:f32)->f32{
+    let s=1.-clamp(u_song.crossfade,0.,1.);
+    if(t<=s){return a;}
+    return mix(a,b,smoothstep(s,1.,t));
 }
 
-
-fn get_current_melody_info(song_time: f32, tempo_multiplier: f32, volume: f32, octave_shift: f32) -> vec4<f32> {
-    // Apply tempo multiplier
-    let adjusted_time = song_time * tempo_multiplier;
-    
-    let melody_result = get_veridis_quo_frequency_and_envelope(adjusted_time);
-    let frequency = melody_result.x;
-    let envelope = melody_result.y;
-    let note_type = melody_result.z;
-    
-    let final_envelope = envelope * volume;
-    
-    let adjusted_frequency = frequency * pow(2.0, octave_shift);
-    
-    return vec4<f32>(adjusted_frequency, final_envelope, 0.0, note_type);
-}
-
-fn generate_waveform(phase: f32, waveform_type: u32) -> f32 {
-    switch waveform_type {
-        case 0u: { //sine
-            return sin(phase);
-        }
-        case 1u: { // saw
-            return 2.0 * fract(phase / (2.0 * PI)) - 1.0;
-        }
-        case 2u: { // square
-            return select(-1.0, 1.0, sin(phase) > 0.0);
-        }
-        default: {
-            return sin(phase);
-        }
+fn note_col(n:f32)->vec3<f32>{
+    switch u32(n){
+        case 0u:{return vec3(1.,.3,.3);}
+        case 1u:{return vec3(1.,.6,0.);}
+        case 2u:{return vec3(1.,1.,.2);}
+        case 3u:{return vec3(.3,1.,.3);}
+        case 4u:{return vec3(.2,.7,1.);}
+        case 5u:{return vec3(.8,.3,1.);}
+        default:{return vec3(.5);}
     }
 }
 
-@compute @workgroup_size(16, 16, 1)
-fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
-    let dims = textureDimensions(output);
-    let coord = vec2<i32>(global_id.xy);
-    
-    if coord.x >= i32(dims.x) || coord.y >= i32(dims.y) {
-        return;
+fn measure_data(m:u32)->vec2<f32>{
+    switch m{
+        case 0u,4u:{return vec2(F5,5.);}
+        case 1u,5u:{return vec2(B4,1.);}
+        case 2u,6u:{return vec2(E5,4.);}
+        case 3u,7u:{return vec2(A4,0.);}
+        default:{return vec2(A4,0.);}
     }
-    
-    let uv = vec2<f32>(f32(coord.x) / f32(dims.x), f32(coord.y) / f32(dims.y));
-    
-    // CPU
-    let volume = u_song.volume; 
-    let octave_shift = u_song.octave_shift; 
-    let tempo_multiplier = u_song.tempo_multiplier; 
-    let waveform_type = u_song.waveform_type;
-    
-    let melody_info = get_current_melody_info(u_time.time, tempo_multiplier, volume, octave_shift);
-    let frequency = melody_info.x;
-    let envelope = melody_info.y;
-    let note_index = u32(melody_info.z);
-    let note_name = u32(melody_info.w);
-    
-    // Generate audio buffer (only from thread 0,0): same approach: debugscreen.wgsl/synth.wgsl
-    if global_id.x == 0u && global_id.y == 0u {
-        // Write audio metadata to buffer
-        audio_buffer[0] = frequency;
-        audio_buffer[1] = envelope * 0.4;
-        // Pass waveform type to CPU
-        audio_buffer[2] = f32(waveform_type);
-        
-        let sample_start = 3u;
-        var previous_phase = 0.0;
-        
-        for (var i = 0u; i < 1024u; i++) {
-            let sample_time = u_time.time + f32(i) * (1.0 / 44100.0);
-            let sample_melody_info = get_current_melody_info(sample_time, tempo_multiplier, volume, octave_shift);
-            let sample_freq = sample_melody_info.x;
-            let sample_env = sample_melody_info.y;
-            
-            var final_sample = 0.0;
-            if sample_freq > 0.0 && sample_env > 0.001 {
-                let phase_increment = sample_freq * 2.0 * PI * (1.0 / 44100.0);
-                previous_phase += phase_increment;
-                
-                let waveform_sample = generate_waveform(previous_phase, waveform_type);
-                
-                final_sample = waveform_sample * sample_env * 0.3;
-                
-                final_sample = final_sample * 0.8;
-            } else {
+}
 
-                final_sample = 0.0;
-                previous_phase = 0.0;
-            }
-            
-            audio_buffer[sample_start + i] = final_sample;
-        }
-    }
-    var color = vec3<f32>(0.02, 0.01, 0.08);
-    let wave_distortion = sin(uv.x * 6.0 + u_time.time * 1.5) * 0.3;
-    let freq_factor = frequency / 700.0;
-    color += vec3<f32>(0.05, 0.02, 0.1) * wave_distortion * freq_factor;
-    let progress_bar_height = 0.03;
-    let progress_y = 0.95;
-    if uv.y > progress_y && uv.y < progress_y + progress_bar_height {
-        let song_duration = 14.0;
-        let song_progress = (u_time.time % song_duration) / song_duration;
-        if uv.x < song_progress {
-            color = vec3<f32>(0.0, 0.7, 1.0);
-        } else {
-            color = vec3<f32>(0.15, 0.15, 0.3);
-        }
-    }
-    
-    let visualizer_center_y = 0.5;
-    let pattern_width = 0.8;
-    let pattern_start_x = 0.1;
-    let pattern_height = 0.4;
-    
-    for (var measure = 0u; measure < 7u; measure++) {
-        let measure_width = pattern_width / 7.0;
-        let measure_x = pattern_start_x + f32(measure) * measure_width;
+@compute @workgroup_size(16,16,1)
+fn main(@builtin(global_invocation_id) g:vec3<u32>){
+    let d=textureDimensions(output);
+    if(g.x>=d.x||g.y>=d.y){return;}
+    var mf=0.;
+    var ev=0.;
+    var nt=0.;
+
+    if(g.x<1u&&g.y<1u){
+        let T=u_time.time*u_song.tempo_multiplier;
+        let md=(60./107.)*4.;
+        let td=md*8.;
+        let lt=T%td;
+        let m=u32(lt/md);
+        let pm=fract(lt/md);
+        var mel=0.;
+        var ma=1.;
+        var bas=0.;
+        var ba=.7;
+        let pd=.25;
+        let sh=.125;
+        let p2s=pd+sh;
+        let p2e=p2s+pd;
         
-        if uv.x >= measure_x && uv.x <= measure_x + measure_width * 0.9 {
-            let measure_progress = (uv.x - measure_x) / measure_width;
-            
-            let measure_time = f32(measure) * 2.0;
-            let test_melody = get_veridis_quo_frequency_and_envelope(measure_time + measure_progress * 2.0);
-            let measure_freq = test_melody.x;
-            let measure_note_type = test_melody.z;
-            
-            let freq_norm = (measure_freq - 440.0) / (698.46 - 440.0);
-            let bar_height = mix(0.1, pattern_height, freq_norm);
-            let bar_bottom = visualizer_center_y - bar_height * 0.5;
-            let bar_top = visualizer_center_y + bar_height * 0.5;
-            
-            if uv.y >= bar_bottom && uv.y <= bar_top {
-                let current_measure = u32((u_time.time % (7.0 * 2.0)) / 2.0);
-                
-                if measure == current_measure && frequency > 0.0 {
-                    let pulse = sin(u_time.time * 8.0) * 0.4 + 0.8;
-                    color = vec3<f32>(1.0, 0.9, 0.2) * pulse;
-                } else {
-                    let note_color = get_note_color(u32(measure_note_type));
-                    color = note_color * 0.6;
+        switch m{
+            case 0u,4u:{
+                bas=F3;
+                if(pm<pd){
+                    let p=pm/pd;
+                    let n=fract(p*4.);
+                    switch u32(floor(p*4.)){
+                        case 0u:{mel=legato(F5,E5,n);nt=5.;}
+                        case 1u:{mel=legato(E5,F5,n);nt=4.;}
+                        case 2u:{mel=legato(F5,D5,n);nt=5.;}
+                        default:{mel=D5;nt=3.;}
+                    }
+                }
+                else if(pm<p2s){mel=D5;nt=3.;}
+                else if(pm<p2e){
+                    let p=(pm-p2s)/pd;
+                    let n=fract(p*4.);
+                    switch u32(floor(p*4.)){
+                        case 0u:{mel=legato(F5,E5,n);nt=5.;}
+                        case 1u:{mel=legato(E5,F5,n);nt=4.;}
+                        case 2u:{mel=legato(F5,B4,n);nt=5.;}
+                        default:{mel=B4;nt=1.;}
+                    }
+                }
+                else{mel=B4;nt=1.;}
+            }
+            case 1u,5u:{
+                mel=B4;bas=B2;nt=1.;
+                let dc=mix(1.,.1,pm);
+                let tr=sin(T*8.)*.05;
+                let rb=sin(pm*PI)*u_song.reverb_mix*.5;
+                ma=dc+tr+rb;
+            }
+            case 2u:{
+                bas=E3;
+                if(pm<pd){
+                    let p=pm/pd;
+                    let n=fract(p*4.);
+                    switch u32(floor(p*4.)){
+                        case 0u:{mel=legato(E5,D5,n);nt=4.;}
+                        case 1u:{mel=legato(D5,E5,n);nt=3.;}
+                        case 2u:{mel=legato(E5,C5,n);nt=4.;}
+                        default:{mel=C5;nt=2.;}
+                    }
+                }
+                else if(pm<p2s){mel=C5;nt=2.;}
+                else if(pm<p2e){
+                    let p=(pm-p2s)/pd;
+                    let n=fract(p*4.);
+                    switch u32(floor(p*4.)){
+                        case 0u:{mel=legato(E5,D5,n);nt=4.;}
+                        case 1u:{mel=legato(D5,E5,n);nt=3.;}
+                        case 2u:{mel=legato(E5,A4,n);nt=4.;}
+                        default:{mel=A4;nt=0.;}
+                    }
+                }
+                else{mel=A4;nt=0.;}
+            }
+            case 3u,7u:{
+                mel=A4;bas=A2;nt=0.;
+                let dc=mix(1.,.15,pm);
+                let tr=sin(T*8.)*.05;
+                let rb=sin(pm*PI)*u_song.reverb_mix*.5;
+                ma=dc+tr+rb;
+            }
+            case 6u:{
+                bas=E3;
+                let rd=.5;
+                if(pm<rd){
+                    let p=pm/rd;
+                    let n=fract(p*8.);
+                    switch u32(floor(p*8.)){
+                        case 0u:{mel=legato(E5,D5,n);nt=4.;}
+                        case 1u:{mel=legato(D5,E5,n);nt=3.;}
+                        case 2u:{mel=legato(E5,C5,n);nt=4.;}
+                        case 3u:{mel=legato(C5,E5,n);nt=2.;}
+                        case 4u:{mel=legato(E5,D5,n);nt=4.;}
+                        case 5u:{mel=legato(D5,E5,n);nt=3.;}
+                        case 6u:{mel=legato(E5,A4,n);nt=4.;}
+                        default:{mel=A4;nt=0.;}
+                    }
+                }
+                else{mel=A4;nt=0.;}
+            }
+            default:{}
+        }
+        if(m==1u||m==3u||m==5u||m==7u){ba*=1.-pm*.5;}
+        mf=mel;
+        ev=clamp(ma,0.,1.);
+        let fm=mel*pow(2.,u_song.octave_shift);
+        let fb=bas*pow(2.,u_song.octave_shift);
+        let fma=ma*u_song.volume;
+        let fba=ba*u_song.volume*.7;
+        var cm=1.;
+        if(u_song.chorus_rate>0.){
+            cm=1.+sin(T*u_song.chorus_rate)*.005;
+        }
+        
+        audio_buffer[0]=mf;
+        audio_buffer[1]=ev;
+        audio_buffer[2]=f32(u_song.waveform_type);
+        audio_buffer[3]=fm*cm;
+        audio_buffer[4]=fma;
+        audio_buffer[5]=fb*cm;
+        audio_buffer[6]=fba;
+        for(var i=2u;i<16u;i++){
+            audio_buffer[3u+i*2u]=0.;
+            audio_buffer[3u+i*2u+1u]=0.;
+        }
+    }
+    
+    let freq=audio_buffer[0];
+    let env=audio_buffer[1];
+    let uv=vec2<f32>(g.xy)/vec2<f32>(d);
+    var col=vec3(.02,.01,.08);
+    let cy=.5;
+    let pw=.8;
+    let px=.1;
+    let ph=.4;
+    let md=(60./107.)*4.;
+    let td=md*8.;
+    let st=u_time.time*u_song.tempo_multiplier;
+    let cm=u32((st%td)/md);
+    
+    for(var m=0u;m<8u;m++){
+        let mw=pw/8.;
+        let mx=px+f32(m)*mw;
+        if(uv.x>=mx&&uv.x<=mx+mw*.9){
+            let mi=measure_data(m);
+            let mf=mi.x;
+            let mn=mi.y;
+            let fr=(mf-440.)/(698.46-440.);
+            let bh=mix(.1,ph,fr);
+            let bb=cy-bh*.5;
+            let bt=cy+bh*.5;
+            if(uv.y>=bb&&uv.y<=bt){
+                if(m==cm&&env>.01){
+                    col=vec3(1.,.9,.2)*(sin(u_time.time*8.)*.4+.8);
+                }else{
+                    col=note_col(mn)*.6;
                 }
             }
         }
     }
     
-    if uv.y < 0.12 {
-        let spectrum_freq = mix(400.0, 800.0, uv.x);
-        let freq_distance = abs(spectrum_freq - frequency);
-        let freq_response = exp(-freq_distance / 30.0);
-        let spectrum_intensity = freq_response * envelope;
-        
-        let spectrum_bar_height = uv.y / 0.12;
-        if spectrum_bar_height < spectrum_intensity && frequency > 0.0 {
-            color += vec3<f32>(spectrum_intensity * 0.8, spectrum_intensity * 0.4, 0.1);
+    if(uv.y<.12){
+        let sf=mix(400.,800.,uv.x);
+        let fd=abs(sf-freq);
+        let fr=exp(-fd/30.);
+        let si=fr*env;
+        let sh=uv.y/.12;
+        if(sh<si&&env>.01){col+=vec3(si*.8,si*.4,.1);}
+    }
+    
+    let pbh=.02;
+    if(uv.y>.95&&uv.y<.95+pbh){
+        let sp=(st%td)/td;
+        if(uv.x<sp){
+            col=mix(col,vec3(0.,.7,1.),.8);
+        }else{
+            col=mix(col,vec3(.15,.15,.3),.8);
         }
     }
     
-    if uv.y > 0.88 && uv.y < 0.95 {
-        let title_glow = sin(uv.x * 12.0 + u_time.time * 2.0) * 0.3 + 0.5;
-        color = mix(color, vec3<f32>(0.8, 0.8, 1.0), title_glow * 0.4);
-    }
-    
-    let ambient_glow = envelope * 0.15;
-    color += vec3<f32>(ambient_glow * 0.3, ambient_glow * 0.5, ambient_glow * 0.8);
-    
-    textureStore(output, global_id.xy, vec4<f32>(color, 1.0));
-}
-
-fn get_note_color(note_name: u32) -> vec3<f32> {
-    switch note_name {
-        case 0u: { return vec3<f32>(1.0, 0.3, 0.3); }
-        case 1u: { return vec3<f32>(1.0, 0.6, 0.0); }
-        case 2u: { return vec3<f32>(1.0, 1.0, 0.2); }
-        case 3u: { return vec3<f32>(0.3, 1.0, 0.3); }
-        case 4u: { return vec3<f32>(0.2, 0.7, 1.0); }
-        case 5u: { return vec3<f32>(0.8, 0.3, 1.0); }
-        default: { return vec3<f32>(0.5, 0.5, 0.5); }
-    }
+    let ag=env*.1;
+    col+=vec3(ag*.1,ag*.3,ag*.1);
+    textureStore(output,g.xy,vec4(col,1.));
 }
