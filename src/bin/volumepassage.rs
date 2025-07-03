@@ -18,6 +18,10 @@ struct VolumeParams {
     color3_g: f32,
     color3_b: f32,
     gamma: f32,
+    zoom: f32,
+    _padding1: f32,
+    _padding2: f32,
+    _padding3: f32,
 }
 
 impl UniformProvider for VolumeParams {
@@ -134,6 +138,10 @@ impl ShaderManager for VolumeShader {
                 color3_g: 1.0,
                 color3_b: 1.0,
                 gamma: 0.8,
+                zoom: 1.0,
+                _padding1: 0.0,
+                _padding2: 0.0,
+                _padding3: 0.0,
             },
             &params_bind_group_layout,
             0,
@@ -306,6 +314,7 @@ impl ShaderManager for VolumeShader {
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.intensity, 0.0001..=0.01).logarithmic(true).text("Intensity")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.gamma, 0.1..=3.0).text("Gamma")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.zoom, 0.1..=6.0).text("Zoom")).changed();
                             });
                             
                         egui::CollapsingHeader::new("Colors")

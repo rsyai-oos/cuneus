@@ -22,6 +22,10 @@ struct VolumeParams {
     color3_g: f32,
     color3_b: f32,
     gamma: f32,
+    zoom: f32,
+    _padding1: f32,
+    _padding2: f32,
+    _padding3: f32,
 };
 @group(1) @binding(0) var<uniform> params: VolumeParams;
 
@@ -98,7 +102,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         i += 1.0;
         z += d * 0.6;
         
-        var p = z * normalize(v3(C - 0.5 * r.xy, r.y));
+        var p = z * normalize(v3((C - 0.5 * r.xy) / params.zoom, r.y));
         p.z += t;
         
         let R_mat = mm2(p.z * 1.1);
