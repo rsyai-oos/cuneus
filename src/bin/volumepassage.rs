@@ -160,7 +160,7 @@ impl ShaderManager for VolumeShader {
             0,
         );
         
-        let shader_source = include_str!("../../shaders/volume.wgsl");
+        let shader_source = include_str!("../../shaders/volumepassage.wgsl");
         let cs_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Volume Compute Shader"),
             source: wgpu::ShaderSource::Wgsl(shader_source.into()),
