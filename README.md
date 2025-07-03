@@ -12,9 +12,9 @@ A tool for experimenting with WGSL shaders, it uses `wgpu` for rendering, `egui`
 - Multi-pass, atomics etc
 - Interactive parameter adjustment, ez media imports through egui
 - Easily use HDR textures via UI
-- Easily use your own videos/webcam as textures (thanks to the `gstreamer`)
-- Audio/Visual synchronization: Spectrum and BPM detection via `gstreamer`
-- Real-time audio synthesis: Generate music directly from wgsl shaders (thanks to `gstreamer`)
+- Easily use your own videos/webcam as textures
+- Audio/Visual synchronization: Spectrum and BPM detection
+- Real-time audio synthesis: Generate music directly from wgsl shaders
 - Export HQ frames via egui
 
 
