@@ -133,7 +133,7 @@ impl ShaderManager for VolumeShader {
                 color3_r: 1.0,
                 color3_g: 1.0,
                 color3_b: 1.0,
-                gamma: 0.4,
+                gamma: 0.8,
             },
             &params_bind_group_layout,
             0,

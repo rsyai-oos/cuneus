@@ -60,6 +60,24 @@ fn mm2(a: f32) -> m2 {
     return m2(c, -s, s, c);
 }
 
+fn aces_tonemap(color: v3) -> v3 {
+    const m1 = mat3x3<f32>(
+        0.59719, 0.07600, 0.02840,
+        0.35458, 0.90834, 0.13383,
+        0.04823, 0.01566, 0.83777
+    );
+    const m2 = mat3x3<f32>(
+        1.60475, -0.10208, -0.00327,
+        -0.53108,  1.10813, -0.07276,
+        -0.07367, -0.00605,  1.07602
+    );
+
+    var v = m1 * color;    
+    var a = v * (v + 0.0245786) - 0.000090537;
+    var b = v * (0.983729 * v + 0.4329510) + 0.238081;
+    return m2 * (a / b);
+}
+
 @compute @workgroup_size(8, 8, 1)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let dims = textureDimensions(output);
@@ -101,6 +119,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     }
     
     var result = tanh(o * params.intensity);
+    result = aces_tonemap(result);
     result = pow(result, v3(1.0 / params.gamma));
     textureStore(output, gid.xy, v4(result, 1.0));
 }
