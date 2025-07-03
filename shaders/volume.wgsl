@@ -21,7 +21,7 @@ struct VolumeParams {
     color3_r: f32,
     color3_g: f32,
     color3_b: f32,
-    contrast: f32,
+    gamma: f32,
 };
 @group(1) @binding(0) var<uniform> params: VolumeParams;
 
@@ -100,6 +100,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         o += c / d * 0.12;
     }
     
-    let result = tanh(o * params.intensity * params.contrast);
+    var result = tanh(o * params.intensity);
+    result = pow(result, v3(1.0 / params.gamma));
     textureStore(output, gid.xy, v4(result, 1.0));
 }
