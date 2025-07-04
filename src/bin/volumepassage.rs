@@ -168,7 +168,7 @@ impl ShaderManager for VolumeShader {
         
         let hot_reload = cuneus::ShaderHotReload::new_compute(
             core.device.clone(),
-            PathBuf::from("shaders/volume.wgsl"),
+            PathBuf::from("shaders/volumepassage.wgsl"),
             cs_module.clone(),
             "main",
         ).expect("Failed to initialize hot reload");
