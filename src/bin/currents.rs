@@ -22,9 +22,13 @@ struct CurrentsParams {
     gradient_r: f32,
     gradient_g: f32,
     gradient_b: f32,
+    gradient_w: f32,
     line_color_r: f32,
     line_color_g: f32,
     line_color_b: f32,
+    line_color_w: f32,
+    gradient_intensity: f32,
+    line_intensity_final: f32,
     gamma: f32,
 }
 
@@ -41,12 +45,16 @@ impl Default for CurrentsParams {
             line_intensity: 0.8,
             pattern_scale: 150.0,
             noise_strength: 1.0,
-            gradient_r: 0.92,
-            gradient_g: 0.16,
-            gradient_b: 0.20,
-            line_color_r: 0.8,
-            line_color_g: 0.68,
-            line_color_b: 0.82,
+            gradient_r: 1.0,
+            gradient_g: 2.0,
+            gradient_b: 3.0,
+            gradient_w: 4.0,
+            line_color_r: 1.0,
+            line_color_g: 2.0,
+            line_color_b: 3.0,
+            line_color_w: 4.0,
+            gradient_intensity: 1.5,
+            line_intensity_final: 1.5,
             gamma: 2.1,
         }
     }
@@ -834,6 +842,10 @@ impl ShaderManager for CurrentsShader {
                                         changed = true;
                                     }
                                 });
+                                
+                                ui.separator();
+                                changed |= ui.add(egui::Slider::new(&mut params.gradient_intensity, 0.1..=2.0).text("Gradient Intensity")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.line_intensity_final, 0.1..=2.0).text("Line Final Intensity")).changed();
                                 
                                 ui.separator();
                                 changed |= ui.add(egui::Slider::new(&mut params.line_intensity, 0.1..=3.0).text("Line Intensity")).changed();

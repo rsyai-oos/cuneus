@@ -27,9 +27,13 @@ struct CurrentsParams {
     gradient_r: f32,
     gradient_g: f32,
     gradient_b: f32,
+    gradient_w: f32,
     line_color_r: f32,
     line_color_g: f32,
     line_color_b: f32,
+    line_color_w: f32,
+    gradient_intensity: f32,
+    line_intensity_final: f32,
     gamma: f32,
 }
 @group(1) @binding(0) var<uniform> params: CurrentsParams;
@@ -358,8 +362,11 @@ fn buffer_d(@builtin(global_invocation_id) gid: vec3<u32>) {
     let buffer_b = sample_input2(U); // BufferB (ichannel2)
     
 
-    Q += 1.5 * (4.0 - v4(1.0, 2.0, 3.0, 4.0)) * exp(-length(U - buffer_c.xy));
-    Q += 1.5 * v4(1.0, 2.0, 3.0, 4.0) * exp(-length(U - buffer_b.xy));
+    let grad_col = v4(params.gradient_r, params.gradient_g, params.gradient_b, params.gradient_w);
+    let line_col = v4(params.line_color_r, params.line_color_g, params.line_color_b, params.line_color_w);
+    
+    Q += params.gradient_intensity * (4.0 - grad_col) * exp(-length(U - buffer_c.xy));
+    Q += params.line_intensity_final * line_col * exp(-length(U - buffer_b.xy));
     
     textureStore(output, gid.xy, Q);
 }
