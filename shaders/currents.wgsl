@@ -1,3 +1,4 @@
+// Photon tracing: currents
 // Very complex example demonstrating multi-buffer ping-pong computation
 // I hope this example is useful for those who came from the Shadertoy, I tried to use same terminology (bufferA, ichannels etc)
 // I used the all buffers (buffera,b,c,d,mainimage) and complex ping-pong logic 
