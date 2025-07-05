@@ -3,7 +3,7 @@
 // I used the all buffers (buffera,b,c,d,mainimage) and complex ping-pong logic 
 // This photon tracing technique is from Wyatt's https://www.shadertoy.com/view/tfB3Rw code, "fractal with photon tracking", 2025.
 // (my pattern is different but the rendering method is directly coming from this code)
-// Be aware though, If you do anything with this rendering technique, you should definitely ask Wyatt about licensing (wyatthf@gmail.com). The goal here is to reproduce a complex shadertoy code in cuneus.
+// Be aware though, If you do anything commercial with this rendering technique, you should definitely ask Wyatt about licensing (wyatthf@gmail.com). The goal here is to reproduce a complex but meaningful shadertoy code in cuneus.
 
 struct TimeUniform {
     time: f32,
@@ -34,6 +34,12 @@ struct CurrentsParams {
     line_color_w: f32,
     gradient_intensity: f32,
     line_intensity_final: f32,
+    c2_min: f32,
+    c2_max: f32,
+    c3_min: f32,
+    c3_max: f32,
+    fbm_scale: f32,
+    fbm_offset: f32,
     gamma: f32,
 }
 @group(1) @binding(0) var<uniform> params: CurrentsParams;
@@ -180,7 +186,7 @@ fn buffer_a(@builtin(global_invocation_id) gid: vec3<u32>) {
    // pattern coords  
     var duv = uv * v2(params.pattern_scale, params.pattern_scale * 0.87) + v2(0.0, 20.0);
      // oscillator 3
-    let c3 = op(1.0, 3.0, params.critic3_interval, 0.0, time_data.time);
+    let c3 = op(params.c3_min, params.c3_max, params.critic3_interval, 0.0, time_data.time);
     // warp pattern
     duv *= distance(uv, v2(1.5, -2.0)) / c3;
      // sphere influence
@@ -188,9 +194,9 @@ fn buffer_a(@builtin(global_invocation_id) gid: vec3<u32>) {
      // distortion mask
     let dw = smoothstep(0.0, 2.0, 1.0 - distance(uv * 0.5, v2(0.4, -0.85)));
      // oscillator 2
-    let c2 = op(333.0, 1.0, params.critic2_interval, params.critic2_pause, time_data.time);
+    let c2 = op(params.c2_min, params.c2_max, params.critic2_interval, params.critic2_pause, time_data.time);
      // add noise distortion
-    duv += (fbm(uv * 4.0) - 1.0) * dw * c2;
+    duv += (fbm(uv * params.fbm_scale) - params.fbm_offset) * dw * c2;
     // line pattern
     let lp = sin(duv.x + duv.y);
      // diagonal metric

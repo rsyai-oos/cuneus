@@ -29,6 +29,12 @@ struct CurrentsParams {
     line_color_w: f32,
     gradient_intensity: f32,
     line_intensity_final: f32,
+    c2_min: f32,
+    c2_max: f32,
+    c3_min: f32,
+    c3_max: f32,
+    fbm_scale: f32,
+    fbm_offset: f32,
     gamma: f32,
 }
 
@@ -55,6 +61,12 @@ impl Default for CurrentsParams {
             line_color_w: 4.0,
             gradient_intensity: 1.5,
             line_intensity_final: 1.5,
+            c2_min: 333.0,
+            c2_max: 1.0,
+            c3_min: 1.0,
+            c3_max: 3.0,
+            fbm_scale: 4.0,
+            fbm_offset: 1.0,
             gamma: 2.1,
         }
     }
@@ -816,6 +828,24 @@ impl ShaderManager for CurrentsShader {
                                 changed |= ui.add(egui::Slider::new(&mut params.critic2_pause, 1.0..=10.0).text("Flow Pause")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.critic3_interval, 5.0..=20.0).text("Scale Interval")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.noise_strength, 0.5..=5.0).text("Noise Strength")).changed();
+                            });
+
+                        egui::CollapsingHeader::new("Noise")
+                            .default_open(false)
+                            .show(ui, |ui| {
+                                ui.label("Oscillator 2 (c2):");
+                                changed |= ui.add(egui::Slider::new(&mut params.c2_min, 1.0..=500.0).text("C2 Min")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.c2_max, 0.1..=10.0).text("C2 Max")).changed();
+                                
+                                ui.separator();
+                                ui.label("Oscillator 3 (c3):");
+                                changed |= ui.add(egui::Slider::new(&mut params.c3_min, 0.1..=10.0).text("C3 Min")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.c3_max, 0.5..=10.0).text("C3 Max")).changed();
+                                
+                                ui.separator();
+                                ui.label("FBM Noise:");
+                                changed |= ui.add(egui::Slider::new(&mut params.fbm_scale, 1.0..=10.0).text("FBM Scale")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.fbm_offset, 0.1..=5.0).text("FBM Offset")).changed();
                             });
 
                         egui::CollapsingHeader::new("Colors & Post-Processing")
