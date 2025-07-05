@@ -4,6 +4,7 @@
 use cuneus::prelude::*;
 use cuneus::compute::*;
 use winit::event::WindowEvent;
+use std::path::PathBuf;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -84,6 +85,7 @@ struct CurrentsShader {
     
     frame_count: u32,
     buffer_flip: bool,
+    hot_reload: ShaderHotReload,
 }
 
 impl CurrentsShader {
@@ -340,6 +342,13 @@ impl ShaderManager for CurrentsShader {
             label: Some("Currents Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/currents.wgsl").into()),
         });
+
+        let hot_reload = ShaderHotReload::new_compute(
+            core.device.clone(),
+            PathBuf::from("shaders/currents.wgsl"),
+            cs_module.clone(),
+            "buffer_a",
+        ).expect("Failed to initialize hot reload");
         
         let buffer_a_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
@@ -446,10 +455,96 @@ impl ShaderManager for CurrentsShader {
             multi_texture_layout,
             frame_count: 0,
             buffer_flip: false,
+            hot_reload,
         }
     }
     
-    fn update(&mut self, _core: &Core) {
+    fn update(&mut self, core: &Core) {
+        if let Some(new_shader) = self.hot_reload.reload_compute_shader() {
+            println!("Reloading Currents shader at time: {:.2}s", self.base.start_time.elapsed().as_secs_f32());
+            
+            // Recreate all pipeline layouts
+            let time_layout = create_bind_group_layout(&core.device, BindGroupLayoutType::TimeUniform, "Currents Compute");
+            let params_layout = create_bind_group_layout(&core.device, BindGroupLayoutType::CustomUniform, "Currents Params");
+            let storage_layout = create_bind_group_layout(&core.device, BindGroupLayoutType::StorageTexture, "Currents Storage");
+            
+            let buffer_a_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Updated Buffer A Layout"),
+                bind_group_layouts: &[&time_layout, &params_layout, &storage_layout, &self.multi_texture_layout],
+                push_constant_ranges: &[],
+            });
+            
+            let buffer_b_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Updated Buffer B Layout"),
+                bind_group_layouts: &[&time_layout, &params_layout, &storage_layout, &self.multi_texture_layout],
+                push_constant_ranges: &[],
+            });
+            
+            let buffer_c_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Updated Buffer C Layout"),
+                bind_group_layouts: &[&time_layout, &params_layout, &storage_layout, &self.multi_texture_layout],
+                push_constant_ranges: &[],
+            });
+            
+            let buffer_d_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Updated Buffer D Layout"),
+                bind_group_layouts: &[&time_layout, &params_layout, &storage_layout, &self.multi_texture_layout],
+                push_constant_ranges: &[],
+            });
+            
+            let main_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Updated Main Layout"),
+                bind_group_layouts: &[&time_layout, &params_layout, &storage_layout, &self.multi_texture_layout],
+                push_constant_ranges: &[],
+            });
+
+            // Recreate all pipelines
+            self.buffer_a_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("Updated Buffer A Pipeline"),
+                layout: Some(&buffer_a_layout),
+                module: &new_shader,
+                entry_point: Some("buffer_a"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                cache: None,
+            });
+            
+            self.buffer_b_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("Updated Buffer B Pipeline"),
+                layout: Some(&buffer_b_layout),
+                module: &new_shader,
+                entry_point: Some("buffer_b"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                cache: None,
+            });
+            
+            self.buffer_c_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("Updated Buffer C Pipeline"),
+                layout: Some(&buffer_c_layout),
+                module: &new_shader,
+                entry_point: Some("buffer_c"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                cache: None,
+            });
+            
+            self.buffer_d_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("Updated Buffer D Pipeline"),
+                layout: Some(&buffer_d_layout),
+                module: &new_shader,
+                entry_point: Some("buffer_d"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                cache: None,
+            });
+            
+            self.main_image_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("Updated Main Image Pipeline"),
+                layout: Some(&main_layout),
+                module: &new_shader,
+                entry_point: Some("main_image"),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                cache: None,
+            });
+        }
+        
         self.base.fps_tracker.update();
     }
     

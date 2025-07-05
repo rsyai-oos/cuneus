@@ -62,7 +62,7 @@ fn hash(p4: v4) -> v4 {
     return fract((p.xxyz + p.yzzw) * p.zywx);
 }
 
-// utility for smooth oscilation
+// utility for smooth oscillation
 fn op(min_val: f32, max_val: f32, interval: f32, p_d: f32, current_time: f32) -> f32 {
     let cycle_time = 2.0 * interval + p_d;
     let t = current_time % cycle_time;
