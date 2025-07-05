@@ -9,6 +9,7 @@ Cuneus is a Rust-based GPU shader engine that simplifies creating interactive vi
    - `sinh.rs` - Fragment shader with interactive parameters  
    - `audiovis.rs` - Media processing with audio spectrum analysis
    - `fft.rs`, `spiral.rs` - Media kit usage (input as video/texture/webcam/hdri)
+   - `currents.rs` - Complex 5-buffer ping-pong system (if you familar Shadertoy, this is a good example to start with since I tried to use similar terminology)
 
 2.  **Customize the template** for your effect.
 3.  **Write your WGSL shader** and iterate with hot-reloading.
