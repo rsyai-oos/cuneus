@@ -36,6 +36,16 @@ struct CurrentsParams {
     c3_max: f32,
     fbm_scale: f32,
     fbm_offset: f32,
+    pattern_mode: f32, // 0.0 = currents, 1.0 = mandelbrot
+    // Mandelbrot-specific parameters
+    mandel_zoom_min: f32,
+    mandel_zoom_max: f32,
+    mandel_pan_x: f32,
+    mandel_pan_y: f32,
+    mandel_trap1_x: f32,
+    mandel_trap1_y: f32,
+    mandel_trap2_x: f32,
+    mandel_trap2_y: f32,
     gamma: f32,
 }
 
@@ -68,6 +78,16 @@ impl Default for CurrentsParams {
             c3_max: 3.0,
             fbm_scale: 4.0,
             fbm_offset: 1.0,
+            pattern_mode: 0.0, // default to currents
+            // Mandelbrot defaults
+            mandel_zoom_min: 0.0008,
+            mandel_zoom_max: 0.0008,
+            mandel_pan_x: 0.8086,
+            mandel_pan_y: 0.2607,
+            mandel_trap1_x: 0.0,
+            mandel_trap1_y: 1.0,
+            mandel_trap2_x: -0.5,
+            mandel_trap2_y: 2.0,
             gamma: 2.1,
         }
     }
@@ -812,42 +832,89 @@ impl ShaderManager for CurrentsShader {
                     .resizable(true)
                     .default_width(280.0)
                     .show(ctx, |ui| {
-                        egui::CollapsingHeader::new("Sphere Settings")
-                            .default_open(false)
+                        egui::CollapsingHeader::new("Pattern Mode")
+                            .default_open(true)
                             .show(ui, |ui| {
-                                changed |= ui.add(egui::Slider::new(&mut params.sphere_radius, 0.05..=0.5).text("Sphere Radius")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.sphere_pos_x, -1.0..=1.0).text("Sphere X")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.sphere_pos_y, -1.0..=1.0).text("Sphere Y")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.metallic_reflection, 0.5..=3.0).text("Metallic Reflection")).changed();
+                                ui.horizontal(|ui| {
+                                    ui.label("Mode:");
+                                    if ui.selectable_label(params.pattern_mode < 0.5, "Currents").clicked() {
+                                        params.pattern_mode = 0.0;
+                                        changed = true;
+                                    }
+                                    if ui.selectable_label(params.pattern_mode >= 0.5, "Mandelbrot").clicked() {
+                                        params.pattern_mode = 1.0;
+                                        changed = true;
+                                    }
+                                });
                             });
 
-                        egui::CollapsingHeader::new("Pattern Control")
-                            .default_open(false)
-                            .show(ui, |ui| {
-                                changed |= ui.add(egui::Slider::new(&mut params.pattern_scale, 50.0..=300.0).text("Pattern Scale")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.critic2_interval, 5.0..=20.0).text("Flow Interval")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.critic2_pause, 1.0..=10.0).text("Flow Pause")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.critic3_interval, 5.0..=20.0).text("Scale Interval")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.noise_strength, 0.5..=5.0).text("Noise Strength")).changed();
-                            });
+                        // Show different UI sections based on mode
+                        if params.pattern_mode < 0.5 {
+                            // CURRENTS MODE UI
+                            egui::CollapsingHeader::new("Sphere Settings")
+                                .default_open(false)
+                                .show(ui, |ui| {
+                                    changed |= ui.add(egui::Slider::new(&mut params.sphere_radius, 0.05..=0.5).text("Sphere Radius")).changed();
+                                    changed |= ui.add(egui::Slider::new(&mut params.sphere_pos_x, -1.0..=1.0).text("Sphere X")).changed();
+                                    changed |= ui.add(egui::Slider::new(&mut params.sphere_pos_y, -1.0..=1.0).text("Sphere Y")).changed();
+                                    changed |= ui.add(egui::Slider::new(&mut params.metallic_reflection, 0.5..=3.0).text("Metallic Reflection")).changed();
+                                });
 
-                        egui::CollapsingHeader::new("Noise")
-                            .default_open(false)
-                            .show(ui, |ui| {
-                                ui.label("Oscillator 2 (c2):");
-                                changed |= ui.add(egui::Slider::new(&mut params.c2_min, 1.0..=500.0).text("C2 Min")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.c2_max, 0.1..=10.0).text("C2 Max")).changed();
-                                
-                                ui.separator();
-                                ui.label("Oscillator 3 (c3):");
-                                changed |= ui.add(egui::Slider::new(&mut params.c3_min, 0.1..=10.0).text("C3 Min")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.c3_max, 0.5..=10.0).text("C3 Max")).changed();
-                                
-                                ui.separator();
-                                ui.label("FBM Noise:");
-                                changed |= ui.add(egui::Slider::new(&mut params.fbm_scale, 1.0..=10.0).text("FBM Scale")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.fbm_offset, 0.1..=5.0).text("FBM Offset")).changed();
-                            });
+                            egui::CollapsingHeader::new("Pattern Control")
+                                .default_open(false)
+                                .show(ui, |ui| {
+                                    changed |= ui.add(egui::Slider::new(&mut params.pattern_scale, 50.0..=300.0).text("Pattern Scale")).changed();
+                                    changed |= ui.add(egui::Slider::new(&mut params.critic2_interval, 5.0..=20.0).text("Flow Interval")).changed();
+                                    changed |= ui.add(egui::Slider::new(&mut params.critic2_pause, 1.0..=10.0).text("Flow Pause")).changed();
+                                    changed |= ui.add(egui::Slider::new(&mut params.critic3_interval, 5.0..=20.0).text("Scale Interval")).changed();
+                                    changed |= ui.add(egui::Slider::new(&mut params.noise_strength, 0.5..=5.0).text("Noise Strength")).changed();
+                                });
+
+                            egui::CollapsingHeader::new("Noise")
+                                .default_open(false)
+                                .show(ui, |ui| {
+                                    ui.label("Oscillator 2 (c2):");
+                                    changed |= ui.add(egui::Slider::new(&mut params.c2_min, 1.0..=500.0).text("C2 Min")).changed();
+                                    changed |= ui.add(egui::Slider::new(&mut params.c2_max, 0.1..=10.0).text("C2 Max")).changed();
+                                    
+                                    ui.separator();
+                                    ui.label("Oscillator 3 (c3):");
+                                    changed |= ui.add(egui::Slider::new(&mut params.c3_min, 0.1..=10.0).text("C3 Min")).changed();
+                                    changed |= ui.add(egui::Slider::new(&mut params.c3_max, 0.5..=10.0).text("C3 Max")).changed();
+                                    
+                                    ui.separator();
+                                    ui.label("FBM Noise:");
+                                    changed |= ui.add(egui::Slider::new(&mut params.fbm_scale, 1.0..=10.0).text("FBM Scale")).changed();
+                                    changed |= ui.add(egui::Slider::new(&mut params.fbm_offset, 0.1..=5.0).text("FBM Offset")).changed();
+                                });
+                        } else {
+                            // MANDELBROT MODE UI
+                            egui::CollapsingHeader::new("Mandelbrot Settings")
+                                .default_open(false)
+                                .show(ui, |ui| {
+                                    ui.label("Zoom Animation:");
+                                    changed |= ui.add(egui::Slider::new(&mut params.mandel_zoom_min, 0.0001..=0.01).logarithmic(true).text("Zoom Min")).changed();
+                                    changed |= ui.add(egui::Slider::new(&mut params.mandel_zoom_max, 0.0001..=0.01).logarithmic(true).text("Zoom Max")).changed();
+                                    
+                                    ui.separator();
+                                    ui.label("View Position:");
+                                    changed |= ui.add(egui::Slider::new(&mut params.mandel_pan_x, -2.0..=2.0).text("Pan X")).changed();
+                                    changed |= ui.add(egui::Slider::new(&mut params.mandel_pan_y, -2.0..=2.0).text("Pan Y")).changed();
+                                });
+
+                            egui::CollapsingHeader::new("Orbit Traps")
+                                .default_open(false)
+                                .show(ui, |ui| {
+                                    ui.label("Trap 1 Position:");
+                                    changed |= ui.add(egui::Slider::new(&mut params.mandel_trap1_x, -2.0..=2.0).text("Trap1 X")).changed();
+                                    changed |= ui.add(egui::Slider::new(&mut params.mandel_trap1_y, -2.0..=2.0).text("Trap1 Y")).changed();
+                                    
+                                    ui.separator();
+                                    ui.label("Trap 2 Position:");
+                                    changed |= ui.add(egui::Slider::new(&mut params.mandel_trap2_x, -2.0..=2.0).text("Trap2 X")).changed();
+                                    changed |= ui.add(egui::Slider::new(&mut params.mandel_trap2_y, -2.0..=2.0).text("Trap2 Y")).changed();
+                                });
+                        }
 
                         egui::CollapsingHeader::new("Colors & Post-Processing")
                             .default_open(false)

@@ -41,6 +41,15 @@ struct CurrentsParams {
     c3_max: f32,
     fbm_scale: f32,
     fbm_offset: f32,
+    pattern_mode: f32,
+    mandel_zoom_min: f32,
+    mandel_zoom_max: f32,
+    mandel_pan_x: f32,
+    mandel_pan_y: f32,
+    mandel_trap1_x: f32,
+    mandel_trap1_y: f32,
+    mandel_trap2_x: f32,
+    mandel_trap2_y: f32,
     gamma: f32,
 }
 @group(1) @binding(0) var<uniform> params: CurrentsParams;
@@ -138,6 +147,31 @@ fn c_m_p(local_uv: v2) -> v3 {
     let metallic = h1 * (1.0 - smoothstep(0.95, 1.0, len));
     return v3(params.metallic_reflection) * metallic;
 }
+// mandelbrot
+const MAX_ITER: i32 = 333;
+const BOUND: f32 = 77.0;
+
+fn implicit_mandelbrot(c: v2, trap1: v2, trap2: v2) -> v4 {
+    var z = v2(0.0);
+    var dz = v2(1.0, 0.0);
+    var trap1_min = 1e20;
+    var trap2_min = 1e20;
+    var i: i32 = 0;
+    
+    for (i = 0; i < MAX_ITER; i++) {
+        dz = 2.0 * v2(z.x * dz.x - z.y * dz.y, z.x * dz.y + z.y * dz.x) + v2(1.0, 0.0);
+        let xnew = z.x * z.x - z.y * z.y + c.x;
+        z.y = 2.0 * z.x * z.y + c.y;
+        z.x = xnew;
+        z += 0.1 * v2(sin(0.001), cos(0.001));
+        trap1_min = min(trap1_min, length(z - trap1));
+        trap2_min = min(trap2_min, dot(z - trap2, z - trap2));
+        if (dot(z, z) > BOUND) { break; }
+    }
+    
+    let d = sqrt(dot(z, z) / dot(dz, dz)) * log(dot(z, z));
+    return v4(f32(i), d, trap1_min, trap2_min);
+}
 
 // Texture sampling functions for compute shader
 fn sample_input0(uv: v2) -> v4 {
@@ -208,29 +242,70 @@ fn buffer_a(@builtin(global_invocation_id) gid: vec3<u32>) {
     let br = clamp(3.0 - distance(uv * v2(1.0, 2.0), v2(-1.0, -1.0)), 0.0, 1.0); 
     
     var color: v3;
-    var pattern = 0.0; 
+    var pattern = 0.0;
     
-    if (abs(uv.x) > 1.3 || abs(uv.y) > 1.0) {
+    if (params.pattern_mode < 0.5) {
+        // CURRENTS MODE
+        if (abs(uv.x) > 1.3 || abs(uv.y) > 1.0) {
+            color = v3(0.0);
+            pattern = 0.0;
+        } 
+        else if (dm < (0.5 + wa) && dm > (-1.0 - wa)) {
+            let gi = min(1.0, (0.75 - abs(dm + 0.25)) * 5.0);
+            color = mix(v3(params.gradient_r, params.gradient_g, params.gradient_b), 
+                       v3(0.93, 0.64, 0.17), -uv.y) * gi * params.line_intensity;
+            pattern = 3.8 * gi;
+        } 
+        else {
+            color = v3(params.line_color_r, params.line_color_g, params.line_color_b) * lp * br * params.line_intensity;
+            pattern = 0.4 * abs(lp) * br;
+        }
+        
+        let sc = c_m_p((uv - ball_pos) / ball_radius);
+        let sm = 1.0 - smoothstep(ball_radius - 0.002, ball_radius + 0.01, s_dist);
+        let fsm = sm * smoothstep(-1.1, -0.4, dm);
+        color = mix(color, sc, fsm);
+        pattern = mix(pattern, length(sc) * 0.5, fsm);
+    } else {
+        // MANDELBROT
+        let cam_path = v2(sin(0.0002), cos(0.0002));
+        let pan = v2(params.mandel_pan_x, params.mandel_pan_y);
+        let zoom_level = op(params.mandel_zoom_min, params.mandel_zoom_max, 10.0, 5.0, time_data.time);
+        
+        let trap1 = v2(params.mandel_trap1_x, params.mandel_trap1_y);
+        let trap2 = v2(params.mandel_trap2_x, params.mandel_trap2_y) + 0.1 * v2(cos(0.13), sin(0.13));
+        
+        let fractal_uv = ((U - 0.5 * R) / min(R.y, R.x) * zoom_level + pan + cam_path) * 2.033 - v2(2.14278);
+        
+        let z_data = implicit_mandelbrot(fractal_uv, trap1, trap2);
+        let iter_ratio = z_data.x / f32(MAX_ITER);
+        let d = z_data.y;
+        let trap1_dist = z_data.z;
+        let trap2_dist = z_data.w;
+        
         color = v3(0.0);
-        pattern = 0.0;
-    } 
-    else if (dm < (0.5 + wa) && dm > (-1.0 - wa)) {
-        let gi = min(1.0, (0.75 - abs(dm + 0.25)) * 5.0);
-        color = mix(v3(params.gradient_r, params.gradient_g, params.gradient_b), 
-                   v3(0.93, 0.64, 0.17), -uv.y) * gi * params.line_intensity;
-        pattern = 3.8 * gi;
-    } 
-    else {
-        color = v3(params.line_color_r, params.line_color_g, params.line_color_b) * lp * br * params.line_intensity;
-        pattern = 0.4 * abs(lp) * br;
+        
+        if (iter_ratio < 1.0) {
+            let c1 = pow(clamp(2.00 * d / zoom_level, 0.0, 1.0), 0.5);
+            let c2 = pow(clamp(1.5 * trap1_dist, 0.0, 1.0), 2.0);
+            let c3 = pow(clamp(0.4 * trap2_dist, 0.0, 1.0), 0.25);
+            
+            let col1 = 0.5 + 0.5 * sin(3.0 + 2.0 * c2 + v3(0.0, 0.5, 1.0));
+            let col2 = 0.5 + 0.5 * sin(4.1 + 2.0 * c3 + v3(1.0, 0.5, 0.0));
+            
+            let exterior_color = 0.5 + 0.5 * sin(2.0 * trap1_dist + 
+                                         v3(0.0, 0.5, 1.0) + 
+                                         PI * v3(3.0 * iter_ratio) + 
+                                         op(12.0, 12.0, 10.0, 5.0, time_data.time));
+            
+            color = col1 + exterior_color;
+            color *= 1.0 - pow(iter_ratio, 0.8);
+            color += 0.2 * sin(v3(0.1, 0.2, 0.3) + trap1_dist * 2.0);
+        }
+        
+        pattern = (color.r + color.g + color.b) / 3.0;
+        pattern = smoothstep(0.0, 0.3, pattern);
     }
-    
-let sc = c_m_p((uv - ball_pos) / ball_radius);
-    
-    let sm = 1.0 - smoothstep(ball_radius - 0.002, ball_radius + 0.01, s_dist);
-    let fsm = sm * smoothstep(-1.1, -0.4, dm);
-    color = mix(color, sc, fsm);
-    pattern = mix(pattern, length(sc) * 0.5, fsm);
     // add grain
     color -= noise(uv * 300.0 + fract(4.0) * 1.0) / params.noise_strength; 
     
