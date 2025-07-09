@@ -26,6 +26,7 @@ struct LorenzParams {
     gamma: f32,
     exposure: f32,
     particle_count: f32,
+    decay_speed: f32,
 }
 
 impl UniformProvider for LorenzParams {
@@ -328,6 +329,7 @@ impl ShaderManager for LorenzShader {
                 gamma: 2.2,
                 exposure: 1.0,
                 particle_count: 1000.0,
+                decay_speed: 8.0,
             },
             &params_bind_group_layout,
             0,
@@ -597,6 +599,10 @@ impl ShaderManager for LorenzShader {
                                 changed |= ui.add(egui::Slider::new(&mut params.particle_count, 100.0..=5000.0).text("Particle Count")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.dof_amount, 0.0..=1.0).text("DOF Amount")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.dof_focal_dist, 0.0..=1.0).text("DOF Focal Distance")).changed();
+                                
+                                ui.separator();
+                                ui.label("Trail Settings:");
+                                changed |= ui.add(egui::Slider::new(&mut params.decay_speed, 1.0..=50.0).text("Decay Speed (higher = faster fade)")).changed();
                             });
                         
                         egui::CollapsingHeader::new("Colors")
