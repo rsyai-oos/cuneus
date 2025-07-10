@@ -216,7 +216,7 @@ impl FFTShader {
             tx.send(result).unwrap();
         });
         
-        core.device.poll(wgpu::Maintain::Wait);
+        let _ = core.device.poll(wgpu::PollType::Wait).unwrap();
         rx.recv().unwrap().unwrap();
         
         let padded_data = buffer_slice.get_mapped_range().to_vec();
