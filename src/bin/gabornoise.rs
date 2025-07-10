@@ -129,7 +129,7 @@ impl Gabor {
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
             tx.send(result).unwrap();
         });
-        core.device.poll(wgpu::Maintain::Wait);
+        let _ = core.device.poll(wgpu::PollType::Wait).unwrap();
         rx.recv().unwrap().unwrap();
         let padded_data = buffer_slice.get_mapped_range().to_vec();
         let mut unpadded_data = Vec::with_capacity((settings.width * settings.height * 4) as usize);

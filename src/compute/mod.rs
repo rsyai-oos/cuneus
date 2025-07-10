@@ -1070,7 +1070,7 @@ impl ComputeShader {
                 let _ = tx.send(result);
             });
             
-            device.poll(wgpu::Maintain::Wait);
+            let _ = device.poll(wgpu::PollType::Wait);
             
             match rx.recv() {
                 Ok(Ok(())) => {},
