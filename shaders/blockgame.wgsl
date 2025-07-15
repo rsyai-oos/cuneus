@@ -391,7 +391,7 @@ fn txt(pp: vec2<f32>, ss: vec2<f32>) -> vec3<f32> {
         if (word(pp, vec2(ss.x * .5 - 280., 100.), title, 11u, 64.) > .01) { tc = vec3(1., 1., 0.); }
         
         let sub = array<u32, 16>(67u, 76u, 73u, 67u, 75u, 32u, 84u, 79u, 32u, 83u, 84u, 65u, 82u, 84u, 0u, 0u);
-        if (word(pp, vec2(ss.x * .5 - 200., 200.), sub, 14u, 32.) > .01) { tc = vec3(.8, .8, 1.); }
+        if (word(pp, vec2(ss.x * .5 - 200., 200.), sub, 14u, 32.) > .01) { tc = vec3(0.8, 0.1, 0.0); }
         
     } else if (state == 1u) {
         // playing
