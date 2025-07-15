@@ -98,7 +98,9 @@ fn mat(id: u32) -> Mat {
     return Mat(alb, .1 + h * .7, select(.1, .8, id % 3u == 0u), .04);
 }
 
-// ggx stuff
+// ggx stuff:
+// note that, ggx Trowbridge and Reitz specular model approximation inspired by: https://www.shadertoy.com/view/dltGWl,  Poisson, 2023: "subsurface lighting model"
+// But also see: for pretty lightings: https://www.shadertoy.com/view/cl3GWr, Poisson, 2023
 fn dggx(nh: f32, r: f32) -> f32 {
     let a2 = r * r * r * r;
     let d = nh * nh * (a2 - 1.) + 1.;
