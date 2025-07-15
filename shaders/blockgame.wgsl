@@ -312,7 +312,7 @@ fn gmbp() -> vec3<f32> {
     if (gs() != 1u || cb == 0u) { return vec3(0., -100., 0.); }
     
     let th = f32(cb - 1u) * .6;
-    let osc = sin(u_time.time * 2.) * 2.5;
+    let osc = sin(u_time.time * 4.) * 2.5;
     return vec3(osc, th + .6, 0.);
 }
 
