@@ -342,15 +342,16 @@ jobs:
                       lib_name=$(basename "$lib")
                       echo "  Processing library: $lib_name"
                       
-                      # Skip problematic libraries that can't be modified
-                      if [[ "$lib_name" == "libMoltenVK.dylib" ]]; then
-                        echo "    Skipping $lib_name (read-only/system library)"
+                      # Check if library is writable before attempting to modify
+                      if [[ ! -w "$lib" ]]; then
+                        echo "    Skipping $lib_name (read-only)"
                         continue
                       fi
                       
-                      # Try to set the library ID, continue on failure
+                      # Test if we can modify this library at all
                       if ! install_name_tool -id "@loader_path/$lib_name" "$lib" 2>/dev/null; then
-                        echo "    Warning: Could not set ID for $lib_name"
+                        echo "    Skipping $lib_name (cannot modify - likely system/protected library)"
+                        continue
                       fi
                       
                       # Fix dependencies
