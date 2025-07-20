@@ -342,28 +342,35 @@ jobs:
                       lib_name=$(basename "$lib")
                       echo "  Processing library: $lib_name"
                       
-                      # Check if library is writable before attempting to modify
-                      if [[ ! -w "$lib" ]]; then
-                        echo "    Skipping $lib_name (read-only)"
-                        continue
-                      fi
-                      
-                      # Test if we can modify this library at all
-                      if ! install_name_tool -id "@loader_path/$lib_name" "$lib" 2>/dev/null; then
-                        echo "    Skipping $lib_name (cannot modify - likely system/protected library)"
-                        continue
-                      fi
-                      
-                      # Fix dependencies
-                      otool -L "$lib" 2>/dev/null | grep -E "(@rpath|/Library/Frameworks/GStreamer.framework)" | awk '{print $1}' | while read dep; do
-                        if [[ -n "$dep" ]]; then
-                          dep_lib_name=$(basename "$dep")
-                          new_dep_path="@loader_path/$dep_lib_name"
-                          if ! install_name_tool -change "$dep" "$new_dep_path" "$lib" 2>/dev/null; then
-                            echo "    Warning: Could not change dependency $dep in $lib_name"
-                          fi
+                      # Use a subshell to prevent script exit on errors
+                      (
+                        # Check if library is writable before attempting to modify
+                        if [[ ! -w "$lib" ]]; then
+                          echo "    Skipping $lib_name (read-only)"
+                          exit 0
                         fi
-                      done
+                        
+                        # Test if we can modify this library at all
+                        if ! install_name_tool -id "@loader_path/$lib_name" "$lib" 2>/dev/null; then
+                          echo "    Skipping $lib_name (cannot modify - likely system/protected library)"
+                          exit 0
+                        fi
+                        
+                        echo "    Successfully modified ID for $lib_name"
+                        
+                        # Fix dependencies
+                        otool -L "$lib" 2>/dev/null | grep -E "(@rpath|/Library/Frameworks/GStreamer.framework)" | awk '{print $1}' | while read dep; do
+                          if [[ -n "$dep" ]]; then
+                            dep_lib_name=$(basename "$dep")
+                            new_dep_path="@loader_path/$dep_lib_name"
+                            if install_name_tool -change "$dep" "$new_dep_path" "$lib" 2>/dev/null; then
+                              echo "      Fixed dependency: $dep"
+                            else
+                              echo "      Warning: Could not change dependency $dep in $lib_name"
+                            fi
+                          fi
+                        done
+                      ) || echo "    Error processing $lib_name, continuing..."
                     fi
                   done
                 else
@@ -378,21 +385,29 @@ jobs:
                       plugin_name=$(basename "$plugin")
                       echo "  Processing plugin: $plugin_name"
                       
-                      # Try to set the plugin ID, continue on failure
-                      if ! install_name_tool -id "@loader_path/../$plugin_name" "$plugin" 2>/dev/null; then
-                        echo "    Warning: Could not set ID for $plugin_name"
-                      fi
-                      
-                      # Fix dependencies
-                      otool -L "$plugin" 2>/dev/null | grep -E "(@rpath|/Library/Frameworks/GStreamer.framework)" | awk '{print $1}' | while read dep; do
-                        if [[ -n "$dep" ]]; then
-                          dep_lib_name=$(basename "$dep")
-                          new_dep_path="@loader_path/../$dep_lib_name"
-                          if ! install_name_tool -change "$dep" "$new_dep_path" "$plugin" 2>/dev/null; then
-                            echo "    Warning: Could not change dependency $dep in $plugin_name"
-                          fi
+                      # Use a subshell to prevent script exit on errors
+                      (
+                        # Try to set the plugin ID, skip if it fails
+                        if ! install_name_tool -id "@loader_path/../$plugin_name" "$plugin" 2>/dev/null; then
+                          echo "    Skipping $plugin_name (cannot modify)"
+                          exit 0
                         fi
-                      done
+                        
+                        echo "    Successfully modified ID for $plugin_name"
+                        
+                        # Fix dependencies
+                        otool -L "$plugin" 2>/dev/null | grep -E "(@rpath|/Library/Frameworks/GStreamer.framework)" | awk '{print $1}' | while read dep; do
+                          if [[ -n "$dep" ]]; then
+                            dep_lib_name=$(basename "$dep")
+                            new_dep_path="@loader_path/../$dep_lib_name"
+                            if install_name_tool -change "$dep" "$new_dep_path" "$plugin" 2>/dev/null; then
+                              echo "      Fixed dependency: $dep"
+                            else
+                              echo "      Warning: Could not change dependency $dep in $plugin_name"
+                            fi
+                          fi
+                        done
+                      ) || echo "    Error processing $plugin_name, continuing..."
                     fi
                   done
                 else
