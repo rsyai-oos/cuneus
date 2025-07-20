@@ -216,10 +216,7 @@ jobs:
               "pcre2-8-0.dll" "orc-0.4-0.dll" "z.dll" "z-1.dll" "bz2.dll"
               "avformat-61.dll" "avutil-59.dll" "avcodec-61.dll"
               "avfilter-10.dll" "swresample-5.dll" "swscale-8.dll"
-              "libx264-164.dll" "libx265-199.dll" "libvpx-1.dll" 
-              "libtheora-0.dll" "libtheoraenc-1.dll" "libtheoradec-1.dll"
-              "libvorbis-0.dll" "libvorbisenc-2.dll" "libvorbisfile-3.dll"
-              "libogg-0.dll" "libopus-0.dll"
+              "libvpx-1.dll" "libopus-0.dll"
             )
             
             # Plugins (Windows) 
@@ -231,9 +228,8 @@ jobs:
               "gstaudiomixer.dll" "gstspectrum.dll" "gstsoundtouch.dll"
               "gstaudioparsers.dll" "gstlibav.dll" "gstisomp4.dll"
               "gstvideoparsersbad.dll" "gstdirectshow.dll"
-              "gstavi.dll" "gstmatroska.dll" "gstogg.dll" "gsttheora.dll"
-              "gstvorbis.dll" "gstflv.dll" "gstmov.dll" "gstasf.dll"
-              "gstmpeg2dec.dll" "gstvpx.dll" "gstx264.dll" "gstx265.dll" "gstopenexr.dll"
+              "gstavi.dll" "gstmatroska.dll" "gstflv.dll" "gstmov.dll" "gstasf.dll"
+              "gstmpeg2dec.dll" "gstvpx.dll" "gstopenexr.dll"
             )
             
           elif [[ "${{ runner.os }}" == "Linux" ]]; then
