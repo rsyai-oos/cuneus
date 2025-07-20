@@ -279,6 +279,26 @@ jobs:
             cp "/etc/ssl/certs/ca-certificates.crt" "$BUNDLE_DIR/etc/ssl/certs/"
           fi
           
+          # Copy GStreamer helper binaries for macOS and Linux
+          if [[ "${{ runner.os }}" != "Windows" ]]; then
+            mkdir -p "$BUNDLE_DIR/libexec/gstreamer-1.0"
+            mkdir -p "$BUNDLE_DIR/bin"
+            
+            # Copy plugin scanner
+            if [[ -f "$GSTREAMER_ROOT/libexec/gstreamer-1.0/gst-plugin-scanner" ]]; then
+              cp "$GSTREAMER_ROOT/libexec/gstreamer-1.0/gst-plugin-scanner" "$BUNDLE_DIR/libexec/gstreamer-1.0/"
+              chmod +x "$BUNDLE_DIR/libexec/gstreamer-1.0/gst-plugin-scanner"
+            fi
+            
+            # Copy essential tools
+            for tool in "gst-inspect-1.0" "gst-typefind-1.0" "gst-launch-1.0"; do
+              if [[ -f "$GSTREAMER_ROOT/bin/$tool" ]]; then
+                cp "$GSTREAMER_ROOT/bin/$tool" "$BUNDLE_DIR/bin/"
+                chmod +x "$BUNDLE_DIR/bin/$tool"
+              fi
+            done
+          fi
+          
           echo "✅ GStreamer bundle created: $(du -sh $BUNDLE_DIR | cut -f1)"
 
       # Create release packages for each shader in the group
@@ -461,17 +481,26 @@ jobs:
             
             # Windows-specific: create .bat launcher and fix DLL paths
             if [[ "${{ runner.os }}" == "Windows" ]]; then
-              # For Windows, copy DLLs to the same directory as the executable
+              # For Windows, restructure to have lib folder directly in exe directory
               if [[ "${{ matrix.shader_config.gstreamer_required }}" == "true" ]]; then
-                echo "📦 Moving Windows DLLs to exe directory..."
+                echo "📦 Restructuring Windows GStreamer layout..."
+                
+                # Copy DLLs directly to exe directory
                 cp "release/$shader/gstreamer/lib"/*.dll "release/$shader/" 2>/dev/null || true
+                
+                # Move lib folder (for plugins) to exe directory and remove gstreamer folder
+                mv "release/$shader/gstreamer/lib" "release/$shader/lib" 2>/dev/null || true
+                mv "release/$shader/gstreamer/etc" "release/$shader/etc" 2>/dev/null || true
+                rm -rf "release/$shader/gstreamer" 2>/dev/null || true
+                
+                echo "✅ Windows structure: exe + DLLs + lib/ + etc/"
                 
                 # Create launcher with PATH setup
                 echo "@echo off" > "release/$shader/run_$shader.bat"
                 echo "if not exist shaders mkdir shaders" >> "release/$shader/run_$shader.bat"
-                echo "set GST_PLUGIN_PATH=%~dp0gstreamer\\lib\\gstreamer-1.0" >> "release/$shader/run_$shader.bat"
+                echo "set GST_PLUGIN_PATH=%~dp0lib\\gstreamer-1.0" >> "release/$shader/run_$shader.bat"
                 echo "set GST_PLUGIN_SYSTEM_PATH=" >> "release/$shader/run_$shader.bat"
-                echo "set GST_REGISTRY=%~dp0gstreamer\\registry.bin" >> "release/$shader/run_$shader.bat"
+                echo "set GST_REGISTRY=%~dp0etc\\registry.bin" >> "release/$shader/run_$shader.bat"
                 echo "$shader.exe" >> "release/$shader/run_$shader.bat"
               else
                 # Simple launcher for non-media shaders
@@ -492,6 +521,13 @@ jobs:
                 echo 'export GST_PLUGIN_PATH="$SCRIPT_DIR/gstreamer/lib/gstreamer-1.0"' >> "release/$shader/run_$shader.sh"
                 echo 'export GST_PLUGIN_SYSTEM_PATH=""' >> "release/$shader/run_$shader.sh"
                 echo 'export GST_REGISTRY="$SCRIPT_DIR/gstreamer/registry.bin"' >> "release/$shader/run_$shader.sh"
+                
+                # Set plugin scanner for macOS and Linux
+                if [[ "${{ runner.os }}" == "macOS" ]]; then
+                  echo 'export GST_PLUGIN_SCANNER="$SCRIPT_DIR/gstreamer/libexec/gstreamer-1.0/gst-plugin-scanner"' >> "release/$shader/run_$shader.sh"
+                elif [[ "${{ runner.os }}" == "Linux" ]]; then
+                  echo 'export GST_PLUGIN_SCANNER="$SCRIPT_DIR/gstreamer/libexec/gstreamer-1.0/gst-plugin-scanner"' >> "release/$shader/run_$shader.sh"
+                fi
                 
                 # Linux-specific: Add library path
                 if [[ "${{ runner.os }}" == "Linux" ]]; then
