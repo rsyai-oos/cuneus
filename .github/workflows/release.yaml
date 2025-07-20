@@ -459,11 +459,26 @@ jobs:
               echo "3. This is a lightweight build without media support." >> "release/$shader/README.txt"
             fi
             
-            # Windows-specific: create .bat launcher
+            # Windows-specific: create .bat launcher and fix DLL paths
             if [[ "${{ runner.os }}" == "Windows" ]]; then
-              echo "@echo off" > "release/$shader/run_$shader.bat"
-              echo "if not exist shaders mkdir shaders" >> "release/$shader/run_$shader.bat"
-              echo "$shader.exe" >> "release/$shader/run_$shader.bat"
+              # For Windows, copy DLLs to the same directory as the executable
+              if [[ "${{ matrix.shader_config.gstreamer_required }}" == "true" ]]; then
+                echo "📦 Moving Windows DLLs to exe directory..."
+                cp "release/$shader/gstreamer/lib"/*.dll "release/$shader/" 2>/dev/null || true
+                
+                # Create launcher with PATH setup
+                echo "@echo off" > "release/$shader/run_$shader.bat"
+                echo "if not exist shaders mkdir shaders" >> "release/$shader/run_$shader.bat"
+                echo "set GST_PLUGIN_PATH=%~dp0gstreamer\\lib\\gstreamer-1.0" >> "release/$shader/run_$shader.bat"
+                echo "set GST_PLUGIN_SYSTEM_PATH=" >> "release/$shader/run_$shader.bat"
+                echo "set GST_REGISTRY=%~dp0gstreamer\\registry.bin" >> "release/$shader/run_$shader.bat"
+                echo "$shader.exe" >> "release/$shader/run_$shader.bat"
+              else
+                # Simple launcher for non-media shaders
+                echo "@echo off" > "release/$shader/run_$shader.bat"
+                echo "if not exist shaders mkdir shaders" >> "release/$shader/run_$shader.bat"
+                echo "$shader.exe" >> "release/$shader/run_$shader.bat"
+              fi
             fi
 
             # Create launcher script for Linux/MacOS
