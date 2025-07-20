@@ -315,14 +315,14 @@ jobs:
               if [[ "${{ runner.os }}" == "macOS" ]]; then
                 # macOS: Use install_name_tool and @loader_path
                 fix_paths_macos() {
-                  local file="$1"
-                  local relative_path="$2"
+                  file="$1"
+                  relative_path="$2"
                   
                   # Fix @rpath and GStreamer framework references
                   otool -L "$file" 2>/dev/null | grep -E "(@rpath|/Library/Frameworks/GStreamer.framework)" | awk '{print $1}' | while read dep; do
                     if [[ -n "$dep" ]]; then
-                      local lib_name=$(basename "$dep")
-                      local new_path="@loader_path/$relative_path/gstreamer/lib/$lib_name"
+                      lib_name=$(basename "$dep")
+                      new_path="@loader_path/$relative_path/gstreamer/lib/$lib_name"
                       install_name_tool -change "$dep" "$new_path" "$file" 2>/dev/null || true
                     fi
                   done
@@ -334,7 +334,7 @@ jobs:
                 # Fix all libraries
                 for lib in "$BUNDLE_LIB_DIR"/*.dylib; do
                   if [[ -f "$lib" ]]; then
-                    local lib_name=$(basename "$lib")
+                    lib_name=$(basename "$lib")
                     install_name_tool -id "@loader_path/$lib_name" "$lib" 2>/dev/null || true
                     fix_paths_macos "$lib" ".."
                   fi
@@ -343,7 +343,7 @@ jobs:
                 # Fix all plugins
                 for plugin in "$BUNDLE_PLUGIN_DIR"/*.dylib; do
                   if [[ -f "$plugin" ]]; then
-                    local plugin_name=$(basename "$plugin")
+                    plugin_name=$(basename "$plugin")
                     install_name_tool -id "@loader_path/../$plugin_name" "$plugin" 2>/dev/null || true
                     fix_paths_macos "$plugin" "../.."
                   fi
