@@ -228,8 +228,7 @@ jobs:
               "gstaudiomixer.dll" "gstspectrum.dll" "gstsoundtouch.dll"
               "gstaudioparsers.dll" "gstlibav.dll" "gstisomp4.dll"
               "gstvideoparsersbad.dll" "gstdirectshow.dll"
-              "gstavi.dll" "gstmatroska.dll" "gstflv.dll" "gstmov.dll" "gstasf.dll"
-              "gstmpeg2dec.dll" "gstvpx.dll" "gstopenexr.dll"
+              "gstavi.dll" "gstmatroska.dll"
             )
             
           elif [[ "${{ runner.os }}" == "Linux" ]]; then
