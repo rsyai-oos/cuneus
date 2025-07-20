@@ -341,13 +341,26 @@ jobs:
                     if [[ -f "$lib" ]]; then
                       lib_name=$(basename "$lib")
                       echo "  Processing library: $lib_name"
-                      install_name_tool -id "@loader_path/$lib_name" "$lib" 2>/dev/null || true
                       
+                      # Skip problematic libraries that can't be modified
+                      if [[ "$lib_name" == "libMoltenVK.dylib" ]]; then
+                        echo "    Skipping $lib_name (read-only/system library)"
+                        continue
+                      fi
+                      
+                      # Try to set the library ID, continue on failure
+                      if ! install_name_tool -id "@loader_path/$lib_name" "$lib" 2>/dev/null; then
+                        echo "    Warning: Could not set ID for $lib_name"
+                      fi
+                      
+                      # Fix dependencies
                       otool -L "$lib" 2>/dev/null | grep -E "(@rpath|/Library/Frameworks/GStreamer.framework)" | awk '{print $1}' | while read dep; do
                         if [[ -n "$dep" ]]; then
                           dep_lib_name=$(basename "$dep")
                           new_dep_path="@loader_path/$dep_lib_name"
-                          install_name_tool -change "$dep" "$new_dep_path" "$lib" 2>/dev/null || true
+                          if ! install_name_tool -change "$dep" "$new_dep_path" "$lib" 2>/dev/null; then
+                            echo "    Warning: Could not change dependency $dep in $lib_name"
+                          fi
                         fi
                       done
                     fi
@@ -363,13 +376,20 @@ jobs:
                     if [[ -f "$plugin" ]]; then
                       plugin_name=$(basename "$plugin")
                       echo "  Processing plugin: $plugin_name"
-                      install_name_tool -id "@loader_path/../$plugin_name" "$plugin" 2>/dev/null || true
                       
+                      # Try to set the plugin ID, continue on failure
+                      if ! install_name_tool -id "@loader_path/../$plugin_name" "$plugin" 2>/dev/null; then
+                        echo "    Warning: Could not set ID for $plugin_name"
+                      fi
+                      
+                      # Fix dependencies
                       otool -L "$plugin" 2>/dev/null | grep -E "(@rpath|/Library/Frameworks/GStreamer.framework)" | awk '{print $1}' | while read dep; do
                         if [[ -n "$dep" ]]; then
                           dep_lib_name=$(basename "$dep")
                           new_dep_path="@loader_path/../$dep_lib_name"
-                          install_name_tool -change "$dep" "$new_dep_path" "$plugin" 2>/dev/null || true
+                          if ! install_name_tool -change "$dep" "$new_dep_path" "$plugin" 2>/dev/null; then
+                            echo "    Warning: Could not change dependency $dep in $plugin_name"
+                          fi
                         fi
                       done
                     fi
