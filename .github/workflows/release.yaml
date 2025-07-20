@@ -312,42 +312,71 @@ jobs:
               BUNDLE_LIB_DIR="release/$shader/gstreamer/lib"
               BUNDLE_PLUGIN_DIR="$BUNDLE_LIB_DIR/gstreamer-1.0"
               
+              echo "Debug: Binary path: $BINARY"
+              echo "Debug: Bundle lib dir: $BUNDLE_LIB_DIR"
+              echo "Debug: Bundle exists: $(test -d release/$shader/gstreamer && echo yes || echo no)"
+              
               if [[ "${{ runner.os }}" == "macOS" ]]; then
-                # macOS: Use install_name_tool and @loader_path
-                fix_paths_macos() {
-                  file="$1"
-                  relative_path="$2"
-                  
-                  # Fix @rpath and GStreamer framework references
-                  otool -L "$file" 2>/dev/null | grep -E "(@rpath|/Library/Frameworks/GStreamer.framework)" | awk '{print $1}' | while read dep; do
-                    if [[ -n "$dep" ]]; then
-                      lib_name=$(basename "$dep")
-                      new_path="@loader_path/$relative_path/gstreamer/lib/$lib_name"
-                      install_name_tool -change "$dep" "$new_path" "$file" 2>/dev/null || true
-                    fi
-                  done
-                }
+                echo "🍎 Processing macOS library paths..."
                 
                 # Fix main binary
-                fix_paths_macos "$BINARY" "."
+                echo "Fixing main binary: $BINARY"
+                if [[ -f "$BINARY" ]]; then
+                  otool -L "$BINARY" 2>/dev/null | grep -E "(@rpath|/Library/Frameworks/GStreamer.framework)" | awk '{print $1}' | while read dep; do
+                    if [[ -n "$dep" ]]; then
+                      lib_name=$(basename "$dep")
+                      new_path="@loader_path/gstreamer/lib/$lib_name"
+                      echo "  Changing: $dep -> $new_path"
+                      install_name_tool -change "$dep" "$new_path" "$BINARY" 2>/dev/null || true
+                    fi
+                  done
+                else
+                  echo "❌ Binary not found: $BINARY"
+                fi
                 
                 # Fix all libraries
-                for lib in "$BUNDLE_LIB_DIR"/*.dylib; do
-                  if [[ -f "$lib" ]]; then
-                    lib_name=$(basename "$lib")
-                    install_name_tool -id "@loader_path/$lib_name" "$lib" 2>/dev/null || true
-                    fix_paths_macos "$lib" ".."
-                  fi
-                done
+                echo "Fixing libraries in: $BUNDLE_LIB_DIR"
+                if [[ -d "$BUNDLE_LIB_DIR" ]]; then
+                  for lib in "$BUNDLE_LIB_DIR"/*.dylib; do
+                    if [[ -f "$lib" ]]; then
+                      lib_name=$(basename "$lib")
+                      echo "  Processing library: $lib_name"
+                      install_name_tool -id "@loader_path/$lib_name" "$lib" 2>/dev/null || true
+                      
+                      otool -L "$lib" 2>/dev/null | grep -E "(@rpath|/Library/Frameworks/GStreamer.framework)" | awk '{print $1}' | while read dep; do
+                        if [[ -n "$dep" ]]; then
+                          dep_lib_name=$(basename "$dep")
+                          new_dep_path="@loader_path/$dep_lib_name"
+                          install_name_tool -change "$dep" "$new_dep_path" "$lib" 2>/dev/null || true
+                        fi
+                      done
+                    fi
+                  done
+                else
+                  echo "❌ Library directory not found: $BUNDLE_LIB_DIR"
+                fi
                 
                 # Fix all plugins
-                for plugin in "$BUNDLE_PLUGIN_DIR"/*.dylib; do
-                  if [[ -f "$plugin" ]]; then
-                    plugin_name=$(basename "$plugin")
-                    install_name_tool -id "@loader_path/../$plugin_name" "$plugin" 2>/dev/null || true
-                    fix_paths_macos "$plugin" "../.."
-                  fi
-                done
+                echo "Fixing plugins in: $BUNDLE_PLUGIN_DIR"
+                if [[ -d "$BUNDLE_PLUGIN_DIR" ]]; then
+                  for plugin in "$BUNDLE_PLUGIN_DIR"/*.dylib; do
+                    if [[ -f "$plugin" ]]; then
+                      plugin_name=$(basename "$plugin")
+                      echo "  Processing plugin: $plugin_name"
+                      install_name_tool -id "@loader_path/../$plugin_name" "$plugin" 2>/dev/null || true
+                      
+                      otool -L "$plugin" 2>/dev/null | grep -E "(@rpath|/Library/Frameworks/GStreamer.framework)" | awk '{print $1}' | while read dep; do
+                        if [[ -n "$dep" ]]; then
+                          dep_lib_name=$(basename "$dep")
+                          new_dep_path="@loader_path/../$dep_lib_name"
+                          install_name_tool -change "$dep" "$new_dep_path" "$plugin" 2>/dev/null || true
+                        fi
+                      done
+                    fi
+                  done
+                else
+                  echo "❌ Plugin directory not found: $BUNDLE_PLUGIN_DIR"
+                fi
                 
               elif [[ "${{ runner.os }}" == "Linux" ]]; then
                 # Linux: Use patchelf and $ORIGIN rpath
