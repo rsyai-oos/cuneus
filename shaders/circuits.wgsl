@@ -54,7 +54,7 @@ fn fract_v4(v: v4) -> v4 {
     return v - floor(v);
 }
 
-@compute @workgroup_size(8, 8, 1)
+@compute @workgroup_size(16, 16, 1)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let dims = textureDimensions(output);
     R = v2(dims);
@@ -77,11 +77,11 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         var p = v4(z * rd, t);
         p.z += t;
         
-        let rotation_matrix = mm2(p.z * params.rotation_speed);
-        let rotated_xy = rotation_matrix * p.xy;
-        p.x = rotated_xy.x;
-        p.y = rotated_xy.y;
-        
+        let r_m = mm2(p.z * params.rotation_speed);
+        let r_xy = r_m * p.xy;
+        p.x = r_xy.x;
+        p.y = r_xy.y;
+
         let N = n(p.xy + t * 0.2);
         p = abs(fract_v4(p) - 0.5);
         
