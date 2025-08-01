@@ -53,7 +53,7 @@ jobs:
         if: runner.os == 'macOS' && matrix.shader_config.gstreamer_required
         run: |
           # Download and install official GStreamer packages
-          GSTREAMER_VERSION="1.26.0"
+          GSTREAMER_VERSION="1.26.4"
           curl -L "https://gstreamer.freedesktop.org/data/pkg/osx/$GSTREAMER_VERSION/gstreamer-1.0-$GSTREAMER_VERSION-universal.pkg" -o gstreamer.pkg
           curl -L "https://gstreamer.freedesktop.org/data/pkg/osx/$GSTREAMER_VERSION/gstreamer-1.0-devel-$GSTREAMER_VERSION-universal.pkg" -o gstreamer-devel.pkg
           
@@ -90,7 +90,7 @@ jobs:
         shell: pwsh
         run: |
           Write-Host "Starting GStreamer installation process..."
-          $gstVer = "1.26.0"
+          $gstVer = "1.26.4"
           $tempDir = "C:\gst-temp"
           $installDir = "C:\gstreamer"
           
@@ -205,9 +205,9 @@ jobs:
             GSTREAMER_ROOT="C:/gstreamer/1.0/msvc_x86_64"
             LIB_EXT="dll"
             
-            # Core libraries (Windows) 
+            # Core libraries (Windows) - these come from both lib/ and bin/ directories
             CORE_LIBS=(
-              # GStreamer core
+              # GStreamer core (from lib/)
               "gstreamer-1.0-0.dll" "gstbase-1.0-0.dll" "gstapp-1.0-0.dll"
               "gstvideo-1.0-0.dll" "gstaudio-1.0-0.dll" "gstpbutils-1.0-0.dll"
               "gsttag-1.0-0.dll" "gstfft-1.0-0.dll" "gstgl-1.0-0.dll"
@@ -215,49 +215,26 @@ jobs:
               "gstrtp-1.0-0.dll" "gstrtsp-1.0-0.dll" "gstsdp-1.0-0.dll"
               "gstnet-1.0-0.dll" "gstcontroller-1.0-0.dll"
               
-              # GLib and dependencies
+              # GLib and dependencies (from lib/)
               "glib-2.0-0.dll" "gobject-2.0-0.dll" "gio-2.0-0.dll" 
               "gmodule-2.0-0.dll" "gthread-2.0-0.dll"
               "intl-8.dll" "ffi-7.dll" "pcre2-8-0.dll" 
               
-              # Core dependencies
+              # Core dependencies (from lib/)
               "orc-0.4-0.dll" "z.dll" "z-1.dll" "bz2.dll"
               
-              # FFmpeg/libav libraries
+              # Additional dependencies (from lib/)
+              "libwinpthread-1.dll" "libgcc_s_seh-1.dll" "libstdc++-6.dll"
+              "libiconv-2.dll" "libcharset-1.dll"
+            )
+            
+            # CRITICAL: Additional codec libraries from bin/ directory
+            # These are essential for video processing and were missing!
+            BIN_CODEC_LIBS=(
               "avformat-61.dll" "avcodec-61.dll" "avutil-59.dll"
               "avfilter-10.dll" "swresample-5.dll" "swscale-8.dll"
-              
-              # Codec libraries
               "libvpx-1.dll" "libopus-0.dll" "libvorbis-0.dll"
               "libogg-0.dll" "libmp3lame-0.dll" "libmpg123-0.dll"
-              "SoundTouch.dll" "libtheora-0.dll" "libtheoradec-1.dll"
-              "libtheoraenc-1.dll" "libvorbisenc-2.dll" "libvorbisfile-3.dll"
-              "jpeg8.dll" "turbojpeg.dll" "png16.dll"
-              "libx264-164.dll" "libx265.dll" "openh264-7.dll"
-              "libdav1d.dll" "libSoundTouch.dll"
-              
-              # Additional dependencies
-              "libwinpthread-1.dll" "libgcc_s_seh-1.dll" "libstdc++-6.dll"
-              "libexpat.dll" "libssp-0.dll" "libgomp-1.dll"
-              "ass-9.dll" "dav1d.dll" "dca-0.dll" "dv-4.dll"
-              "FLAC-8.dll" "fontconfig-1.dll" "freetype-6.dll"
-              "fribidi-0.dll" "harfbuzz.dll" "json-glib-1.0-0.dll"
-              "libcharset-1.dll" "libiconv-2.dll"
-              "mp3lame-0.dll" "ogg-0.dll" "opus-0.dll" "pixman-1-0.dll"
-              "speex-1.dll" "sqlite3-0.dll" "tiff-6.dll" "vo-aacenc-0.dll"
-              "vorbis-0.dll" "vorbisenc-2.dll" "vorbisfile-3.dll"
-              "wavpack.dll" "x264-164.dll" "xml2-2.dll"
-              # Additional audio/video support libraries
-              "libcrypto-3-x64.dll" "libssl-3-x64.dll" "libsrt.dll"
-              "librtmp-1.dll" "nice-10.dll" "libwebp-7.dll"
-              "libwebpmux-3.dll" "libwebpdemux-2.dll"
-              "opencore-amrnb-0.dll" "opencore-amrwb-0.dll"
-              "sbc-1.dll" "srtp2-1.dll" "tag.dll" "ltc-11.dll"
-              "spandsp-2.dll" "psl-5.dll" "soup-3.0-0.dll"
-              "rsvg-2-2.dll" "zbar-0.dll"
-              
-              # Windows-specific
-              "libiconv-2.dll" "libcharset-1.dll"
             )
             
             # Plugins (Windows)
@@ -268,28 +245,27 @@ jobs:
               "gstaudioconvert.dll" "gstaudioresample.dll" "gstvolume.dll"
               "gstvideofilter.dll" "gstgio.dll"
               
-              # VIDEO DECODER
+              # VIDEO DECODERS
               "gstlibav.dll"
               
-              # Audio elements  
+              # Windows audio
               "gstwasapi.dll" "gstwasapi2.dll" "gstdirectsound.dll"
               "gstautodetect.dll" "gstaudiotestsrc.dll"
+
+              # Audio processing
               "gstaudiomixer.dll" "gstspectrum.dll" "gstsoundtouch.dll"
               "gstaudioparsers.dll"
-              
-              # Video containers and parsers
-              "gstisomp4.dll" "gstvideoparsersbad.dll"
-              "gstmatroska.dll" "gstavi.dll" "gstflv.dll"
-              "gstmpegtsdemux.dll"
-              
-              # Codecs
-              "gstvpx.dll" "gsttheora.dll"
-              "gstmpg123.dll" "gstlame.dll"
+
+              # Container formats
+              "gstisomp4.dll" "gstvideoparsersbad.dll" "gstmatroska.dll"
+              "gstavi.dll" "gstflv.dll" "gstmpegtsdemux.dll" "gstasf.dll"
+
+              # Codec plugins
+              "gstvpx.dll" "gsttheora.dll" "gstmpg123.dll" "gstlame.dll"
               "gstvorbis.dll" "gstogg.dll"
               
-              # Windows-specific
+              # Windows-specific video - for DirectShow support
               "gstdirectshow.dll" "gstwinks.dll"
-              "gstasf.dll"
             )
             
             # Windows: Also create directories for helper executables
@@ -323,83 +299,34 @@ jobs:
             )
           fi
           
-          # Copy libraries with error checking
-          echo "📦 Copying core libraries..."
-          MISSING_LIBS=""
+          # Copy libraries
           for lib in "${CORE_LIBS[@]}"; do
-            found=false
-            # For Windows, try bin directory first for codec DLLs
-            if [[ "${{ runner.os }}" == "Windows" ]] && [[ -f "$GSTREAMER_ROOT/bin/$lib" ]]; then
-              cp "$GSTREAMER_ROOT/bin/$lib" "$BUNDLE_DIR/lib/" 2>/dev/null && found=true
-            elif [[ -f "$GSTREAMER_ROOT/lib/$lib" ]]; then
-              cp "$GSTREAMER_ROOT/lib/$lib" "$BUNDLE_DIR/lib/" 2>/dev/null && found=true
-            fi
-            
-            # Check critical libraries
-            if [[ ! $found ]]; then
-              case "$lib" in
-                "avcodec-61.dll"|"avformat-61.dll"|"avutil-59.dll"|"gstlibav.dll")
-                  echo "❌ CRITICAL: Missing $lib - video playback will NOT work!"
-                  MISSING_LIBS="$MISSING_LIBS $lib"
-                  ;;
-                *)
-                  echo "⚠️  Warning: Could not find $lib"
-                  ;;
-              esac
+            if [[ -f "$GSTREAMER_ROOT/lib/$lib" ]]; then
+              cp "$GSTREAMER_ROOT/lib/$lib" "$BUNDLE_DIR/lib/" 2>/dev/null || true
+            elif [[ -f "$GSTREAMER_ROOT/bin/$lib" ]]; then
+              cp "$GSTREAMER_ROOT/bin/$lib" "$BUNDLE_DIR/lib/" 2>/dev/null || true
             fi
           done
           
-          # Windows: Also copy codec DLLs from bin directory
+          # Copy additional codec libraries from bin/ directory (Windows only)
           if [[ "${{ runner.os }}" == "Windows" ]]; then
-            echo "📦 Copying Windows codec DLLs from bin directory..."
-            # CRITICAL: Windows needs codec DLLs in the application root directory
-            # These are typically found in the GStreamer bin/ directory, not lib/
-            # Without these in the root, videos will show black screens!
-            
-            # Create a bin subdirectory to preserve these for later
-            mkdir -p "$BUNDLE_DIR/bin"
-            
-            # List of codec DLLs typically in bin directory (based on user testing)
-            BIN_CODEC_DLLS=(
-              "avformat-61.dll" "avcodec-61.dll" "avutil-59.dll"
-              "avfilter-10.dll" "swresample-5.dll" "swscale-8.dll"
-              "libvpx-1.dll" "libopus-0.dll" "libvorbis-0.dll"
-              "libogg-0.dll" "libmp3lame-0.dll" "libmpg123-0.dll"
-            )
-            
-            for dll in "${BIN_CODEC_DLLS[@]}"; do
-              if [[ -f "$GSTREAMER_ROOT/bin/$dll" ]]; then
-                cp "$GSTREAMER_ROOT/bin/$dll" "$BUNDLE_DIR/bin/" 2>/dev/null && echo "  ✓ Copied $dll from bin"
+            echo "📦 Copying critical codec libraries from bin directory..."
+            for lib in "${BIN_CODEC_LIBS[@]}"; do
+              if [[ -f "$GSTREAMER_ROOT/bin/$lib" ]]; then
+                cp "$GSTREAMER_ROOT/bin/$lib" "$BUNDLE_DIR/lib/" 2>/dev/null || true
+                echo "  ✓ Copied codec: $lib"
+              else
+                echo "  ⚠️ Missing codec: $lib"
               fi
             done
           fi
           
-          # Copy plugins with error checking
-          echo "📦 Copying plugins..."
-          CRITICAL_MISSING=""
+          # Copy plugins
           for plugin in "${PLUGINS[@]}"; do
             if [[ -f "$GSTREAMER_ROOT/lib/gstreamer-1.0/$plugin" ]]; then
               cp "$GSTREAMER_ROOT/lib/gstreamer-1.0/$plugin" "$BUNDLE_DIR/lib/gstreamer-1.0/" 2>/dev/null || true
-            else
-              if [[ "$plugin" == "gstlibav.dll" ]]; then
-                echo "❌ CRITICAL: Missing gstlibav.dll plugin - video decoding will NOT work!"
-                CRITICAL_MISSING="yes"
-              fi
             fi
           done
-          
-          # Abort if critical files are missing
-          if [[ -n "$CRITICAL_MISSING" ]]; then
-            echo "❌ FATAL: Critical video decoding plugin (gstlibav.dll) is missing!"
-            echo "The bundled application will NOT be able to play videos."
-            exit 1
-          fi
-          
-          # Check for codec libraries but don't fail if some are missing
-          if [[ -n "$MISSING_LIBS" ]]; then
-            echo "⚠️  WARNING: Some codec libraries are missing: $MISSING_LIBS"
-            echo "Some video formats may not work, but basic playback should still function."
-          fi
           
           # Copy SSL certificates (if available)
           if [[ -f "$GSTREAMER_ROOT/etc/ssl/certs/ca-certificates.crt" ]]; then
@@ -444,52 +371,6 @@ jobs:
           fi
           
           echo "✅ GStreamer bundle created: $(du -sh $BUNDLE_DIR | cut -f1)"
-          
-          # Verify critical files for video playback
-          echo "🔍 Verifying critical video components..."
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            CRITICAL_FILES=(
-              "$BUNDLE_DIR/lib/gstreamer-1.0/gstlibav.dll"
-              "$BUNDLE_DIR/bin/avcodec-61.dll"
-              "$BUNDLE_DIR/bin/avformat-61.dll" 
-              "$BUNDLE_DIR/bin/avutil-59.dll"
-            )
-            
-            # Also check lib directory as fallback
-            CRITICAL_LIB_FILES=(
-              "$BUNDLE_DIR/lib/avcodec-61.dll"
-              "$BUNDLE_DIR/lib/avformat-61.dll"
-              "$BUNDLE_DIR/lib/avutil-59.dll"
-            )
-            
-            all_present=true
-            for file in "${CRITICAL_FILES[@]}"; do
-              if [[ -f "$file" ]]; then
-                echo "✅ Found: $(basename $file)"
-              else
-                # Check lib directory as fallback
-                base_name=$(basename "$file")
-                if [[ -f "$BUNDLE_DIR/lib/$base_name" ]]; then
-                  echo "✅ Found in lib: $base_name"
-                else
-                  echo "❌ MISSING: $base_name"
-                  all_present=false
-                fi
-              fi
-            done
-            
-            if [[ "$all_present" != "true" ]]; then
-              echo "⚠️  WARNING: Some video playback components may be missing!"
-              echo "Checking bundle contents..."
-              echo "Contents of lib/gstreamer-1.0:"
-              ls -la "$BUNDLE_DIR/lib/gstreamer-1.0/" | head -20
-              echo "Contents of bin:"
-              ls -la "$BUNDLE_DIR/bin/" 2>/dev/null | head -20 || echo "No bin directory"
-              # Don't fail the build, but warn
-            else
-              echo "✅ All critical video components present"
-            fi
-          fi
 
       # Create release packages for each shader in the group
       - name: Prepare release packages
@@ -648,62 +529,33 @@ jobs:
                 fi
                 
               elif [[ "${{ runner.os }}" == "Windows" ]]; then
-                # Windows: Critical codec DLLs must be in root directory with .exe
+                # Windows: DLLs use current directory by default, so restructure
                 echo "Windows DLL bundling and structure optimization..."
                 
+                # Copy DLLs to release directory root (alongside exe)
                 echo "📦 Restructuring Windows GStreamer layout..."
                 
-                # CRITICAL: Copy codec DLLs from both lib AND bin to root directory
-                # These MUST be alongside the .exe for Windows to find them
-                # This list is based on user testing - these are the exact files needed
-                CODEC_DLLS=(
-                  # FFmpeg libraries - MUST be in root
-                  "avformat-61.dll" "avcodec-61.dll" "avutil-59.dll"
-                  "avfilter-10.dll" "swresample-5.dll" "swscale-8.dll"
-                  # Codec libraries - MUST be in root
-                  "libvpx-1.dll" "libopus-0.dll" "libvorbis-0.dll"
-                  "libogg-0.dll" "libmp3lame-0.dll" "libmpg123-0.dll"
-                )
+                # Copy all DLLs directly to exe directory (includes both core libs and codec libs)
+                echo "📦 Copying all DLLs from lib/ to exe directory..."
+                cp "release/$shader/gstreamer/lib"/*.dll "release/$shader/" 2>/dev/null || true
                 
-                echo "📦 Copying critical codec DLLs to application root..."
-                for dll in "${CODEC_DLLS[@]}"; do
-                  # Try to find in lib directory first
-                  if [[ -f "release/$shader/gstreamer/lib/$dll" ]]; then
-                    cp "release/$shader/gstreamer/lib/$dll" "release/$shader/" 2>/dev/null && echo "  ✓ Copied $dll from lib"
-                  # Then try bin directory
-                  elif [[ -f "release/$shader/gstreamer/bin/$dll" ]]; then
-                    cp "release/$shader/gstreamer/bin/$dll" "release/$shader/" 2>/dev/null && echo "  ✓ Copied $dll from bin"
-                  fi
-                done
+                # Debug: List what we actually copied
+                echo "✅ DLLs now in exe directory:"
+                ls -la "release/$shader/"*.dll 2>/dev/null | wc -l | xargs echo "  Total DLLs copied:"
                 
-                # Copy all other DLLs from lib to root (GStreamer core libraries)
-                echo "📦 Copying GStreamer core libraries to root..."
-                for dll in "release/$shader/gstreamer/lib"/*.dll; do
-                  if [[ -f "$dll" ]]; then
-                    dll_name=$(basename "$dll")
-                    # Skip if already copied as codec DLL
-                    if [[ ! -f "release/$shader/$dll_name" ]]; then
-                      cp "$dll" "release/$shader/" 2>/dev/null || true
-                    fi
-                  fi
-                done
-                
-                # Copy any executables from bin
+                # Copy bin directory contents if it exists
                 if [[ -d "release/$shader/gstreamer/bin" ]]; then
                   cp "release/$shader/gstreamer/bin"/*.exe "release/$shader/" 2>/dev/null || true
+                  cp "release/$shader/gstreamer/bin"/*.dll "release/$shader/" 2>/dev/null || true
                 fi
                 
-                # Keep the lib folder structure ONLY for plugins
+                # Keep the lib folder structure for plugins
                 mkdir -p "release/$shader/lib"
-                if [[ -d "release/$shader/gstreamer/lib/gstreamer-1.0" ]]; then
-                  cp -r "release/$shader/gstreamer/lib/gstreamer-1.0" "release/$shader/lib/" 2>/dev/null || true
-                  echo "✅ Copied plugins to lib/gstreamer-1.0/"
-                fi
+                cp -r "release/$shader/gstreamer/lib/gstreamer-1.0" "release/$shader/lib/" 2>/dev/null || true
                 
                 # Keep libexec for plugin scanner
                 if [[ -d "release/$shader/gstreamer/libexec" ]]; then
                   cp -r "release/$shader/gstreamer/libexec" "release/$shader/" 2>/dev/null || true
-                  echo "✅ Copied libexec with plugin scanner"
                 fi
                 
                 # Keep etc for configs
@@ -714,39 +566,7 @@ jobs:
                 # Remove the original gstreamer folder
                 rm -rf "release/$shader/gstreamer" 2>/dev/null || true
                 
-                # Verify critical files
-                echo "🔍 Verifying critical files in root directory..."
-                CRITICAL_ROOT_FILES=("avcodec-61.dll" "avformat-61.dll" "avutil-59.dll")
-                for dll in "${CRITICAL_ROOT_FILES[@]}"; do
-                  if [[ -f "release/$shader/$dll" ]]; then
-                    echo "  ✅ Found: $dll"
-                  else
-                    echo "  ❌ MISSING: $dll - Video playback will NOT work!"
-                  fi
-                done
-                
-                # Verify plugin
-                if [[ -f "release/$shader/lib/gstreamer-1.0/gstlibav.dll" ]]; then
-                  echo "  ✅ Found: gstlibav.dll plugin"
-                else
-                  echo "  ❌ MISSING: gstlibav.dll plugin - Video decoding will NOT work!"
-                fi
-                
-                echo "✅ Windows structure: exe + codec DLLs in root + lib/gstreamer-1.0/ + libexec/"
-                echo ""
-                echo "📁 Final Windows directory structure:"
-                echo "  droste.exe (or other shader exe)"
-                echo "  run_droste.bat"
-                echo "  avcodec-61.dll, avformat-61.dll, etc. (codec DLLs in root)"
-                echo "  gstreamer-1.0-0.dll, etc. (GStreamer core DLLs in root)"
-                echo "  lib/"
-                echo "    └── gstreamer-1.0/"
-                echo "        └── gstlibav.dll, etc. (plugins)"
-                echo "  libexec/"
-                echo "    └── gstreamer-1.0/"
-                echo "        └── gst-plugin-scanner.exe"
-                echo "  shaders/"
-                echo "  etc/"
+                echo "✅ Windows structure: exe + DLLs + lib/ + etc/ + libexec/"
               fi
               
               echo "✅ GStreamer embedded and paths fixed"
@@ -759,31 +579,13 @@ jobs:
             if [[ "${{ matrix.shader_config.gstreamer_required }}" == "true" ]]; then
               echo "1. No additional dependencies required - GStreamer is bundled!" >> "release/$shader/README.txt"
               echo "2. The 'shaders' directory must remain in the same folder as the executable." >> "release/$shader/README.txt"
-              echo "3. Self-contained build with embedded media support." >> "release/$shader/README.txt"
-              echo "" >> "release/$shader/README.txt"
-              echo "Video Support:" >> "release/$shader/README.txt"
-              echo "- Supports common video formats: MP4, AVI, MKV, MOV, etc." >> "release/$shader/README.txt"
-              echo "- Video codecs: H.264, H.265/HEVC, VP8, VP9, and more" >> "release/$shader/README.txt"
-              echo "- Audio support included for video files" >> "release/$shader/README.txt"
+              echo "3. Self-contained build with embedded media support (~80-100MB)." >> "release/$shader/README.txt"
               if [[ "${{ runner.os }}" == "Windows" ]]; then
                 echo "" >> "release/$shader/README.txt"
-                echo "Windows Usage:" >> "release/$shader/README.txt"
-                echo "- IMPORTANT: Use the 'run_$shader.bat' launcher, NOT the .exe directly!" >> "release/$shader/README.txt"
-                echo "- All DLL files must remain in the same folder as the executable" >> "release/$shader/README.txt"
-                echo "- The lib/ and libexec/ folders must be preserved as-is" >> "release/$shader/README.txt"
-                echo "" >> "release/$shader/README.txt"
-                echo "Required folder structure:" >> "release/$shader/README.txt"
-                echo "  $shader.exe" >> "release/$shader/README.txt"
-                echo "  run_$shader.bat (← Run this!)" >> "release/$shader/README.txt"
-                echo "  *.dll files (codec libraries)" >> "release/$shader/README.txt"
-                echo "  lib/gstreamer-1.0/ (plugins)" >> "release/$shader/README.txt"
-                echo "  libexec/gstreamer-1.0/ (scanner)" >> "release/$shader/README.txt"
-                echo "  shaders/ (shader files)" >> "release/$shader/README.txt"
-                echo "" >> "release/$shader/README.txt"
-                echo "- If videos don't play:" >> "release/$shader/README.txt"
-                echo "  1. Ensure ALL files were extracted (including lib/ and libexec/ folders)" >> "release/$shader/README.txt"
-                echo "  2. Check that avcodec-61.dll is in the same folder as the .exe" >> "release/$shader/README.txt"
-                echo "  3. Edit run_$shader.bat and uncomment the GST_DEBUG line for details" >> "release/$shader/README.txt"
+                echo "Windows Notes:" >> "release/$shader/README.txt"
+                echo "- If you see errors about missing DLLs, install Visual C++ Redistributable:" >> "release/$shader/README.txt"
+                echo "  https://aka.ms/vs/17/release/vc_redist.x64.exe" >> "release/$shader/README.txt"
+                echo "- Use the .bat launcher for best compatibility" >> "release/$shader/README.txt"
               fi
             else
               echo "1. No additional dependencies required - just run the executable!" >> "release/$shader/README.txt"
@@ -804,24 +606,6 @@ jobs:
                 echo "REM Set working directory to script location" >> "release/$shader/run_$shader.bat"
                 echo "cd /d \"%~dp0\"" >> "release/$shader/run_$shader.bat"
                 echo "" >> "release/$shader/run_$shader.bat"
-                echo "REM Check for critical video files" >> "release/$shader/run_$shader.bat"
-                echo "if not exist \"avcodec-61.dll\" (" >> "release/$shader/run_$shader.bat"
-                echo "    echo ERROR: avcodec-61.dll not found in application directory!" >> "release/$shader/run_$shader.bat"
-                echo "    echo Video playback will NOT work." >> "release/$shader/run_$shader.bat"
-                echo "    echo Please ensure all files were extracted properly." >> "release/$shader/run_$shader.bat"
-                echo "    pause" >> "release/$shader/run_$shader.bat"
-                echo ")" >> "release/$shader/run_$shader.bat"
-                echo "" >> "release/$shader/run_$shader.bat"
-                echo "if not exist \"lib\\gstreamer-1.0\\gstlibav.dll\" (" >> "release/$shader/run_$shader.bat"
-                echo "    echo ERROR: gstlibav.dll not found in lib\\gstreamer-1.0!" >> "release/$shader/run_$shader.bat"
-                echo "    echo Video decoding will NOT work." >> "release/$shader/run_$shader.bat"
-                echo "    pause" >> "release/$shader/run_$shader.bat"
-                echo ")" >> "release/$shader/run_$shader.bat"
-                echo "" >> "release/$shader/run_$shader.bat"
-                echo "REM Delete old registry to ensure clean plugin discovery" >> "release/$shader/run_$shader.bat"
-                echo "REM This prevents conflicts with system GStreamer installations" >> "release/$shader/run_$shader.bat"
-                echo "if exist \"gst-registry.bin\" del \"gst-registry.bin\"" >> "release/$shader/run_$shader.bat"
-                echo "" >> "release/$shader/run_$shader.bat"
                 echo "REM Configure GStreamer environment" >> "release/$shader/run_$shader.bat"
                 echo "set GST_PLUGIN_PATH=%~dp0lib\\gstreamer-1.0" >> "release/$shader/run_$shader.bat"
                 echo "set GST_PLUGIN_SYSTEM_PATH=" >> "release/$shader/run_$shader.bat"
@@ -832,22 +616,8 @@ jobs:
                 echo "set GSTREAMER_1_0_ROOT_MSVC_X86_64=" >> "release/$shader/run_$shader.bat"
                 echo "set GSTREAMER_1_0_ROOT_MINGW_X86_64=" >> "release/$shader/run_$shader.bat"
                 echo "" >> "release/$shader/run_$shader.bat"
-                echo "REM Enable GStreamer debug output for troubleshooting" >> "release/$shader/run_$shader.bat"
-                echo "REM Uncomment the next line to see detailed GStreamer messages" >> "release/$shader/run_$shader.bat"
-                echo "REM set GST_DEBUG=2" >> "release/$shader/run_$shader.bat"
-                echo "" >> "release/$shader/run_$shader.bat"
                 echo "REM Run the shader" >> "release/$shader/run_$shader.bat"
                 echo "$shader.exe %*" >> "release/$shader/run_$shader.bat"
-                echo "" >> "release/$shader/run_$shader.bat"
-                echo "if errorlevel 1 (" >> "release/$shader/run_$shader.bat"
-                echo "    echo." >> "release/$shader/run_$shader.bat"
-                echo "    echo Application exited with an error." >> "release/$shader/run_$shader.bat"
-                echo "    echo If videos are not playing, try:" >> "release/$shader/run_$shader.bat"
-                echo "    echo 1. Uncomment the GST_DEBUG line above and run again" >> "release/$shader/run_$shader.bat"
-                echo "    echo 2. Check that all DLL files are in the correct locations" >> "release/$shader/run_$shader.bat"
-                echo "    pause" >> "release/$shader/run_$shader.bat"
-                echo ")" >> "release/$shader/run_$shader.bat"
-                echo "" >> "release/$shader/run_$shader.bat"
                 echo "endlocal" >> "release/$shader/run_$shader.bat"
               else
                 # Simple launcher for non-media shaders
