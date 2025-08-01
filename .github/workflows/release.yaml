@@ -221,41 +221,21 @@ jobs:
               "intl-8.dll" "ffi-7.dll" "pcre2-8-0.dll" 
               
               # Core dependencies
-              "orc-0.4-0.dll" "z.dll" "z-1.dll" "bz2.dll" "bz2-1.dll"
+              "orc-0.4-0.dll" "z.dll" "z-1.dll" "bz2.dll"
               
               # FFmpeg/libav libraries
-              "avformat-61.dll" "avutil-59.dll" "avcodec-61.dll"
+              "avformat-61.dll" "avcodec-61.dll" "avutil-59.dll"
               "avfilter-10.dll" "swresample-5.dll" "swscale-8.dll"
               
-              # Video codecs
-              "libvpx-1.dll" "libx264-164.dll" "libx265.dll"
-              "libwebp-7.dll" "libwebpmux-3.dll" "libwebpdemux-2.dll"
-              
-              # Audio codecs
-              "libopus-0.dll" "libvorbis-0.dll" "libvorbisenc-2.dll"
+              # Codec libraries
+              "libvpx-1.dll" "libopus-0.dll" "libvorbis-0.dll"
               "libogg-0.dll" "libmp3lame-0.dll" "libmpg123-0.dll"
               
               # Additional dependencies
               "libwinpthread-1.dll" "libgcc_s_seh-1.dll" "libstdc++-6.dll"
-              "libssp-0.dll" "libgomp-1.dll"
               
               # Windows-specific
               "libiconv-2.dll" "libcharset-1.dll"
-              
-              # Visual C++ Runtime
-              "vcruntime140.dll" "vcruntime140_1.dll" "msvcp140.dll"
-              "api-ms-win-crt-runtime-l1-1-0.dll"
-              "api-ms-win-crt-heap-l1-1-0.dll"
-              "api-ms-win-crt-math-l1-1-0.dll"
-              "api-ms-win-crt-stdio-l1-1-0.dll"
-              "api-ms-win-crt-string-l1-1-0.dll"
-              "api-ms-win-crt-convert-l1-1-0.dll"
-              "api-ms-win-crt-time-l1-1-0.dll"
-              "api-ms-win-crt-environment-l1-1-0.dll"
-              "api-ms-win-crt-filesystem-l1-1-0.dll"
-              "api-ms-win-crt-process-l1-1-0.dll"
-              "api-ms-win-crt-locale-l1-1-0.dll"
-              "api-ms-win-crt-utility-l1-1-0.dll"
             )
             
             # Plugins (Windows)
@@ -266,20 +246,23 @@ jobs:
               "gstaudioconvert.dll" "gstaudioresample.dll" "gstvolume.dll"
               "gstvideofilter.dll" "gstaudiofx.dll" "gstgio.dll"
               
+              # VIDEO DECODERS 
+              "gstlibav.dll"  # Main FFmpeg-based decoder - ESSENTIAL!
+              
               # Windows audio
               "gstwasapi.dll" "gstwasapi2.dll" "gstdirectsound.dll"
               "gstautodetect.dll" "gstaudiotestsrc.dll"
               
               # Audio processing
               "gstaudiomixer.dll" "gstspectrum.dll" "gstsoundtouch.dll"
-              "gstaudioparsers.dll" "gstaudiofx.dll"
+              "gstaudioparsers.dll"
               
-              # Video decoders and parsers
-              "gstlibav.dll" "gstavcodec_plugin.dll"
+              # Video parsers and containers
               "gstisomp4.dll" "gstvideoparsersbad.dll"
               "gstmatroska.dll" "gstavi.dll" "gstflv.dll"
-              "gstmpegts.dll" "gstmpegpsmux.dll" "gstmpeg2dec.dll"
-              "gsth264parse.dll" "gsth265parse.dll"
+              "gstmpegts.dll" "gstmpegtsdemux.dll" "gstmpegpsmux.dll"
+              
+              # Additional codecs
               "gstvpx.dll" "gsttheora.dll"
               
               # Windows-specific video
@@ -287,12 +270,9 @@ jobs:
               "gstd3d.dll" "gstwinks.dll"
               
               # Additional format support
-              "gstasf.dll" "gstrmdemux.dll"
+              "gstasf.dll" 
               "gstmpg123.dll" "gstlame.dll"
               "gstvorbis.dll" "gstogg.dll"
-              
-              # Required for proper plugin loading
-              "gstpbtypes.dll"
             )
             
             # Windows: Also create directories for helper executables
