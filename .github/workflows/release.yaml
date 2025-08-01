@@ -207,29 +207,97 @@ jobs:
             
             # Core libraries (Windows)
             CORE_LIBS=(
+              # GStreamer core
               "gstreamer-1.0-0.dll" "gstbase-1.0-0.dll" "gstapp-1.0-0.dll"
               "gstvideo-1.0-0.dll" "gstaudio-1.0-0.dll" "gstpbutils-1.0-0.dll"
               "gsttag-1.0-0.dll" "gstfft-1.0-0.dll" "gstgl-1.0-0.dll"
               "gstvulkan-1.0-0.dll" "gstcodecparsers-1.0-0.dll" "gstriff-1.0-0.dll"
-              "gstrtp-1.0-0.dll" "glib-2.0-0.dll" "gobject-2.0-0.dll"
-              "gio-2.0-0.dll" "gmodule-2.0-0.dll" "intl-8.dll" "ffi-7.dll"
-              "pcre2-8-0.dll" "orc-0.4-0.dll" "z.dll" "z-1.dll" "bz2.dll"
+              "gstrtp-1.0-0.dll" "gstrtsp-1.0-0.dll" "gstsdp-1.0-0.dll"
+              "gstnet-1.0-0.dll" "gstcontroller-1.0-0.dll"
+              
+              # GLib and dependencies
+              "glib-2.0-0.dll" "gobject-2.0-0.dll" "gio-2.0-0.dll" 
+              "gmodule-2.0-0.dll" "gthread-2.0-0.dll"
+              "intl-8.dll" "ffi-7.dll" "pcre2-8-0.dll" 
+              
+              # Core dependencies
+              "orc-0.4-0.dll" "z.dll" "z-1.dll" "bz2.dll" "bz2-1.dll"
+              
+              # FFmpeg/libav libraries
               "avformat-61.dll" "avutil-59.dll" "avcodec-61.dll"
               "avfilter-10.dll" "swresample-5.dll" "swscale-8.dll"
-              "libvpx-1.dll" "libopus-0.dll"
+              
+              # Video codecs
+              "libvpx-1.dll" "libx264-164.dll" "libx265.dll"
+              "libwebp-7.dll" "libwebpmux-3.dll" "libwebpdemux-2.dll"
+              
+              # Audio codecs
+              "libopus-0.dll" "libvorbis-0.dll" "libvorbisenc-2.dll"
+              "libogg-0.dll" "libmp3lame-0.dll" "libmpg123-0.dll"
+              
+              # Additional dependencies
+              "libwinpthread-1.dll" "libgcc_s_seh-1.dll" "libstdc++-6.dll"
+              "libssp-0.dll" "libgomp-1.dll"
+              
+              # Windows-specific
+              "libiconv-2.dll" "libcharset-1.dll"
+              
+              # Visual C++ Runtime
+              "vcruntime140.dll" "vcruntime140_1.dll" "msvcp140.dll"
+              "api-ms-win-crt-runtime-l1-1-0.dll"
+              "api-ms-win-crt-heap-l1-1-0.dll"
+              "api-ms-win-crt-math-l1-1-0.dll"
+              "api-ms-win-crt-stdio-l1-1-0.dll"
+              "api-ms-win-crt-string-l1-1-0.dll"
+              "api-ms-win-crt-convert-l1-1-0.dll"
+              "api-ms-win-crt-time-l1-1-0.dll"
+              "api-ms-win-crt-environment-l1-1-0.dll"
+              "api-ms-win-crt-filesystem-l1-1-0.dll"
+              "api-ms-win-crt-process-l1-1-0.dll"
+              "api-ms-win-crt-locale-l1-1-0.dll"
+              "api-ms-win-crt-utility-l1-1-0.dll"
             )
             
-            # Plugins (Windows) 
+            # Plugins (Windows)
             PLUGINS=(
+              # Core elements
               "gstcoreelements.dll" "gstapp.dll" "gstplayback.dll"
               "gsttypefindfunctions.dll" "gstvideoconvertscale.dll" "gstvideorate.dll"
               "gstaudioconvert.dll" "gstaudioresample.dll" "gstvolume.dll"
-              "gstwasapi.dll" "gstautodetect.dll" "gstaudiotestsrc.dll"
+              "gstvideofilter.dll" "gstaudiofx.dll" "gstgio.dll"
+              
+              # Windows audio
+              "gstwasapi.dll" "gstwasapi2.dll" "gstdirectsound.dll"
+              "gstautodetect.dll" "gstaudiotestsrc.dll"
+              
+              # Audio processing
               "gstaudiomixer.dll" "gstspectrum.dll" "gstsoundtouch.dll"
-              "gstaudioparsers.dll" "gstlibav.dll" "gstisomp4.dll"
-              "gstvideoparsersbad.dll" "gstdirectshow.dll"
-              "gstavi.dll" "gstmatroska.dll"
+              "gstaudioparsers.dll" "gstaudiofx.dll"
+              
+              # Video decoders and parsers
+              "gstlibav.dll" "gstavcodec_plugin.dll"
+              "gstisomp4.dll" "gstvideoparsersbad.dll"
+              "gstmatroska.dll" "gstavi.dll" "gstflv.dll"
+              "gstmpegts.dll" "gstmpegpsmux.dll" "gstmpeg2dec.dll"
+              "gsth264parse.dll" "gsth265parse.dll"
+              "gstvpx.dll" "gsttheora.dll"
+              
+              # Windows-specific video
+              "gstdirectshow.dll" "gstwinscreencap.dll"
+              "gstd3d.dll" "gstwinks.dll"
+              
+              # Additional format support
+              "gstasf.dll" "gstrmdemux.dll"
+              "gstmpg123.dll" "gstlame.dll"
+              "gstvorbis.dll" "gstogg.dll"
+              
+              # Required for proper plugin loading
+              "gstpbtypes.dll"
             )
+            
+            # Windows: Also create directories for helper executables
+            mkdir -p "$BUNDLE_DIR/bin"
+            mkdir -p "$BUNDLE_DIR/libexec/gstreamer-1.0"
             
           elif [[ "${{ runner.os }}" == "Linux" ]]; then
             echo " Bundling GStreamer for Linux..."
@@ -261,16 +329,16 @@ jobs:
           # Copy libraries
           for lib in "${CORE_LIBS[@]}"; do
             if [[ -f "$GSTREAMER_ROOT/lib/$lib" ]]; then
-              cp "$GSTREAMER_ROOT/lib/$lib" "$BUNDLE_DIR/lib/"
+              cp "$GSTREAMER_ROOT/lib/$lib" "$BUNDLE_DIR/lib/" 2>/dev/null || true
             elif [[ -f "$GSTREAMER_ROOT/bin/$lib" ]]; then
-              cp "$GSTREAMER_ROOT/bin/$lib" "$BUNDLE_DIR/lib/"
+              cp "$GSTREAMER_ROOT/bin/$lib" "$BUNDLE_DIR/lib/" 2>/dev/null || true
             fi
           done
           
           # Copy plugins
           for plugin in "${PLUGINS[@]}"; do
             if [[ -f "$GSTREAMER_ROOT/lib/gstreamer-1.0/$plugin" ]]; then
-              cp "$GSTREAMER_ROOT/lib/gstreamer-1.0/$plugin" "$BUNDLE_DIR/lib/gstreamer-1.0/"
+              cp "$GSTREAMER_ROOT/lib/gstreamer-1.0/$plugin" "$BUNDLE_DIR/lib/gstreamer-1.0/" 2>/dev/null || true
             fi
           done
           
@@ -281,8 +349,23 @@ jobs:
             cp "/etc/ssl/certs/ca-certificates.crt" "$BUNDLE_DIR/etc/ssl/certs/"
           fi
           
-          # Copy GStreamer helper binaries for macOS and Linux
-          if [[ "${{ runner.os }}" != "Windows" ]]; then
+          # Copy GStreamer helper binaries
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            # For Windows, copy important executables and helpers
+            for exe in "gst-plugin-scanner.exe" "gst-inspect-1.0.exe" "gst-launch-1.0.exe"; do
+              if [[ -f "$GSTREAMER_ROOT/bin/$exe" ]]; then
+                cp "$GSTREAMER_ROOT/bin/$exe" "$BUNDLE_DIR/bin/" 2>/dev/null || true
+              fi
+            done
+            
+            # Copy plugin scanner to libexec
+            if [[ -f "$GSTREAMER_ROOT/libexec/gstreamer-1.0/gst-plugin-scanner.exe" ]]; then
+              cp "$GSTREAMER_ROOT/libexec/gstreamer-1.0/gst-plugin-scanner.exe" "$BUNDLE_DIR/libexec/gstreamer-1.0/" 2>/dev/null || true
+            elif [[ -f "$GSTREAMER_ROOT/bin/gst-plugin-scanner.exe" ]]; then
+              cp "$GSTREAMER_ROOT/bin/gst-plugin-scanner.exe" "$BUNDLE_DIR/libexec/gstreamer-1.0/" 2>/dev/null || true
+            fi
+          else
+            # macOS and Linux
             mkdir -p "$BUNDLE_DIR/libexec/gstreamer-1.0"
             mkdir -p "$BUNDLE_DIR/bin"
             
@@ -460,8 +543,39 @@ jobs:
                 fi
                 
               elif [[ "${{ runner.os }}" == "Windows" ]]; then
-                # Windows: DLLs use current directory by default, so bundling is sufficient
-                echo "Windows DLL bundling complete (no path fixing needed)"
+                # Windows: DLLs use current directory by default, so restructure
+                echo "Windows DLL bundling and structure optimization..."
+                
+                # Copy DLLs to release directory root (alongside exe)
+                echo "📦 Restructuring Windows GStreamer layout..."
+                
+                # Copy all DLLs directly to exe directory
+                cp "release/$shader/gstreamer/lib"/*.dll "release/$shader/" 2>/dev/null || true
+                
+                # Copy bin directory contents if it exists
+                if [[ -d "release/$shader/gstreamer/bin" ]]; then
+                  cp "release/$shader/gstreamer/bin"/*.exe "release/$shader/" 2>/dev/null || true
+                  cp "release/$shader/gstreamer/bin"/*.dll "release/$shader/" 2>/dev/null || true
+                fi
+                
+                # Keep the lib folder structure for plugins
+                mkdir -p "release/$shader/lib"
+                cp -r "release/$shader/gstreamer/lib/gstreamer-1.0" "release/$shader/lib/" 2>/dev/null || true
+                
+                # Keep libexec for plugin scanner
+                if [[ -d "release/$shader/gstreamer/libexec" ]]; then
+                  cp -r "release/$shader/gstreamer/libexec" "release/$shader/" 2>/dev/null || true
+                fi
+                
+                # Keep etc for configs
+                if [[ -d "release/$shader/gstreamer/etc" ]]; then
+                  cp -r "release/$shader/gstreamer/etc" "release/$shader/" 2>/dev/null || true
+                fi
+                
+                # Remove the original gstreamer folder
+                rm -rf "release/$shader/gstreamer" 2>/dev/null || true
+                
+                echo "✅ Windows structure: exe + DLLs + lib/ + etc/ + libexec/"
               fi
               
               echo "✅ GStreamer embedded and paths fixed"
@@ -475,40 +589,50 @@ jobs:
               echo "1. No additional dependencies required - GStreamer is bundled!" >> "release/$shader/README.txt"
               echo "2. The 'shaders' directory must remain in the same folder as the executable." >> "release/$shader/README.txt"
               echo "3. Self-contained build with embedded media support (~80-100MB)." >> "release/$shader/README.txt"
+              if [[ "${{ runner.os }}" == "Windows" ]]; then
+                echo "" >> "release/$shader/README.txt"
+                echo "Windows Notes:" >> "release/$shader/README.txt"
+                echo "- If you see errors about missing DLLs, install Visual C++ Redistributable:" >> "release/$shader/README.txt"
+                echo "  https://aka.ms/vs/17/release/vc_redist.x64.exe" >> "release/$shader/README.txt"
+                echo "- Use the .bat launcher for best compatibility" >> "release/$shader/README.txt"
+              fi
             else
               echo "1. No additional dependencies required - just run the executable!" >> "release/$shader/README.txt"
               echo "2. The 'shaders' directory must remain in the same folder as the executable." >> "release/$shader/README.txt"
               echo "3. This is a lightweight build without media support." >> "release/$shader/README.txt"
             fi
             
-            # Windows-specific: create .bat launcher and fix DLL paths
+            # Windows-specific: create .bat launcher
             if [[ "${{ runner.os }}" == "Windows" ]]; then
-              # For Windows, restructure to have lib folder directly in exe directory
+              # For Windows,
               if [[ "${{ matrix.shader_config.gstreamer_required }}" == "true" ]]; then
-                echo "📦 Restructuring Windows GStreamer layout..."
-                
-                # Copy DLLs directly to exe directory
-                cp "release/$shader/gstreamer/lib"/*.dll "release/$shader/" 2>/dev/null || true
-                
-                # Move lib folder (for plugins) to exe directory and remove gstreamer folder
-                mv "release/$shader/gstreamer/lib" "release/$shader/lib" 2>/dev/null || true
-                mv "release/$shader/gstreamer/etc" "release/$shader/etc" 2>/dev/null || true
-                rm -rf "release/$shader/gstreamer" 2>/dev/null || true
-                
-                echo "✅ Windows structure: exe + DLLs + lib/ + etc/"
-                
-                # Create launcher with PATH setup
                 echo "@echo off" > "release/$shader/run_$shader.bat"
+                echo "setlocal" >> "release/$shader/run_$shader.bat"
+                echo "" >> "release/$shader/run_$shader.bat"
+                echo "REM Ensure shader directory exists" >> "release/$shader/run_$shader.bat"
                 echo "if not exist shaders mkdir shaders" >> "release/$shader/run_$shader.bat"
+                echo "" >> "release/$shader/run_$shader.bat"
+                echo "REM Set working directory to script location" >> "release/$shader/run_$shader.bat"
+                echo "cd /d \"%~dp0\"" >> "release/$shader/run_$shader.bat"
+                echo "" >> "release/$shader/run_$shader.bat"
+                echo "REM Configure GStreamer environment" >> "release/$shader/run_$shader.bat"
                 echo "set GST_PLUGIN_PATH=%~dp0lib\\gstreamer-1.0" >> "release/$shader/run_$shader.bat"
                 echo "set GST_PLUGIN_SYSTEM_PATH=" >> "release/$shader/run_$shader.bat"
-                echo "set GST_REGISTRY=%~dp0etc\\registry.bin" >> "release/$shader/run_$shader.bat"
-                echo "$shader.exe" >> "release/$shader/run_$shader.bat"
+                echo "set GST_REGISTRY=%~dp0gst-registry.bin" >> "release/$shader/run_$shader.bat"
+                echo "set GST_PLUGIN_SCANNER=%~dp0libexec\\gstreamer-1.0\\gst-plugin-scanner.exe" >> "release/$shader/run_$shader.bat"
+                echo "" >> "release/$shader/run_$shader.bat"
+                echo "REM Disable conflicting environment variables" >> "release/$shader/run_$shader.bat"
+                echo "set GSTREAMER_1_0_ROOT_MSVC_X86_64=" >> "release/$shader/run_$shader.bat"
+                echo "set GSTREAMER_1_0_ROOT_MINGW_X86_64=" >> "release/$shader/run_$shader.bat"
+                echo "" >> "release/$shader/run_$shader.bat"
+                echo "REM Run the shader" >> "release/$shader/run_$shader.bat"
+                echo "$shader.exe %*" >> "release/$shader/run_$shader.bat"
+                echo "endlocal" >> "release/$shader/run_$shader.bat"
               else
                 # Simple launcher for non-media shaders
                 echo "@echo off" > "release/$shader/run_$shader.bat"
                 echo "if not exist shaders mkdir shaders" >> "release/$shader/run_$shader.bat"
-                echo "$shader.exe" >> "release/$shader/run_$shader.bat"
+                echo "$shader.exe %*" >> "release/$shader/run_$shader.bat"
               fi
             fi
 
@@ -537,7 +661,7 @@ jobs:
                 fi
               fi
               
-              echo "./$shader" >> "release/$shader/run_$shader.sh"
+              echo "./$shader \"\$@\"" >> "release/$shader/run_$shader.sh"
               chmod +x "release/$shader/run_$shader.sh"
             fi
           done
