@@ -313,8 +313,9 @@ jobs:
             echo "📦 Copying critical codec libraries from bin directory..."
             for lib in "${BIN_CODEC_LIBS[@]}"; do
               if [[ -f "$GSTREAMER_ROOT/bin/$lib" ]]; then
-                cp "$GSTREAMER_ROOT/bin/$lib" "$BUNDLE_DIR/lib/" 2>/dev/null || true
-                echo "  ✓ Copied codec: $lib"
+                # Copy to bin directory so Windows restructuring can find them
+                cp "$GSTREAMER_ROOT/bin/$lib" "$BUNDLE_DIR/bin/" 2>/dev/null || true
+                echo "  ✓ Copied codec to bin/: $lib"
               else
                 echo "  ⚠️ Missing codec: $lib"
               fi
@@ -543,10 +544,17 @@ jobs:
                 echo "✅ DLLs now in exe directory:"
                 ls -la "release/$shader/"*.dll 2>/dev/null | wc -l | xargs echo "  Total DLLs copied:"
                 
-                # Copy bin directory contents if it exists
+                # Copy bin directory contents if it exists (includes codec DLLs)
                 if [[ -d "release/$shader/gstreamer/bin" ]]; then
+                  echo "📦 Copying executables and additional DLLs from bin directory..."
                   cp "release/$shader/gstreamer/bin"/*.exe "release/$shader/" 2>/dev/null || true
                   cp "release/$shader/gstreamer/bin"/*.dll "release/$shader/" 2>/dev/null || true
+                  
+                  # Debug: List what we copied from bin
+                  echo "✅ Files copied from bin directory:"
+                  ls -la "release/$shader/gstreamer/bin/" 2>/dev/null || echo "  No bin directory found"
+                else
+                  echo "⚠️ No bin directory found in GStreamer bundle"
                 fi
                 
                 # Keep the lib folder structure for plugins
