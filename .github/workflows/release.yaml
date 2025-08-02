@@ -322,12 +322,29 @@ jobs:
             done
           fi
           
-          # Copy plugins
+          # Copy plugins with detailed logging
+          echo "📦 Copying GStreamer plugins..."
           for plugin in "${PLUGINS[@]}"; do
             if [[ -f "$GSTREAMER_ROOT/lib/gstreamer-1.0/$plugin" ]]; then
               cp "$GSTREAMER_ROOT/lib/gstreamer-1.0/$plugin" "$BUNDLE_DIR/lib/gstreamer-1.0/" 2>/dev/null || true
+              echo "  ✅ Copied plugin: $plugin"
+            else
+              echo "  ❌ MISSING plugin: $plugin"
             fi
           done
+          
+          # Verify critical plugins are present
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            echo "🔍 Verifying critical plugins in bundle..."
+            critical_plugins=("gstlibav.dll" "gstmpegtsdemux.dll" "gstasf.dll")
+            for critical in "${critical_plugins[@]}"; do
+              if [[ -f "$BUNDLE_DIR/lib/gstreamer-1.0/$critical" ]]; then
+                echo "  ✅ Critical plugin verified: $critical"
+              else
+                echo "  ❌ CRITICAL PLUGIN MISSING: $critical"
+              fi
+            done
+          fi
           
           # Copy SSL certificates (if available)
           if [[ -f "$GSTREAMER_ROOT/etc/ssl/certs/ca-certificates.crt" ]]; then
@@ -540,22 +557,32 @@ jobs:
                 echo "📦 Copying all DLLs from lib/ to exe directory..."
                 cp "release/$shader/gstreamer/lib"/*.dll "release/$shader/" 2>/dev/null || true
                 
-                # Debug: List what we actually copied
-                echo "✅ DLLs now in exe directory:"
-                ls -la "release/$shader/"*.dll 2>/dev/null | wc -l | xargs echo "  Total DLLs copied:"
-                
-                # Copy bin directory contents if it exists (includes codec DLLs)
+                # CRITICAL: Copy codec DLLs from bin directory to exe directory
                 if [[ -d "release/$shader/gstreamer/bin" ]]; then
-                  echo "📦 Copying executables and additional DLLs from bin directory..."
-                  cp "release/$shader/gstreamer/bin"/*.exe "release/$shader/" 2>/dev/null || true
-                  cp "release/$shader/gstreamer/bin"/*.dll "release/$shader/" 2>/dev/null || true
+                  echo "📦 Copying critical codec DLLs from bin directory to exe directory..."
                   
-                  # Debug: List what we copied from bin
-                  echo "✅ Files copied from bin directory:"
-                  ls -la "release/$shader/gstreamer/bin/" 2>/dev/null || echo "  No bin directory found"
+                  # Explicitly copy the 12 required codec DLLs
+                  for codec_dll in "avformat-61.dll" "avcodec-61.dll" "avutil-59.dll" \
+                                   "avfilter-10.dll" "swresample-5.dll" "swscale-8.dll" \
+                                   "libvpx-1.dll" "libopus-0.dll" "libvorbis-0.dll" \
+                                   "libogg-0.dll" "libmp3lame-0.dll" "libmpg123-0.dll"; do
+                    if [[ -f "release/$shader/gstreamer/bin/$codec_dll" ]]; then
+                      cp "release/$shader/gstreamer/bin/$codec_dll" "release/$shader/" 2>/dev/null || true
+                      echo "  ✅ Copied critical codec: $codec_dll"
+                    else
+                      echo "  ❌ MISSING critical codec: $codec_dll"
+                    fi
+                  done
+                  
+                  # Copy other executables from bin
+                  cp "release/$shader/gstreamer/bin"/*.exe "release/$shader/" 2>/dev/null || true
                 else
-                  echo "⚠️ No bin directory found in GStreamer bundle"
+                  echo "❌ CRITICAL ERROR: No bin directory found in GStreamer bundle!"
                 fi
+                
+                # Debug: Final count of DLLs in exe directory
+                echo "✅ Final DLL count in exe directory:"
+                ls -la "release/$shader/"*.dll 2>/dev/null | wc -l | xargs echo "  Total DLLs:"
                 
                 # Keep the lib folder structure for plugins
                 mkdir -p "release/$shader/lib"
