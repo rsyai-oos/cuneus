@@ -122,6 +122,24 @@ jobs:
             Write-Host "Development installation failed with code: $($proc.ExitCode)"
             exit 1
           }
+
+          # Install libav/FFmpeg codecs package for video processing
+          Write-Host "Downloading FFmpeg/libav codecs package..."
+          try {
+            $libavUrl = "$baseUrl/gstreamer-1.0-libav-msvc-x86_64-$gstVer.msi"
+            Invoke-WebRequest -Uri $libavUrl -OutFile "$tempDir\gstreamer-libav.msi"
+            
+            Write-Host "Installing FFmpeg/libav codecs package..."
+            $proc = Start-Process msiexec -ArgumentList "/i", "`"$tempDir\gstreamer-libav.msi`"", "INSTALLDIR=$installDir", "/qn" -Wait -PassThru -NoNewWindow
+            if ($proc.ExitCode -eq 0) {
+              Write-Host "✅ FFmpeg/libav codecs package installed successfully"
+            } else {
+              Write-Host "⚠️ FFmpeg/libav installation failed with code: $($proc.ExitCode) - continuing without FFmpeg codecs"
+            }
+          } catch {
+            Write-Host "⚠️ Could not download FFmpeg/libav package: $($_.Exception.Message)"
+            Write-Host "⚠️ Video processing may be limited without FFmpeg codecs"
+          }
           
           Write-Host "Looking for GStreamer installation..."
           $expectedPath = "$installDir\1.0\msvc_x86_64"
@@ -147,6 +165,30 @@ jobs:
           "GST_PLUGIN_PATH=$expectedPath\lib\gstreamer-1.0" | Out-File -FilePath $env:GITHUB_ENV -Append
           "PKG_CONFIG_PATH=$expectedPath\lib\pkgconfig" | Out-File -FilePath $env:GITHUB_ENV -Append
           "PATH=$expectedPath\bin;$env:Path" | Out-File -FilePath $env:GITHUB_ENV -Append
+          
+          # Verify critical FFmpeg codec DLLs are installed
+          Write-Host "🔍 Verifying FFmpeg codec installation..."
+          $criticalCodecs = @("avformat-61.dll", "avcodec-61.dll", "avutil-59.dll", "gstlibav.dll")
+          $binPath = "$expectedPath\bin"
+          $pluginPath = "$expectedPath\lib\gstreamer-1.0"
+          
+          foreach ($codec in $criticalCodecs) {
+            if ($codec -eq "gstlibav.dll") {
+              $codecPath = "$pluginPath\$codec"
+            } else {
+              $codecPath = "$binPath\$codec"
+            }
+            
+            if (Test-Path $codecPath) {
+              Write-Host "  ✅ Found: $codec"
+            } else {
+              Write-Host "  ❌ Missing: $codec at $codecPath"
+            }
+          }
+          
+          Write-Host "📊 Installation summary:"
+          Write-Host "  Bin directory files: $((Get-ChildItem $binPath -ErrorAction SilentlyContinue).Count)"
+          Write-Host "  Plugin directory files: $((Get-ChildItem $pluginPath -ErrorAction SilentlyContinue).Count)"
 
       # Build all binaries for this shader group
       - name: Build binaries
