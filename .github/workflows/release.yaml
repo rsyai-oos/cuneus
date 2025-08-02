@@ -311,25 +311,58 @@ jobs:
           # Copy additional codec libraries from bin/ directory (Windows only)
           if [[ "${{ runner.os }}" == "Windows" ]]; then
             echo "📦 Copying critical codec libraries from bin directory..."
+            echo "🔍 Checking GStreamer installation at: $GSTREAMER_ROOT"
+            echo "🔍 Expected bin directory: $GSTREAMER_ROOT/bin"
+            
+            # Debug: List what's actually in the bin directory
+            if [[ -d "$GSTREAMER_ROOT/bin" ]]; then
+              echo "✅ Bin directory exists. Contents:"
+              ls -la "$GSTREAMER_ROOT/bin" | head -20
+              echo "📊 Total files in bin: $(ls -1 "$GSTREAMER_ROOT/bin" | wc -l)"
+            else
+              echo "❌ Bin directory does not exist at: $GSTREAMER_ROOT/bin"
+              echo "🔍 Available directories in $GSTREAMER_ROOT:"
+              ls -la "$GSTREAMER_ROOT/" 2>/dev/null || echo "GSTREAMER_ROOT path invalid"
+            fi
+            
             for lib in "${BIN_CODEC_LIBS[@]}"; do
               if [[ -f "$GSTREAMER_ROOT/bin/$lib" ]]; then
                 # Copy to bin directory so Windows restructuring can find them
                 cp "$GSTREAMER_ROOT/bin/$lib" "$BUNDLE_DIR/bin/" 2>/dev/null || true
-                echo "  ✓ Copied codec to bin/: $lib"
+                echo "  ✅ Copied codec to bin/: $lib"
               else
-                echo "  ⚠️ Missing codec: $lib"
+                echo "  ❌ Missing codec: $lib (checked: $GSTREAMER_ROOT/bin/$lib)"
               fi
             done
           fi
           
           # Copy plugins with detailed logging
           echo "📦 Copying GStreamer plugins..."
+          echo "🔍 Plugin directory: $GSTREAMER_ROOT/lib/gstreamer-1.0"
+          
+          # Debug: Check plugin directory
+          if [[ -d "$GSTREAMER_ROOT/lib/gstreamer-1.0" ]]; then
+            echo "✅ Plugin directory exists"
+            echo "📊 Total plugins available: $(ls -1 "$GSTREAMER_ROOT/lib/gstreamer-1.0"/*.dll 2>/dev/null | wc -l)"
+            
+            # Check for critical plugins specifically
+            for critical in "gstlibav.dll" "gstmpegtsdemux.dll" "gstasf.dll"; do
+              if [[ -f "$GSTREAMER_ROOT/lib/gstreamer-1.0/$critical" ]]; then
+                echo "✅ Found critical plugin: $critical"
+              else
+                echo "❌ Critical plugin missing: $critical"
+              fi
+            done
+          else
+            echo "❌ Plugin directory does not exist"
+          fi
+          
           for plugin in "${PLUGINS[@]}"; do
             if [[ -f "$GSTREAMER_ROOT/lib/gstreamer-1.0/$plugin" ]]; then
               cp "$GSTREAMER_ROOT/lib/gstreamer-1.0/$plugin" "$BUNDLE_DIR/lib/gstreamer-1.0/" 2>/dev/null || true
               echo "  ✅ Copied plugin: $plugin"
             else
-              echo "  ❌ MISSING plugin: $plugin"
+              echo "  ❌ MISSING plugin: $plugin (checked: $GSTREAMER_ROOT/lib/gstreamer-1.0/$plugin)"
             fi
           done
           
