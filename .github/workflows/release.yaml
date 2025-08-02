@@ -109,15 +109,15 @@ jobs:
           Write-Host "Downloading MSVC 64-bit development installer..."
           Invoke-WebRequest -Uri $develUrl -OutFile "$tempDir\gstreamer-devel.msi"
 
-          Write-Host "Installing runtime package..."
-          $proc = Start-Process msiexec -ArgumentList "/i", "`"$tempDir\gstreamer.msi`"", "INSTALLDIR=$installDir", "/qn" -Wait -PassThru -NoNewWindow
+          Write-Host "Installing runtime package ..."
+          $proc = Start-Process msiexec -ArgumentList "/i", "`"$tempDir\gstreamer.msi`"", "INSTALLDIR=$installDir", "INSTALLLEVEL=1000", "/qn" -Wait -PassThru -NoNewWindow
           if ($proc.ExitCode -ne 0) {
             Write-Host "Runtime installation failed with code: $($proc.ExitCode)"
             exit 1
           }
 
           Write-Host "Installing development package..."
-          $proc = Start-Process msiexec -ArgumentList "/i", "`"$tempDir\gstreamer-devel.msi`"", "INSTALLDIR=$installDir", "/qn" -Wait -PassThru -NoNewWindow
+          $proc = Start-Process msiexec -ArgumentList "/i", "`"$tempDir\gstreamer-devel.msi`"", "INSTALLDIR=$installDir", "INSTALLLEVEL=1000", "/qn" -Wait -PassThru -NoNewWindow
           if ($proc.ExitCode -ne 0) {
             Write-Host "Development installation failed with code: $($proc.ExitCode)"
             exit 1
@@ -275,8 +275,8 @@ jobs:
             BIN_CODEC_LIBS=(
               "avformat-61.dll" "avcodec-61.dll" "avutil-59.dll"
               "avfilter-10.dll" "swresample-5.dll" "swscale-8.dll"
-              "libvpx-1.dll" "libopus-0.dll" "libvorbis-0.dll"
-              "libogg-0.dll" "libmp3lame-0.dll" "libmpg123-0.dll"
+              "opus-0.dll" "vorbis-0.dll" "ogg-0.dll" 
+              "mp3lame-0.dll" "libmpg123-1.dll"
             )
             
             # Plugins (Windows)
