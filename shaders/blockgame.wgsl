@@ -31,7 +31,7 @@ struct FontUniforms {
 @group(3) @binding(3) var<storage, read_write> game_data: array<f32>;
 
 // game indices
-const O = array<u32,8>(0,1,2,3,4,5,6,7); // state,score,block,click,cam_y,cam_h,cam_a,cam_s
+const O = array<u32,9>(0,1,2,3,4,5,6,7,8); // state,score,block,click,cam_y,cam_h,cam_a,cam_s,perf_time
 const BD = 100u; // block data start
 const BS = 10u;  // block size
 
@@ -159,6 +159,8 @@ fn gca() -> f32 { return game_data[O[6]]; } // get camera angle
 fn sca(a: f32) { game_data[O[6]] = a; } // set camera angle
 fn gcs() -> f32 { return game_data[O[7]]; } // get camera scale
 fn scs(s: f32) { game_data[O[7]] = s; } // set camera scale
+fn gpt() -> f32 { return game_data[O[8]]; } // get perfect time
+fn spt(t: f32) { game_data[O[8]] = t; } // set perfect time
 
 // update camera for tower
 fn updcam() {
@@ -230,7 +232,10 @@ fn rbl(pp: vec2<f32>, b: Block, ss: vec2<f32>, id: u32) -> vec3<f32> {
     
     let m = mat(id);
     var fm = m;
-    if (b.perf > .5) { fm = Mat(m.alb + vec3(.1, .05, 0.), m.r, m.m, m.f); } // golden tint
+    if (b.perf > .5) { 
+        let pulse = sin(u_time.time * 6.) * .3 + .7;
+        fm = Mat(m.alb + vec3(.3, .2, .1) * pulse, m.r * .5, m.m, m.f + .2); 
+    }
     
     let scale = gcs();
     let cy = gcy();
@@ -326,7 +331,7 @@ fn init() {
         // foundation
         sb(0u, Block(vec3(0., 0., 0.), vec3(4., .6, 4.), vec3(.8, .6, .4), 0.));
         
-        ss(0u); ssc(0u); scb(1u); sct(false); scy(0.); sch(8.); sca(0.); scs(65.);
+        ss(0u); ssc(0u); scb(1u); sct(false); scy(0.); sch(8.); sca(0.); scs(65.); spt(-999.);
     }
 }
 
@@ -361,6 +366,8 @@ fn upd() {
                 
                 // perfect match check
                 nb.perf = select(0., 1., ox < .05);
+                 // trigger perfect effect
+                if (nb.perf > .5) { spt(u_time.time); }
                 
                 // adjust pos
                 nb.p.x = select(pb.p.x - (pb.s.x - nb.s.x) * .5, 
@@ -388,6 +395,20 @@ fn upd() {
 fn txt(pp: vec2<f32>, ss: vec2<f32>) -> vec3<f32> {
     let state = gs();
     var tc = vec3(0.);
+    
+    // perfect placement feedback 
+    let pt = gpt();
+    let dt = u_time.time - pt;
+    if (dt < 2. && dt > 0. && pt > 0. && state == 1u) {
+        let fade = 1. - dt / 2.;
+        let scale_factor = 1. + sin(dt * 8.) * .2 * fade;
+        let perfect_text = array<u32, 16>(80u, 69u, 82u, 70u, 69u, 67u, 84u, 33u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u);
+        let text_size = 80. * scale_factor;
+        let text_pos = vec2(ss.x * .5 - 200., ss.y * .3);
+        if (word(pp, text_pos, perfect_text, 8u, text_size) > .01) { 
+            tc = vec3(0.1, 0.05, 0.0) * fade; 
+        }
+    }
     
     if (state == 0u) {
         // menu
@@ -481,6 +502,14 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // text overlay
     let tc = txt(pp, ss);
     if (length(tc) > 0.) { col = tc; }
+    
+    // perfect placement flash effect
+    let pt = gpt();
+    let dt = u_time.time - pt;
+    if (dt < .5 && dt > 0. && pt > 0. && state == 1u) {
+        let flash_intensity = (1. - dt / .5) * .3;
+        col = mix(col, vec3(1., 1., .7), flash_intensity * sin(dt * 20.) * .5 + flash_intensity * .5);
+    }
     
     // post processing: tone map vig, gamma etc etc
     col *= 1.2; // exposure
