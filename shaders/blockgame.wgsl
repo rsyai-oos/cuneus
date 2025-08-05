@@ -31,7 +31,7 @@ struct FontUniforms {
 @group(3) @binding(3) var<storage, read_write> game_data: array<f32>;
 
 // game indices
-const O = array<u32,7>(0,1,2,3,4,5,6); // state,score,block,click,cam_y,cam_h,cam_a
+const O = array<u32,8>(0,1,2,3,4,5,6,7); // state,score,block,click,cam_y,cam_h,cam_a,cam_s
 const BD = 100u; // block data start
 const BS = 10u;  // block size
 
@@ -157,6 +157,8 @@ fn gch() -> f32 { return game_data[O[5]]; } // get camera height
 fn sch(h: f32) { game_data[O[5]] = h; } // set camera height
 fn gca() -> f32 { return game_data[O[6]]; } // get camera angle
 fn sca(a: f32) { game_data[O[6]] = a; } // set camera angle
+fn gcs() -> f32 { return game_data[O[7]]; } // get camera scale
+fn scs(s: f32) { game_data[O[7]] = s; } // set camera scale
 
 // update camera for tower
 fn updcam() {
@@ -230,7 +232,7 @@ fn rbl(pp: vec2<f32>, b: Block, ss: vec2<f32>, id: u32) -> vec3<f32> {
     var fm = m;
     if (b.perf > .5) { fm = Mat(m.alb + vec3(.1, .05, 0.), m.r, m.m, m.f); } // golden tint
     
-    let scale = 80.;
+    let scale = gcs();
     let cy = gcy();
     let co = vec2(ss.x * .5, ss.y * .7 + cy);
     
@@ -324,7 +326,7 @@ fn init() {
         // foundation
         sb(0u, Block(vec3(0., 0., 0.), vec3(4., .6, 4.), vec3(.8, .6, .4), 0.));
         
-        ss(0u); ssc(0u); scb(1u); sct(false); scy(0.); sch(8.); sca(0.);
+        ss(0u); ssc(0u); scb(1u); sct(false); scy(0.); sch(8.); sca(0.); scs(65.);
     }
 }
 

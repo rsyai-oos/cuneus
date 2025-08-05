@@ -28,12 +28,13 @@ struct BlockGameParams {
 
     camera_height: f32,
     camera_angle: f32,
+    camera_scale: f32,
     
     // Game mech
     perfect_placement: i32,
     game_over: i32,
     
-    _padding: [f32; 3],
+    _padding: [f32; 2],
 }
 
 impl Default for BlockGameParams {
@@ -58,11 +59,12 @@ impl Default for BlockGameParams {
             
             camera_height: 0.0,
             camera_angle: 0.0,
+            camera_scale: 65.0,
             
             perfect_placement: 0,
             game_over: 0,
             
-            _padding: [0.0; 3],
+            _padding: [0.0; 2],
         }
     }
 }
@@ -214,15 +216,31 @@ impl ShaderManager for BlockTowerGame {
                             .show(ui, |ui| {
                                 ui.add(egui::Slider::new(&mut self.game_params.camera_height, 0.0..=20.0).text("Height"));
                                 ui.add(egui::Slider::new(&mut self.game_params.camera_angle, -3.14159..=3.14159).text("Angle"));
+                                ui.add(egui::Slider::new(&mut self.game_params.camera_scale, 20.0..=200.0).text("Scale"));
                                 
                                 ui.separator();
                                 ui.label("Controls:");
                                 ui.label("Q/E: Move up/down");
                                 ui.label("W/S: Rotate left/right");
                                 
+                                ui.separator();
+                                ui.label("Scale presets:");
+                                ui.horizontal(|ui| {
+                                    if ui.button("1080p").clicked() {
+                                        self.game_params.camera_scale = 50.0;
+                                    }
+                                    if ui.button("1440p").clicked() {
+                                        self.game_params.camera_scale = 65.0;
+                                    }
+                                    if ui.button("4K").clicked() {
+                                        self.game_params.camera_scale = 100.0;
+                                    }
+                                });
+                                
                                 if ui.button("Reset Camera").clicked() {
                                     self.game_params.camera_height = 8.0;
                                     self.game_params.camera_angle = 0.0;
+                                    self.game_params.camera_scale = 65.0;
                                 }
                             });
                     });
@@ -314,6 +332,7 @@ impl BlockTowerGame {
                 let camera_data = [
                     self.game_params.camera_height,
                     self.game_params.camera_angle,
+                    self.game_params.camera_scale,
                 ];
                 
                 let camera_data_bytes = bytemuck::cast_slice(&camera_data);
