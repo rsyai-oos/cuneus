@@ -418,6 +418,12 @@ fn txt(pp: vec2<f32>, ss: vec2<f32>) -> vec3<f32> {
         let sub = array<u32, 16>(67u, 76u, 73u, 67u, 75u, 32u, 84u, 79u, 32u, 83u, 84u, 65u, 82u, 84u, 0u, 0u);
         if (word(pp, vec2(ss.x * .5 - 200., 200.), sub, 14u, 32.) > .01) { tc = vec3(0.8, 0.1, 0.0); }
         
+        let inst1 = array<u32, 16>(80u, 69u, 82u, 70u, 69u, 67u, 84u, 32u, 77u, 65u, 84u, 67u, 72u, 32u, 61u, 32u); // "PERFECT MATCH = "
+        if (word(pp, vec2(ss.x * .5 - 160., 270.), inst1, 16u, 24.) > .01) { tc = vec3(0.1, 0.05, 0.0); }
+        
+        let inst2 = array<u32, 16>(77u, 79u, 82u, 69u, 32u, 80u, 79u, 73u, 78u, 84u, 83u, 0u, 0u, 0u, 0u, 0u); // "MORE POINTS"
+        if (word(pp, vec2(ss.x * .5 - 110., 300.), inst2, 11u, 24.) > .01) { tc = vec3(0.1, 0.05, 0.0); }
+        
     } else if (state == 1u) {
         // playing
         let scl = array<u32, 16>(83u, 67u, 79u, 82u, 69u, 58u, 32u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u);
