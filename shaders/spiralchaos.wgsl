@@ -28,10 +28,9 @@ struct SpiralParams {
     color2_b: f32,       
     _padding: u32,
 }
-@group(1) @binding(0) var<uniform> params: SpiralParams;
+@group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
 
-// Storage textures
-@group(2) @binding(0) var output: texture_storage_2d<rgba16float, write>;
+@group(2) @binding(0) var<uniform> params: SpiralParams;
 @group(3) @binding(0) var<storage, read_write> atomic_buffer: array<atomic<u32>>;
 
 // Aliases for common types

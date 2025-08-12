@@ -24,9 +24,9 @@ struct ParticleParams {
     color_shift_speed: f32,
     color_scale: f32,
 }
-@group(1) @binding(0) var<uniform> params: ParticleParams;
+@group(1) @binding(0) var output_texture: texture_storage_2d<rgba16float, write>;
 
-@group(2) @binding(0) var output_texture: texture_storage_2d<rgba16float, write>;
+@group(2) @binding(0) var<uniform> params: ParticleParams;
 
 @group(3) @binding(0) var<storage, read_write> atomic_buffer: array<atomic<u32>>;
 

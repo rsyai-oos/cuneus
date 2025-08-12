@@ -1,5 +1,6 @@
-use cuneus::{Core, ShaderManager, UniformProvider, UniformBinding, RenderKit, ShaderControls, ExportManager};
-use cuneus::compute::{create_bind_group_layout, BindGroupLayoutType};
+
+use cuneus::prelude::*;
+use cuneus::compute::*;
 use winit::event::WindowEvent;
 use std::path::PathBuf;
 
@@ -189,117 +190,54 @@ impl UniformProvider for PathTracingParams {
 }
 
 struct PathTracingShader {
-    // Core components
     base: RenderKit,
     params_uniform: UniformBinding<PathTracingParams>,
-    compute_time_uniform: UniformBinding<cuneus::compute::ComputeTimeUniform>,
-    
-    // Compute pipeline
-    compute_pipeline: wgpu::ComputePipeline,
-    
-    // Output texture
-    output_texture: cuneus::TextureManager,
-    
-    // Bind group layouts
-    compute_bind_group_layout: wgpu::BindGroupLayout,
-    atomic_bind_group_layout: wgpu::BindGroupLayout,
-    time_bind_group_layout: wgpu::BindGroupLayout,
-    params_bind_group_layout: wgpu::BindGroupLayout,
-    
-    // Bind groups
-    compute_bind_group: wgpu::BindGroup,
-    
-    // Atomic buffer for accumulation
-    atomic_buffer: cuneus::AtomicBuffer,
-    
-    // Frame counter
-    frame_count: u32,
-    
-    // Hot reload for shader
-    hot_reload: cuneus::ShaderHotReload,
-    
-    // Reset flag
-    should_reset_accumulation: bool,
-    
-    // Camera movement
+    compute_shader: ComputeShader,
     camera_movement: CameraMovement,
+    frame_count: u32,
+    should_reset_accumulation: bool,
 }
 
 impl PathTracingShader {
-    fn recreate_compute_resources(&mut self, core: &Core) {
-        self.output_texture = cuneus::compute::create_output_texture(
-            &core.device,
-            core.size.width,
-            core.size.height,
-            wgpu::TextureFormat::Rgba16Float,
-            &self.base.texture_bind_group_layout,
-            wgpu::AddressMode::ClampToEdge,
-            wgpu::FilterMode::Linear,
-            "Path Tracing Output Texture",
-        );
-
-        let buffer_size = core.size.width * core.size.height * 3;
-        
-        self.atomic_buffer = cuneus::AtomicBuffer::new(
-            &core.device,
-            buffer_size,
-            &self.atomic_bind_group_layout,
-        );
-        
-        let background_view;
-        let background_sampler;
-        
-        if self.base.using_video_texture {
-            if let Some(ref video_manager) = self.base.video_texture_manager {
-                let texture_manager = video_manager.texture_manager();
-                background_view = &texture_manager.view;
-                background_sampler = &texture_manager.sampler;
-            } else if let Some(ref texture_manager) = self.base.texture_manager {
-                background_view = &texture_manager.view;
-                background_sampler = &texture_manager.sampler;
-            } else {
-                panic!("No texture available for background");
-            }
-        } else if self.base.using_webcam_texture {
-            if let Some(ref webcam_manager) = self.base.webcam_texture_manager {
-                let texture_manager = webcam_manager.texture_manager();
-                background_view = &texture_manager.view;
-                background_sampler = &texture_manager.sampler;
-            } else if let Some(ref texture_manager) = self.base.texture_manager {
-                background_view = &texture_manager.view;
-                background_sampler = &texture_manager.sampler;
-            } else {
-                panic!("No texture available for background");
-            }
-        } else if let Some(ref texture_manager) = self.base.texture_manager {
-            background_view = &texture_manager.view;
-            background_sampler = &texture_manager.sampler;
+    // Helper function to create pathtracing bind group (eliminates duplication)
+    fn create_pathtracing_bind_group(&self, core: &Core, label: &str) -> Option<wgpu::BindGroup> {
+        if let Some(ref texture_manager) = self.base.texture_manager {
+            let output_view = self.compute_shader.get_output_texture().texture.create_view(&wgpu::TextureViewDescriptor::default());
+            
+            Some(core.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some(label),
+                layout: self.compute_shader.get_storage_layout(),
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&output_view), // Output storage texture
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&texture_manager.view), // Background texture
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Sampler(&texture_manager.sampler), // Background sampler
+                    },
+                ],
+            }))
         } else {
-            panic!("No texture available for background");
+            None
         }
-        
-        let view_output = self.output_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        
-        self.compute_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Path Tracing Compute Bind Group"),
-            layout: &self.compute_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&view_output),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(background_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(background_sampler),
-                },
-            ],
-        });
-        
-        self.should_reset_accumulation = true;
+    }
+
+    fn handle_export(&mut self, core: &Core) {
+        if let Some((frame, time)) = self.base.export_manager.try_get_next_frame() {
+            if let Ok(data) = self.capture_frame(core, time) {
+                let settings = self.base.export_manager.settings();
+                if let Err(e) = save_frame(data, frame, settings) {
+                    eprintln!("Error saving frame: {:?}", e);
+                }
+            }
+        } else {
+            self.base.export_manager.complete_export();
+        }
     }
     
     fn capture_frame(&mut self, core: &Core, time: f32) -> Result<Vec<u8>, wgpu::SurfaceError> {
@@ -324,16 +262,17 @@ impl PathTracingShader {
         self.base.time_uniform.update(&core.queue);
         
         {
-            let mut render_pass = cuneus::Renderer::begin_render_pass(
+            let mut render_pass = Renderer::begin_render_pass(
                 &mut encoder,
                 &capture_view,
                 wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                 Some("Capture Pass"),
             );
             
+            let compute_texture = self.compute_shader.get_output_texture();
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-            render_pass.set_bind_group(0, &self.output_texture.bind_group, &[]);
+            render_pass.set_bind_group(0, &compute_texture.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
         }
         
@@ -378,33 +317,6 @@ impl PathTracingShader {
         
         Ok(unpadded_data)
     }
-    
-    fn handle_export(&mut self, core: &Core) {
-        if let Some((frame, time)) = self.base.export_manager.try_get_next_frame() {
-            if let Ok(data) = self.capture_frame(core, time) {
-                let settings = self.base.export_manager.settings();
-                if let Err(e) = cuneus::save_frame(data, frame, settings) {
-                    eprintln!("Error saving frame: {:?}", e);
-                }
-            }
-        } else {
-            self.base.export_manager.complete_export();
-        }
-    }
-    
-    fn clear_atomic_buffer(&mut self, core: &Core) {
-        let buffer_size = core.size.width * core.size.height * 3;
-        let clear_data = vec![0u32; buffer_size as usize];
-        
-        core.queue.write_buffer(
-            &self.atomic_buffer.buffer,
-            0,
-            bytemuck::cast_slice(&clear_data),
-        );
-        
-        self.should_reset_accumulation = false;
-        self.frame_count = 0;
-    }
 }
 
 impl ShaderManager for PathTracingShader {
@@ -428,66 +340,32 @@ impl ShaderManager for PathTracingShader {
                     count: None,
                 },
             ],
-            label: Some("texture_bind_group_layout"),
+            label: Some("Texture Bind Group Layout"),
         });
-        
-        let time_bind_group_layout = create_bind_group_layout(
-            &core.device, 
-            BindGroupLayoutType::TimeUniform, 
-            "Path Tracing Compute"
+
+        let mut base = RenderKit::new(
+            core,
+            include_str!("../../shaders/vertex.wgsl"),
+            include_str!("../../shaders/blit.wgsl"),
+            &[&texture_bind_group_layout],
+            None,
         );
+
+        base.setup_mouse_uniform(core);
         
-        let params_bind_group_layout = create_bind_group_layout(
-            &core.device, 
-            BindGroupLayoutType::CustomUniform, 
-            "Path Tracing Params"
-        );
-        
-        let atomic_bind_group_layout = create_bind_group_layout(
-            &core.device, 
-            BindGroupLayoutType::AtomicBuffer, 
-            "Path Tracing Compute"
-        );
-        
-        let compute_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::StorageTexture {
-                        access: wgpu::StorageTextureAccess::WriteOnly,
-                        format: wgpu::TextureFormat::Rgba16Float,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                    },
-                    count: None,
+        let params_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
                 },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-            label: Some("pathtracing_compute_output_layout"),
+                count: None,
+            }],
+            label: Some("params_bind_group_layout"),
         });
-        
-        let buffer_size = core.config.width * core.config.height * 3;
-        
-        let atomic_buffer = cuneus::AtomicBuffer::new(
-            &core.device,
-            buffer_size,
-            &atomic_bind_group_layout,
-        );
         
         let params_uniform = UniformBinding::new(
             &core.device,
@@ -501,175 +379,96 @@ impl ShaderManager for PathTracingShader {
                 camera_target_z: -1.0,
                 fov: 40.0,
                 aperture: 0.00,
-                
                 max_bounces: 4,
                 samples_per_pixel: 2,
                 accumulate: 1,
-                
                 num_spheres: 15,
                 mouse_x: 0.5,
                 mouse_y: 0.5,
-                
                 rotation_speed: 0.2,
-                
                 exposure: 1.5,
             },
             &params_bind_group_layout,
             0,
         );
         
-        let compute_time_uniform = UniformBinding::new(
-            &core.device,
-            "Compute Time Uniform",
-            cuneus::compute::ComputeTimeUniform {
-                time: 0.0,
-                delta: 0.0,
-                frame: 0,
-                _padding: 0,
-            },
-            &time_bind_group_layout,
-            0,
-        );
-        
-        let shader_source = std::fs::read_to_string("shaders/pathtracing.wgsl")
-            .unwrap_or_else(|_| include_str!("../../shaders/pathtracing.wgsl").to_string());
-        
-        let cs_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Path Tracing Compute Shader"),
-            source: wgpu::ShaderSource::Wgsl(shader_source.into()),
-        });
-        
-        let hot_reload = cuneus::ShaderHotReload::new_compute(
-            core.device.clone(),
-            PathBuf::from("shaders/pathtracing.wgsl"),
-            cs_module.clone(),
-            "main",
-        ).expect("Failed to initialize hot reload");
-        
-        let mut base = RenderKit::new(
-            core,
-            include_str!("../../shaders/vertex.wgsl"),
-            include_str!("../../shaders/blit.wgsl"),
-            &[&texture_bind_group_layout],
-            None,
-        );
-        
-        // Setup mouse tracking
-        base.setup_mouse_uniform(core);
-        
-        let output_texture = cuneus::compute::create_output_texture(
-            &core.device,
-            core.config.width,
-            core.config.height,
-            wgpu::TextureFormat::Rgba16Float,
-            &texture_bind_group_layout,
-            wgpu::AddressMode::ClampToEdge,
-            wgpu::FilterMode::Linear,
-            "Path Tracing Output Texture",
-        );
-        
-        let compute_pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Path Tracing Compute Pipeline Layout"),
-            bind_group_layouts: &[
-                &time_bind_group_layout,
-                &params_bind_group_layout,
-                &compute_bind_group_layout,
-                &atomic_bind_group_layout,
-            ],
-            push_constant_ranges: &[],
-        });
-        
-        let compute_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("Path Tracing Compute Pipeline"),
-            layout: Some(&compute_pipeline_layout),
-            module: &cs_module,
-            entry_point: Some("main"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        });
-        
-        let view_output = output_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let compute_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &compute_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&view_output),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&base.texture_manager.as_ref().unwrap().view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&base.texture_manager.as_ref().unwrap().sampler),
-                },
-            ],
-            label: Some("Path Tracing Compute Bind Group"),
-        });
-        
-        let mut result = Self {
-            base,
-            params_uniform,
-            compute_time_uniform,
-            compute_pipeline,
-            output_texture,
-            compute_bind_group_layout,
-            atomic_bind_group_layout,
-            time_bind_group_layout,
-            params_bind_group_layout,
-            compute_bind_group,
-            atomic_buffer,
-            frame_count: 0,
-            hot_reload,
-            should_reset_accumulation: true,
-            camera_movement: CameraMovement::default(),
+        let compute_config = ComputeShaderConfig {
+            workgroup_size: [16, 16, 1],
+            workgroup_count: None,
+            dispatch_once: false,
+            storage_texture_format: wgpu::TextureFormat::Rgba16Float,
+            enable_atomic_buffer: true,
+            atomic_buffer_multiples: 3,
+            entry_points: vec!["main".to_string()],
+            sampler_address_mode: wgpu::AddressMode::ClampToEdge,
+            sampler_filter_mode: wgpu::FilterMode::Linear,
+            label: "Path Tracing".to_string(),
+            mouse_bind_group_layout: Some(params_bind_group_layout.clone()),
+            enable_fonts: false,
+            enable_audio_buffer: false,
+            audio_buffer_size: 0,
+            enable_custom_uniform: true,
+            enable_input_texture: true,
+            custom_storage_buffers: Vec::new(),
         };
         
-        result.recreate_compute_resources(core);
+        let mut compute_shader = ComputeShader::new_with_config(
+            core,
+            include_str!("../../shaders/pathtracing.wgsl"),
+            compute_config,
+        );
         
-        result
+        compute_shader.add_custom_uniform_binding(&params_uniform.bind_group);
+        
+        let shader_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Path Tracing Compute Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/pathtracing.wgsl").into()),
+        });
+        if let Err(e) = compute_shader.enable_hot_reload(
+            core.device.clone(),
+            PathBuf::from("shaders/pathtracing.wgsl"),
+            shader_module,
+        ) {
+            eprintln!("Failed to enable compute shader hot reload: {}", e);
+        }
+
+        // Create instance to use helper function
+        let mut instance = Self {
+            base,
+            params_uniform,
+            compute_shader,
+            camera_movement: CameraMovement::default(),
+            frame_count: 0,
+            should_reset_accumulation: true,
+        };
+        
+        // Create custom storage bind group for pathtracing (background texture + output texture)
+        if let Some(bind_group) = instance.create_pathtracing_bind_group(core, "Path Tracing Storage Bind Group") {
+            instance.compute_shader.override_storage_bind_group(bind_group);
+        }
+        
+        instance
     }
     
     fn update(&mut self, core: &Core) {
-        if let Some(new_shader) = self.hot_reload.reload_compute_shader() {
-            println!("Reloading Path Tracing shader at time: {:.2}s", self.base.start_time.elapsed().as_secs_f32());
-            
-            let compute_pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Updated Path Tracing Compute Pipeline Layout"),
-                bind_group_layouts: &[
-                    &self.time_bind_group_layout,
-                    &self.params_bind_group_layout,
-                    &self.compute_bind_group_layout,
-                    &self.atomic_bind_group_layout,
-                ],
-                push_constant_ranges: &[],
-            });
-            
-            self.compute_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Updated Path Tracing Pipeline"),
-                layout: Some(&compute_pipeline_layout),
-                module: &new_shader,
-                entry_point: Some("main"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                cache: None,
-            });
-            
-            self.should_reset_accumulation = true;
+        // Update video/webcam textures
+        if self.base.using_video_texture {
+            self.base.update_video_texture(core, &core.queue);
+        } else if self.base.using_webcam_texture {
+            self.base.update_webcam_texture(core, &core.queue);
         }
         
-        let video_updated = if self.base.using_video_texture {
-            self.base.update_video_texture(core, &core.queue)
-        } else {
-            false
-        };
-        let webcam_updated = if self.base.using_webcam_texture {
-            self.base.update_webcam_texture(core, &core.queue)
-        } else {
-            false
-        };
-        if video_updated || webcam_updated {
-            self.recreate_compute_resources(core);
+        // Always update ComputeShader input texture when using dynamic textures
+        if self.base.using_video_texture {
+            if let Some(ref video_manager) = self.base.video_texture_manager {
+                let texture_manager = video_manager.texture_manager();
+                self.compute_shader.update_input_texture(core, &texture_manager.view, &texture_manager.sampler);
+            }
+        } else if self.base.using_webcam_texture {
+            if let Some(ref webcam_manager) = self.base.webcam_texture_manager {
+                let texture_manager = webcam_manager.texture_manager();
+                self.compute_shader.update_input_texture(core, &texture_manager.view, &texture_manager.sampler);
+            }
         }
         
         if self.base.export_manager.is_exporting() {
@@ -678,23 +477,31 @@ impl ShaderManager for PathTracingShader {
         
         if self.camera_movement.update_camera(&mut self.params_uniform.data) {
             self.params_uniform.update(&core.queue);
+            self.should_reset_accumulation = true;
         }
         
         self.base.fps_tracker.update();
     }
     
     fn resize(&mut self, core: &Core) {
-        println!("Resizing to {:?}", core.size);
-        self.recreate_compute_resources(core);
+        self.compute_shader.resize(core, core.size.width, core.size.height);
+        
+        // Recreate pathtracing storage bind group after resize using helper function
+        if let Some(bind_group) = self.create_pathtracing_bind_group(core, "Path Tracing Resized Storage Bind Group") {
+            self.compute_shader.override_storage_bind_group(bind_group);
+        }
+        
+        self.should_reset_accumulation = true;
     }
     
     fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {
         let output = core.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = core.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Render Encoder"),
+            label: Some("Path Tracing Render Encoder"),
         });
         
+        // Handle UI and parameter updates
         let mut params = self.params_uniform.data;
         let mut changed = false;
         let mut should_start_export = false;
@@ -706,7 +513,6 @@ impl ShaderManager for PathTracingShader {
         controls_request.current_fps = Some(self.base.fps_tracker.fps());
         
         let current_fps = self.base.fps_tracker.fps();
-        
         let using_video_texture = self.base.using_video_texture;
         let using_hdri_texture = self.base.using_hdri_texture;
         let using_webcam_texture = self.base.using_webcam_texture;
@@ -780,13 +586,9 @@ impl ShaderManager for PathTracingShader {
                             });
 
                         ui.separator();
-
                         ShaderControls::render_controls_widget(ui, &mut controls_request);
-
                         ui.separator();
-
                         should_start_export = ExportManager::render_export_ui_widget(ui, &mut export_request);
-
                         ui.separator();
                         ui.label(format!("Accumulated Samples: {}", self.frame_count));
                         ui.label(format!("Resolution: {}x{}", core.size.width, core.size.height));
@@ -797,31 +599,29 @@ impl ShaderManager for PathTracingShader {
             self.base.render_ui(core, |_ctx| {})
         };
         
+        // Handle control requests
         self.base.export_manager.apply_ui_request(export_request);
         if controls_request.should_clear_buffers || self.should_reset_accumulation {
-            self.clear_atomic_buffer(core);
+            self.compute_shader.clear_atomic_buffer(core);
             self.should_reset_accumulation = false;
+            self.frame_count = 0;
         }
         let was_media_loaded = controls_request.load_media_path.is_some();
         self.base.apply_control_request(controls_request.clone());
         self.base.handle_video_requests(core, &controls_request);
         self.base.handle_webcam_requests(core, &controls_request);
         if was_media_loaded || controls_request.start_webcam {
-            self.recreate_compute_resources(core);
+            if let Some(ref texture_manager) = self.base.texture_manager {
+                self.compute_shader.update_input_texture(core, &texture_manager.view, &texture_manager.sampler);
+            }
         }
         if self.base.handle_hdri_requests(core, &controls_request) {
-            self.recreate_compute_resources(core);
+            if let Some(ref texture_manager) = self.base.texture_manager {
+                self.compute_shader.update_input_texture(core, &texture_manager.view, &texture_manager.sampler);
+            }
         }
+        
         let current_time = self.base.controls.get_time(&self.base.start_time);
-        
-        self.base.time_uniform.data.time = current_time;
-        self.base.time_uniform.data.frame = self.frame_count;
-        self.base.time_uniform.update(&core.queue);
-        
-        self.compute_time_uniform.data.time = current_time;
-        self.compute_time_uniform.data.delta = 1.0/60.0;
-        self.compute_time_uniform.data.frame = self.frame_count;
-        self.compute_time_uniform.update(&core.queue);
         
         if changed {
             self.params_uniform.data = params;
@@ -832,6 +632,7 @@ impl ShaderManager for PathTracingShader {
             self.base.export_manager.start_export();
         }
         
+        // Update mouse position in params
         self.base.update_mouse_uniform(&core.queue);
         if let Some(mouse_uniform) = &self.base.mouse_uniform {
             self.params_uniform.data.mouse_x = mouse_uniform.data.position[0];
@@ -839,37 +640,29 @@ impl ShaderManager for PathTracingShader {
             self.params_uniform.update(&core.queue);
         }
         
-        // Run the compute shader pass
-        {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Path Tracing Compute Pass"),
-                timestamp_writes: None,
-            });
-            
-            compute_pass.set_pipeline(&self.compute_pipeline);
-            compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(2, &self.compute_bind_group, &[]);
-            compute_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]);
-            
-            let width = core.size.width.div_ceil(16);
-            let height = core.size.height.div_ceil(16);
-            compute_pass.dispatch_workgroups(width, height, 1);
-        }
+        // Update time and dispatch compute shader
+        let delta = 1.0/60.0;
+        self.compute_shader.set_time(current_time, delta, &core.queue);
         
-        // Render the compute output to the screen
+        // Set frame count for random number generation (even when not accumulating)
+        self.compute_shader.time_uniform.data.frame = self.frame_count;
+        self.compute_shader.time_uniform.update(&core.queue);
+        
+        self.compute_shader.dispatch(&mut encoder, core);
+        
+        // Render compute output to screen
         {
-            let mut render_pass = cuneus::Renderer::begin_render_pass(
+            let mut render_pass = Renderer::begin_render_pass(
                 &mut encoder,
                 &view,
                 wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                Some("Display Pass"),
+                Some("Path Tracing Display Pass"),
             );
             
+            let compute_texture = self.compute_shader.get_output_texture();
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-            render_pass.set_bind_group(0, &self.output_texture.bind_group, &[]);
-            
+            render_pass.set_bind_group(0, &compute_texture.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
         }
         
@@ -877,9 +670,12 @@ impl ShaderManager for PathTracingShader {
         core.queue.submit(Some(encoder.finish()));
         output.present();
         
-        // Increment frame count for progressive rendering
+        // Increment frame count for progressive rendering and noise generation
         if self.params_uniform.data.accumulate > 0 {
             self.frame_count += 1;
+        } else {
+            // Still increment for noise generation when not accumulating
+            self.frame_count = (self.frame_count + 1) % 1000; // Keep it reasonable to avoid overflow
         }
         
         Ok(())
@@ -958,8 +754,6 @@ impl ShaderManager for PathTracingShader {
             if let Err(e) = self.base.load_media(core, path) {
                 eprintln!("Failed to load dropped file: {:?}", e);
             } else {
-                // Media was loaded successfully, recreate resources and reset
-                self.recreate_compute_resources(core);
             }
             return true;
         }
@@ -975,9 +769,9 @@ impl ShaderManager for PathTracingShader {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    cuneus::gst::init()?;
     env_logger::init();
-    let (app, event_loop) = cuneus::ShaderApp::new("Path Tracer", 800, 600);
+    cuneus::gst::init()?;
+    let (app, event_loop) = ShaderApp::new("Path Tracer", 800, 600);
     
     app.run(event_loop, |core| {
         PathTracingShader::init(core)

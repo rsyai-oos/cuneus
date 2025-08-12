@@ -1,5 +1,5 @@
-use cuneus::{Core, ShaderManager, UniformProvider, UniformBinding, RenderKit, ShaderControls, ExportManager, ShaderApp};
-use cuneus::compute::{create_bind_group_layout, BindGroupLayoutType};
+use cuneus::{Core, ShaderManager, UniformProvider, UniformBinding, RenderKit, ShaderControls, ExportManager};
+use cuneus::compute::{ComputeShader, ComputeShaderConfig, CustomStorageBuffer};
 use winit::event::WindowEvent;
 use std::path::PathBuf;
 
@@ -50,31 +50,13 @@ impl UniformProvider for RorschachParams {
     }
 }
 
-struct Shader {
+struct RorschachShader {
     base: RenderKit,
     params_uniform: UniformBinding<RorschachParams>,
-    compute_time_uniform: UniformBinding<cuneus::compute::ComputeTimeUniform>,
-    
-    splat_pipeline: wgpu::ComputePipeline,
-    main_image_pipeline: wgpu::ComputePipeline,
-    
-    output_texture: cuneus::TextureManager,
-    
-    time_bind_group_layout: wgpu::BindGroupLayout,
-    params_bind_group_layout: wgpu::BindGroupLayout,
-    storage_bind_group_layout: wgpu::BindGroupLayout,
-    atomic_bind_group_layout: wgpu::BindGroupLayout,
-    
-    storage_bind_group: wgpu::BindGroup,
-    
-    atomic_buffer: cuneus::AtomicBuffer,
-    
     frame_count: u32,
-    
-    hot_reload: cuneus::ShaderHotReload,
 }
 
-impl Shader {
+impl RorschachShader {
     fn capture_frame(&mut self, core: &Core, time: f32) -> Result<Vec<u8>, wgpu::SurfaceError> {
         let settings = self.base.export_manager.settings();
         let (capture_texture, output_buffer) = self.base.create_capture_texture(
@@ -105,7 +87,9 @@ impl Shader {
             );
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-            render_pass.set_bind_group(0, &self.output_texture.bind_group, &[]);
+            if let Some(compute_shader) = &self.base.compute_shader {
+                render_pass.set_bind_group(0, &compute_shader.get_output_texture().bind_group, &[]);
+            }
             render_pass.draw(0..4, 0..1);
         }
         
@@ -161,8 +145,9 @@ impl Shader {
     }
 }
 
-impl ShaderManager for Shader {
+impl ShaderManager for RorschachShader {
     fn init(core: &Core) -> Self {
+        // Create texture bind group layout for displaying compute shader output
         let texture_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -182,7 +167,7 @@ impl ShaderManager for Shader {
                     count: None,
                 },
             ],
-            label: Some("texture_bind_group_layout"),
+            label: Some("Rorschach Texture Bind Group Layout"),
         });
         
         let mut base = RenderKit::new(
@@ -194,200 +179,104 @@ impl ShaderManager for Shader {
         );
         base.setup_mouse_uniform(core);
 
-        let time_bind_group_layout = create_bind_group_layout(
-            &core.device, 
-            BindGroupLayoutType::TimeUniform, 
-            "Rorschach Time"
-        );
+        let initial_params = RorschachParams {
+            m1_scale: 0.8,
+            m1_y_scale: 0.5,
+            m2_scale: 0.4,
+            m2_shear: 0.2,
+            m2_shift: 0.3,
+            m3_scale: 0.4,
+            m3_shear: 0.2,
+            m3_shift: 0.3,
+            m4_scale: 0.3,
+            m4_shift: 0.2,
+            m5_scale: 0.2,
+            m5_shift: 0.4,
+            time_scale: 0.5,
+            decay: 0.0,
+            intensity: 0.0,
+            rotation_x: 0.0,
+            rotation_y: 0.0,
+            click_state: 0,
+            brightness: 0.003,
+            exposure: 1.5,
+            gamma: 0.4,
+            particle_count: 100000.0,
+            scale: 1.0,
+            dof_amount: 0.0,
+            dof_focal_dist: 0.5,
+            color1_r: 1.0,
+            color1_g: 0.3,
+            color1_b: 0.1,
+            color2_r: 0.1,
+            color2_g: 0.5,
+            color2_b: 1.0,
+        };
         
-        let params_bind_group_layout = create_bind_group_layout(
-            &core.device, 
-            BindGroupLayoutType::CustomUniform, 
-            "Rorschach Params"
-        );
-        
-        let storage_bind_group_layout = create_bind_group_layout(
-            &core.device, 
-            BindGroupLayoutType::StorageTexture, 
-            "Rorschach Storage"
-        );
-        
-        let atomic_bind_group_layout = create_bind_group_layout(
-            &core.device, 
-            BindGroupLayoutType::AtomicBuffer, 
-            "Rorschach Atomic"
-        );
-
         let params_uniform = UniformBinding::new(
             &core.device,
-            "Rorschach Params Uniform",
-            RorschachParams {
-                m1_scale: 0.8,
-                m1_y_scale: 0.5,
-                m2_scale: 0.4,
-                m2_shear: 0.2,
-                m2_shift: 0.3,
-                m3_scale: 0.4,
-                m3_shear: 0.2,
-                m3_shift: 0.3,
-                m4_scale: 0.3,
-                m4_shift: 0.2,
-                m5_scale: 0.2,
-                m5_shift: 0.4,
-                time_scale: 0.5,
-                decay: 0.0,
-                intensity: 0.0,
-                rotation_x: 0.0,
-                rotation_y: 0.0,
-                click_state: 0,
-                brightness: 0.003,
-                exposure: 1.5,
-                gamma: 0.4,
-                particle_count: 100000.0,
-                scale: 1.0,
-                dof_amount: 0.0,
-                dof_focal_dist: 0.5,
-                color1_r: 1.0,
-                color1_g: 0.3,
-                color1_b: 0.1,
-                color2_r: 0.1,
-                color2_g: 0.5,
-                color2_b: 1.0,
-            },
-            &params_bind_group_layout,
+            "Rorschach Params",
+            initial_params,
+            &cuneus::compute::create_bind_group_layout(&core.device, cuneus::compute::BindGroupLayoutType::CustomUniform, "Rorschach Params"),
             0,
         );
-
-        let compute_time_uniform = UniformBinding::new(
-            &core.device,
-            "Compute Time Uniform",
-            cuneus::compute::ComputeTimeUniform {
-                time: 0.0,
-                delta: 0.0,
-                frame: 0,
-                _padding: 0,
-            },
-            &time_bind_group_layout,
-            0,
-        );
-
-        let atomic_buffer = cuneus::AtomicBuffer::new(
-            &core.device,
-            core.config.width * core.config.height * 2,
-            &atomic_bind_group_layout,
-        );
-
-        let output_texture = cuneus::compute::create_output_texture(
-            &core.device,
-            core.config.width,
-            core.config.height,
-            wgpu::TextureFormat::Rgba16Float,
-            &texture_bind_group_layout,
-            wgpu::AddressMode::ClampToEdge,
-            wgpu::FilterMode::Linear,
-            "Rorschach Output Texture",
-        );
-
-        let storage_view = output_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let storage_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Rorschach Storage Bind Group"),
-            layout: &storage_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&storage_view),
+        
+        // Rorschach requires atomic buffer for particle accumulation
+        let buffer_size = (core.size.width * core.size.height * 4 * 4) as u64; // RGBA atomic buffer
+        let compute_config = ComputeShaderConfig {
+            label: "Rorschach".to_string(),
+            enable_input_texture: false, // Rorschach is generative art, no input needed
+            enable_custom_uniform: true,
+            entry_points: vec![
+                "Splat".to_string(),      // Stage 0
+                "main_image".to_string(), // Stage 1 
+            ],
+            custom_storage_buffers: vec![
+                CustomStorageBuffer {
+                    label: "Atomic Buffer".to_string(),
+                    size: buffer_size,
+                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
                 },
             ],
-        });
-        let shader_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Rorschach Compute Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/rorschach.wgsl").into()),
-        });
-        let hot_reload = cuneus::ShaderHotReload::new_compute(
-            core.device.clone(),
-            PathBuf::from("shaders/rorschach.wgsl"),
-            shader_module.clone(),
-            "Splat",
-        ).expect("Failed to initialize hot reload");
-
-        let compute_pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Rorschach Compute Pipeline Layout"),
-            bind_group_layouts: &[
-                &time_bind_group_layout,      
-                &params_bind_group_layout,    
-                &storage_bind_group_layout,   
-                &atomic_bind_group_layout,    
-            ],
-            push_constant_ranges: &[],
-        });
-
-        let splat_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("Splat Pipeline"),
-            layout: Some(&compute_pipeline_layout),
-            module: &shader_module,
-            entry_point: Some("Splat"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        });
-
-        let main_image_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("Main Image Pipeline"),
-            layout: Some(&compute_pipeline_layout),
-            module: &shader_module,
-            entry_point: Some("main_image"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        });
-
+            ..Default::default()
+        };
+        
+        // Create compute shader with RenderKit integration
+        let mut base = base;
+        base.compute_shader = Some(ComputeShader::new_with_config(
+            core,
+            include_str!("../../shaders/rorschach.wgsl"),
+            compute_config,
+        ));
+        
+        // Enable hot reload using direct ComputeShader approach (before adding bindings)
+        if let Some(compute_shader) = &mut base.compute_shader {
+            let shader_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Rorschach Compute Shader Hot Reload"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/rorschach.wgsl").into()),
+            });
+            if let Err(e) = compute_shader.enable_hot_reload(
+                core.device.clone(),
+                PathBuf::from("shaders/rorschach.wgsl"),
+                shader_module,
+            ) {
+                eprintln!("Failed to enable compute shader hot reload: {}", e);
+            }
+        }
+        
+        // Add custom uniform binding
+        if let Some(compute_shader) = &mut base.compute_shader {
+            compute_shader.add_custom_uniform_binding(&params_uniform.bind_group);
+        }
+        
         Self {
             base,
             params_uniform,
-            compute_time_uniform,
-            splat_pipeline,
-            main_image_pipeline,
-            output_texture,
-            time_bind_group_layout,
-            params_bind_group_layout,
-            storage_bind_group_layout,
-            atomic_bind_group_layout,
-            storage_bind_group,
-            atomic_buffer,
             frame_count: 0,
-            hot_reload,
         }
     }
 
     fn update(&mut self, core: &Core) {
-        if let Some(new_shader) = self.hot_reload.reload_compute_shader() {
-            println!("Reloading Rorschach shader at time: {:.2}s", self.base.start_time.elapsed().as_secs_f32());
-            let compute_pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Updated Rorschach Compute Pipeline Layout"),
-                bind_group_layouts: &[
-                    &self.time_bind_group_layout,
-                    &self.params_bind_group_layout,
-                    &self.storage_bind_group_layout,
-                    &self.atomic_bind_group_layout,
-                ],
-                push_constant_ranges: &[],
-            });
-            self.splat_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Updated Splat Pipeline"),
-                layout: Some(&compute_pipeline_layout),
-                module: &new_shader,
-                entry_point: Some("Splat"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                cache: None,
-            });
-            
-            self.main_image_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Updated Main Image Pipeline"),
-                layout: Some(&compute_pipeline_layout),
-                module: &new_shader,
-                entry_point: Some("main_image"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                cache: None,
-            });
-        }
         if self.base.export_manager.is_exporting() {
             self.handle_export(core);
         }
@@ -535,46 +424,29 @@ impl ShaderManager for Shader {
             label: Some("Render Encoder"),
         });
 
-        self.compute_time_uniform.data.time = current_time;
-        self.compute_time_uniform.data.delta = 1.0/60.0;
-        self.compute_time_uniform.data.frame = self.frame_count;
-        self.compute_time_uniform.update(&core.queue);
-
-        // Clear atomic buffer
-        self.atomic_buffer.clear(&core.queue);
-
-        {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Splat Pass"),
-                timestamp_writes: None,
-            });
+        // Update time and dispatch compute shader stages
+        if let Some(compute_shader) = &mut self.base.compute_shader {
+            let delta = 1.0/60.0;
+            compute_shader.set_time(current_time, delta, &core.queue);
             
-            compute_pass.set_pipeline(&self.splat_pipeline);
-            compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(2, &self.storage_bind_group, &[]);
-            compute_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]);
+            // Check for hot reload updates
+            compute_shader.check_hot_reload(&core.device);
             
+            // Clear atomic buffer for new frame
+            if !compute_shader.custom_storage_buffers.is_empty() {
+                let buffer = &compute_shader.custom_storage_buffers[0];
+                let buffer_size = (core.size.width * core.size.height * 4 * 4) as u64;
+                core.queue.write_buffer(buffer, 0, &vec![0u8; buffer_size as usize]);
+            }
+
+            // Stage 0: Generate and splat particles
             let workgroups = (self.params_uniform.data.particle_count as u32 / 256).max(1);
-            compute_pass.dispatch_workgroups(workgroups, 1, 1);
-        }
+            compute_shader.dispatch_stage(&mut encoder, 0, (workgroups, 1, 1), Some(&self.params_uniform.bind_group));
 
-        // Main image pass
-        {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Main Image Pass"),
-                timestamp_writes: None,
-            });
-            
-            compute_pass.set_pipeline(&self.main_image_pipeline);
-            compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(2, &self.storage_bind_group, &[]);
-            compute_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]);
-            
-            let workgroups_x = (core.config.width as f32 / 16.0).ceil() as u32;
-            let workgroups_y = (core.config.height as f32 / 16.0).ceil() as u32;
-            compute_pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
+            // Stage 1: Render to screen
+            let workgroups_x = (core.size.width as f32 / 16.0).ceil() as u32;
+            let workgroups_y = (core.size.height as f32 / 16.0).ceil() as u32;
+            compute_shader.dispatch_stage(&mut encoder, 1, (workgroups_x, workgroups_y, 1), Some(&self.params_uniform.bind_group));
         }
 
         {
@@ -587,7 +459,9 @@ impl ShaderManager for Shader {
             
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-            render_pass.set_bind_group(0, &self.output_texture.bind_group, &[]);
+            if let Some(compute_shader) = &self.base.compute_shader {
+                render_pass.set_bind_group(0, &compute_shader.get_output_texture().bind_group, &[]);
+            }
             render_pass.draw(0..4, 0..1);
         }
         
@@ -620,65 +494,17 @@ impl ShaderManager for Shader {
 
     fn resize(&mut self, core: &Core) {
         self.base.update_resolution(&core.queue, core.size);
-        
-        // Recreate output texture and atomic buffer for new size
-        let texture_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-            label: Some("texture_bind_group_layout"),
-        });
-        
-        self.output_texture = cuneus::compute::create_output_texture(
-            &core.device,
-            core.config.width,
-            core.config.height,
-            wgpu::TextureFormat::Rgba16Float,
-            &texture_bind_group_layout,
-            wgpu::AddressMode::ClampToEdge,
-            wgpu::FilterMode::Linear,
-            "Rorschach Output Texture",
-        );
-        
-        self.atomic_buffer = cuneus::AtomicBuffer::new(
-            &core.device,
-            core.config.width * core.config.height * 2,
-            &self.atomic_bind_group_layout,
-        );
-        
-        let storage_view = self.output_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        self.storage_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Rorschach Storage Bind Group"),
-            layout: &self.storage_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&storage_view),
-                },
-            ],
-        });
+        if let Some(compute_shader) = &mut self.base.compute_shader {
+            compute_shader.resize(core, core.size.width, core.size.height);
+        }
     }
 }
 
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
-    let (app, event_loop) = ShaderApp::new("Rorschach IFS", 800, 600);
+    let (app, event_loop) = cuneus::ShaderApp::new("Rorschach IFS", 800, 600);
     app.run(event_loop, |core| {
-        Shader::init(core)
+        RorschachShader::init(core)
     })
 }

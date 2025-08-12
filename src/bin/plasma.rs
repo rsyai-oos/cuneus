@@ -2,6 +2,7 @@ use cuneus::{Core, ShaderManager, UniformProvider, UniformBinding, RenderKit, Sh
 use cuneus::compute::{create_bind_group_layout, BindGroupLayoutType};
 use winit::event::WindowEvent;
 use std::path::PathBuf;
+use std::collections::HashMap;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -40,8 +41,7 @@ struct Neural2Shader {
     compute_time_uniform: UniformBinding<cuneus::compute::ComputeTimeUniform>,
     
     // Compute pipelines
-    compute_pipeline_splat: wgpu::ComputePipeline,
-    compute_pipeline_render: wgpu::ComputePipeline,
+    pipelines: HashMap<String, wgpu::ComputePipeline>,
     
     // Output texture
     output_texture: cuneus::TextureManager,
@@ -101,13 +101,15 @@ impl Neural2Shader {
     
     fn capture_frame(&mut self, core: &Core, time: f32, frame: u32) -> Result<Vec<u8>, wgpu::SurfaceError> {
         let settings = self.base.export_manager.settings();
+        let settings_width = settings.width;
+        let settings_height = settings.height;
         let (capture_texture, output_buffer) = self.base.create_capture_texture(
             &core.device,
-            settings.width,
-            settings.height
+            settings_width,
+            settings_height
         );
         let align = 256;
-        let unpadded_bytes_per_row = settings.width * 4;
+        let unpadded_bytes_per_row = settings_width * 4;
         let padding = (align - unpadded_bytes_per_row % align) % align;
         let padded_bytes_per_row = unpadded_bytes_per_row + padding;
         let capture_view = capture_texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -121,37 +123,19 @@ impl Neural2Shader {
         self.compute_time_uniform.data.time = time;
         self.compute_time_uniform.data.frame = frame;
         self.compute_time_uniform.update(&core.queue);
+        let width = settings_width.div_ceil(16);
+        let height = settings_height.div_ceil(16);
+        
         self.atomic_buffer = cuneus::AtomicBuffer::new(
             &core.device,
-            settings.width * settings.height * 2,
+            settings_width * settings_height * 2,
             &self.atomic_bind_group_layout,
         );
-        {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Export Particle Generation Pass"),
-                timestamp_writes: None,
-            });
-            compute_pass.set_pipeline(&self.compute_pipeline_splat);
-            compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(2, &self.compute_bind_group, &[]);
-            compute_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]);
-            compute_pass.dispatch_workgroups(2048, 1, 1);
-        }
-        {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Export Render Pass"),
-                timestamp_writes: None,
-            });
-            compute_pass.set_pipeline(&self.compute_pipeline_render);
-            compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(2, &self.compute_bind_group, &[]);
-            compute_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]);
-            let width = settings.width.div_ceil(16);
-            let height = settings.height.div_ceil(16);
-            compute_pass.dispatch_workgroups(width, height, 1);
-        }
+        // Pass 1: Generate and splat particles
+        self.dispatch_stage(&mut encoder, core, "Splat", (2048, 1, 1));
+        
+        // Pass 2: Render to screen
+        self.dispatch_stage(&mut encoder, core, "main_image", (width, height, 1));
         
         {
             let mut render_pass = cuneus::Renderer::begin_render_pass(
@@ -178,12 +162,12 @@ impl Neural2Shader {
                 layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(padded_bytes_per_row),
-                    rows_per_image: Some(settings.height),
+                    rows_per_image: Some(settings_height),
                 },
             },
             wgpu::Extent3d {
-                width: settings.width,
-                height: settings.height,
+                width: settings_width,
+                height: settings_height,
                 depth_or_array_layers: 1,
             },
         );
@@ -197,7 +181,7 @@ impl Neural2Shader {
         let _ = core.device.poll(wgpu::PollType::Wait).unwrap();
         rx.recv().unwrap().unwrap();
         let padded_data = buffer_slice.get_mapped_range().to_vec();
-        let mut unpadded_data = Vec::with_capacity((settings.width * settings.height * 4) as usize);
+        let mut unpadded_data = Vec::with_capacity((settings_width * settings_height * 4) as usize);
         for chunk in padded_data.chunks(padded_bytes_per_row as usize) {
             unpadded_data.extend_from_slice(&chunk[..unpadded_bytes_per_row as usize]);
         }
@@ -370,23 +354,20 @@ impl ShaderManager for Neural2Shader {
             push_constant_ranges: &[],
         });
         
-        let compute_pipeline_splat = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("Splat Compute Pipeline"),
-            layout: Some(&compute_pipeline_layout),
-            module: &cs_module,
-            entry_point: Some("Splat"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        });
+        let entry_points = [("Splat", "Splat"), ("main_image", "Main Image")];
+        let mut pipelines = HashMap::new();
         
-        let compute_pipeline_render = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("Main Image Compute Pipeline"),
-            layout: Some(&compute_pipeline_layout),
-            module: &cs_module,
-            entry_point: Some("main_image"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        });
+        for &(entry_point, label) in &entry_points {
+            let pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some(&format!("Neural {} Pipeline", label)),
+                layout: Some(&compute_pipeline_layout),
+                module: &cs_module,
+                entry_point: Some(entry_point),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+                cache: None,
+            });
+            pipelines.insert(entry_point.to_string(), pipeline);
+        }
         
         let view_output = output_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
         let compute_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -404,8 +385,7 @@ impl ShaderManager for Neural2Shader {
             base,
             params_uniform,
             compute_time_uniform,
-            compute_pipeline_splat,
-            compute_pipeline_render,
+            pipelines,
             output_texture,
             compute_bind_group_layout,
             atomic_bind_group_layout,
@@ -439,23 +419,18 @@ impl ShaderManager for Neural2Shader {
                 push_constant_ranges: &[],
             });
             
-            self.compute_pipeline_splat = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Updated Splat Pipeline"),
-                layout: Some(&compute_pipeline_layout),
-                module: &new_shader,
-                entry_point: Some("Splat"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                cache: None,
-            });
-            
-            self.compute_pipeline_render = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Updated Main Image Pipeline"),
-                layout: Some(&compute_pipeline_layout),
-                module: &new_shader,
-                entry_point: Some("main_image"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                cache: None,
-            });
+            let entry_points = [("Splat", "Splat"), ("main_image", "Main Image")];
+            for &(entry_point, label) in &entry_points {
+                let pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: Some(&format!("Updated Neural {} Pipeline", label)),
+                    layout: Some(&compute_pipeline_layout),
+                    module: &new_shader,
+                    entry_point: Some(entry_point),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    cache: None,
+                });
+                self.pipelines.insert(entry_point.to_string(), pipeline);
+            }
         }
         
         if self.base.export_manager.is_exporting() {
@@ -600,37 +575,13 @@ impl ShaderManager for Neural2Shader {
         }
         
         if self.export_time.is_none() {
-            {
-                let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: Some("Particle Generation Pass"),
-                    timestamp_writes: None,
-                });
-                
-                compute_pass.set_pipeline(&self.compute_pipeline_splat);
-                compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
-                compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
-                compute_pass.set_bind_group(2, &self.compute_bind_group, &[]);
-                compute_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]);
-                
-                compute_pass.dispatch_workgroups(2048, 1, 1);
-            }
+            // Pass 1: Generate and splat particles
+            self.dispatch_stage(&mut encoder, core, "Splat", (2048, 1, 1));
             
-            {
-                let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: Some("Render Pass"),
-                    timestamp_writes: None,
-                });
-                
-                compute_pass.set_pipeline(&self.compute_pipeline_render);
-                compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
-                compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
-                compute_pass.set_bind_group(2, &self.compute_bind_group, &[]);
-                compute_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]);
-                
-                let width = core.size.width.div_ceil(16);
-                let height = core.size.height.div_ceil(16);
-                compute_pass.dispatch_workgroups(width, height, 1);
-            }
+            // Pass 2: Render to screen
+            let width = core.size.width.div_ceil(16);
+            let height = core.size.height.div_ceil(16);
+            self.dispatch_stage(&mut encoder, core, "main_image", (width, height, 1));
         }
         
         {
@@ -668,6 +619,23 @@ impl ShaderManager for Neural2Shader {
         }
         
         false
+    }
+}
+
+impl Neural2Shader {
+    fn dispatch_stage(&mut self, encoder: &mut wgpu::CommandEncoder, _core: &Core, stage: &str, workgroups: (u32, u32, u32)) {
+        if let Some(pipeline) = self.pipelines.get(stage) {
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some(&format!("Neural {} Pass", stage)),
+                timestamp_writes: None,
+            });
+            compute_pass.set_pipeline(pipeline);
+            compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
+            compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
+            compute_pass.set_bind_group(2, &self.compute_bind_group, &[]);
+            compute_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]);
+            compute_pass.dispatch_workgroups(workgroups.0, workgroups.1, workgroups.2);
+        }
     }
 }
 

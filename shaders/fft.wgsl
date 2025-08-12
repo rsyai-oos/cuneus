@@ -27,12 +27,12 @@ struct FFTParams {
     _padding1: u32,
     _padding2: u32,
 };
-@group(1) @binding(0) var<uniform> params: FFTParams;
+// Storage texture with input texture support for user texture uploads
+@group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
+@group(1) @binding(1) var input_texture: texture_2d<f32>;
+@group(1) @binding(2) var input_sampler: sampler;
 
-// Textures
-@group(2) @binding(0) var input_texture: texture_2d<f32>;
-@group(2) @binding(1) var tex_sampler: sampler;
-@group(2) @binding(2) var output: texture_storage_2d<rgba16float, write>;
+@group(2) @binding(0) var<uniform> params: FFTParams;
 
 // Storage buffer for FFT data
 @group(3) @binding(0) var<storage, read_write> image_data: array<vec2f>;
@@ -101,7 +101,12 @@ fn initialize_data(@builtin(global_invocation_id) id: vec3u) {
     }
     
     let uv = (vec2f(id.xy) + 0.5) / f32(N);
-    var color = textureSampleLevel(input_texture, tex_sampler, uv, 0.0).rgb;
+    
+    // Load color from input texture (uploaded by user) or black screen if no texture
+    let input_size = vec2u(textureDimensions(input_texture));
+    let sample_coord = vec2u(uv * vec2f(input_size));
+    let clamped_coord = clamp(sample_coord, vec2u(0), input_size - vec2u(1));
+    var color = textureLoad(input_texture, clamped_coord, 0).rgb;
     
     for (var i = 0u; i < N_CHANNELS; i++) {
         image_data[index(i, id.y, id.x)] = vec2(color[i], 0.0);

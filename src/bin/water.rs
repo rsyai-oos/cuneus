@@ -1,7 +1,6 @@
-use cuneus::{Core, ShaderManager, UniformProvider, UniformBinding, RenderKit, ShaderControls, ExportManager};
-use cuneus::compute::{create_bind_group_layout, BindGroupLayoutType};
+use cuneus::prelude::*;
+use cuneus::compute::*;
 use winit::event::WindowEvent;
-use std::path::PathBuf;
 
 struct CameraMovement {
     forward: bool,
@@ -204,50 +203,14 @@ impl UniformProvider for WaterParams {
 struct WaterShader {
     base: RenderKit,
     params_uniform: UniformBinding<WaterParams>,
-    compute_time_uniform: UniformBinding<cuneus::compute::ComputeTimeUniform>,
-    
-    compute_pipeline: wgpu::ComputePipeline,
-    output_texture: cuneus::TextureManager,
-    
-    compute_bind_group_layout: wgpu::BindGroupLayout,
-    time_bind_group_layout: wgpu::BindGroupLayout,
-    params_bind_group_layout: wgpu::BindGroupLayout,
-    
-    compute_bind_group: wgpu::BindGroup,
+    compute_shader: ComputeShader,
     frame_count: u32,
-    hot_reload: cuneus::ShaderHotReload,
     camera_movement: CameraMovement,
-    
     export_time: Option<f32>,
     export_frame: Option<u32>,
 }
 
 impl WaterShader {
-    fn recreate_compute_resources(&mut self, core: &Core) {
-        self.output_texture = cuneus::compute::create_output_texture(
-            &core.device,
-            core.size.width,
-            core.size.height,
-            wgpu::TextureFormat::Rgba16Float,
-            &self.base.texture_bind_group_layout,
-            wgpu::AddressMode::ClampToEdge,
-            wgpu::FilterMode::Linear,
-            "Arctic Water Output Texture",
-        );
-        
-        let view_output = self.output_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        
-        self.compute_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Arctic Water Compute Bind Group"),
-            layout: &self.compute_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&view_output),
-                },
-            ],
-        });
-    }
     
     fn capture_frame(&mut self, core: &Core, time: f32, frame: u32) -> Result<Vec<u8>, wgpu::SurfaceError> {
         let settings = self.base.export_manager.settings();
@@ -281,7 +244,7 @@ impl WaterShader {
             
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-            render_pass.set_bind_group(0, &self.output_texture.bind_group, &[]);
+            render_pass.set_bind_group(0, &self.compute_shader.output_texture.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
         }
         
@@ -372,34 +335,6 @@ impl ShaderManager for WaterShader {
             label: Some("texture_bind_group_layout"),
         });
         
-        let time_bind_group_layout = create_bind_group_layout(
-            &core.device, 
-            BindGroupLayoutType::TimeUniform, 
-            "Arctic Water Compute"
-        );
-        
-        let params_bind_group_layout = create_bind_group_layout(
-            &core.device, 
-            BindGroupLayoutType::CustomUniform, 
-            "Arctic Water Params"
-        );
-        
-        let compute_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::StorageTexture {
-                        access: wgpu::StorageTextureAccess::WriteOnly,
-                        format: wgpu::TextureFormat::Rgba16Float,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-            ],
-            label: Some("arctic_water_compute_output_layout"),
-        });
-        
         let params_uniform = UniformBinding::new(
             &core.device,
             "Arctic Water Params",
@@ -446,135 +381,72 @@ impl ShaderManager for WaterShader {
                 fresnel_strength: 1.2,
                 reflection_strength: 0.9,
             },
-            &params_bind_group_layout,
+            &create_bind_group_layout(&core.device, BindGroupLayoutType::CustomUniform, "Arctic Water Params"),
             0,
         );
         
-        let compute_time_uniform = UniformBinding::new(
-            &core.device,
-            "Arctic Compute Time Uniform",
-            cuneus::compute::ComputeTimeUniform {
-                time: 0.0,
-                delta: 0.0,
-                frame: 0,
-                _padding: 0,
-            },
-            &time_bind_group_layout,
-            0,
-        );
-        
-        let shader_source = std::fs::read_to_string("shaders/water.wgsl")
-            .unwrap_or_else(|_| include_str!("../../shaders/water.wgsl").to_string());
-        
-        let cs_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Arctic Water Compute Shader"),
-            source: wgpu::ShaderSource::Wgsl(shader_source.into()),
-        });
-        
-        let hot_reload = cuneus::ShaderHotReload::new_compute(
-            core.device.clone(),
-            PathBuf::from("shaders/water.wgsl"),
-            cs_module.clone(),
-            "main",
-        ).expect("Failed to initialize hot reload");
-        
-        let mut base = RenderKit::new(
+        let base = RenderKit::new(
             core,
             include_str!("../../shaders/vertex.wgsl"),
             include_str!("../../shaders/blit.wgsl"),
             &[&texture_bind_group_layout],
             None,
         );
-        
-        base.setup_mouse_uniform(core);
-        
-        let output_texture = cuneus::compute::create_output_texture(
-            &core.device,
-            core.config.width,
-            core.config.height,
-            wgpu::TextureFormat::Rgba16Float,
-            &texture_bind_group_layout,
-            wgpu::AddressMode::ClampToEdge,
-            wgpu::FilterMode::Linear,
-            "Arctic Water Output Texture",
+
+        let compute_config = ComputeShaderConfig {
+            workgroup_size: [16, 16, 1],
+            workgroup_count: None,
+            dispatch_once: false,
+            storage_texture_format: COMPUTE_TEXTURE_FORMAT_RGBA16,
+            enable_atomic_buffer: false,
+            atomic_buffer_multiples: 0,
+            entry_points: vec!["main".to_string()],
+            sampler_address_mode: wgpu::AddressMode::ClampToEdge,
+            sampler_filter_mode: wgpu::FilterMode::Linear,
+            label: "Arctic Water".to_string(),
+            mouse_bind_group_layout: None, // Mouse data passed through custom uniform instead
+            enable_fonts: false,
+            enable_audio_buffer: false,
+            audio_buffer_size: 0,
+            enable_custom_uniform: true,
+            enable_input_texture: false,
+            custom_storage_buffers: Vec::new(),
+        };
+
+        let mut compute_shader = ComputeShader::new_with_config(
+            core,
+            include_str!("../../shaders/water.wgsl"),
+            compute_config,
         );
-        
-        let compute_pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Arctic Water Compute Pipeline Layout"),
-            bind_group_layouts: &[
-                &time_bind_group_layout,
-                &params_bind_group_layout,
-                &compute_bind_group_layout,
-            ],
-            push_constant_ranges: &[],
+
+        // Enable hot reload
+        let shader_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Water Compute Shader Hot Reload"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/water.wgsl").into()),
         });
-        
-        let compute_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("Arctic Water Compute Pipeline"),
-            layout: Some(&compute_pipeline_layout),
-            module: &cs_module,
-            entry_point: Some("main"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        });
-        
-        let view_output = output_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let compute_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &compute_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&view_output),
-                },
-            ],
-            label: Some("Arctic Water Compute Bind Group"),
-        });
-        
-        let mut result = Self {
+        if let Err(e) = compute_shader.enable_hot_reload(
+            core.device.clone(),
+            std::path::PathBuf::from("shaders/water.wgsl"),
+            shader_module,
+        ) {
+            eprintln!("Failed to enable compute shader hot reload: {}", e);
+        }
+
+        // Add custom parameters uniform to the compute shader
+        compute_shader.add_custom_uniform_binding(&params_uniform.bind_group);
+
+        Self {
             base,
             params_uniform,
-            compute_time_uniform,
-            compute_pipeline,
-            output_texture,
-            compute_bind_group_layout,
-            time_bind_group_layout,
-            params_bind_group_layout,
-            compute_bind_group,
+            compute_shader,
             frame_count: 0,
-            hot_reload,
             camera_movement: CameraMovement::default(),
             export_time: None,
             export_frame: None,
-        };
-        
-        result.recreate_compute_resources(core);
-        result
+        }
     }
     
     fn update(&mut self, core: &Core) {
-        if let Some(new_shader) = self.hot_reload.reload_compute_shader() {
-            println!("Reloading Arctic Water shader at time: {:.2}s", self.base.start_time.elapsed().as_secs_f32());
-            
-            let compute_pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Updated Arctic Water Compute Pipeline Layout"),
-                bind_group_layouts: &[
-                    &self.time_bind_group_layout,
-                    &self.params_bind_group_layout,
-                    &self.compute_bind_group_layout,
-                ],
-                push_constant_ranges: &[],
-            });
-            
-            self.compute_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Updated Arctic Water Pipeline"),
-                layout: Some(&compute_pipeline_layout),
-                module: &new_shader,
-                entry_point: Some("main"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                cache: None,
-            });
-        }
-        
         if self.base.export_manager.is_exporting() {
             self.handle_export(core);
         }
@@ -588,7 +460,8 @@ impl ShaderManager for WaterShader {
     
     fn resize(&mut self, core: &Core) {
         println!("Resizing Arctic water to {:?}", core.size);
-        self.recreate_compute_resources(core);
+        self.base.update_resolution(&core.queue, core.size);
+        self.compute_shader.resize(core, core.size.width, core.size.height);
     }
     
     fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {
@@ -723,10 +596,18 @@ impl ShaderManager for WaterShader {
         self.base.time_uniform.data.frame = current_frame;
         self.base.time_uniform.update(&core.queue);
         
-        self.compute_time_uniform.data.time = current_time;
-        self.compute_time_uniform.data.delta = 1.0/60.0;
-        self.compute_time_uniform.data.frame = current_frame;
-        self.compute_time_uniform.update(&core.queue);
+        // Update compute shader with the same time data
+        self.compute_shader.set_time(current_time, 1.0/60.0, &core.queue);
+        self.compute_shader.time_uniform.data.frame = current_frame;
+        self.compute_shader.time_uniform.update(&core.queue);
+        
+        // Mouse data is passed through custom uniform parameters instead of separate mouse uniform
+        self.base.update_mouse_uniform(&core.queue);
+        if let Some(mouse_uniform) = &self.base.mouse_uniform {
+            self.params_uniform.data.mouse_x = mouse_uniform.data.position[0];
+            self.params_uniform.data.mouse_y = mouse_uniform.data.position[1];
+            changed = true;
+        }
         
         if changed {
             self.params_uniform.data = params;
@@ -737,29 +618,8 @@ impl ShaderManager for WaterShader {
             self.base.export_manager.start_export();
         }
         
-        self.base.update_mouse_uniform(&core.queue);
-        if let Some(mouse_uniform) = &self.base.mouse_uniform {
-            self.params_uniform.data.mouse_x = mouse_uniform.data.position[0];
-            self.params_uniform.data.mouse_y = mouse_uniform.data.position[1];
-            self.params_uniform.update(&core.queue);
-        }
-        
-        // Run the compute shader pass
-        {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Arctic Water Compute Pass"),
-                timestamp_writes: None,
-            });
-            
-            compute_pass.set_pipeline(&self.compute_pipeline);
-            compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(2, &self.compute_bind_group, &[]);
-            
-            let width = core.size.width.div_ceil(8);
-            let height = core.size.height.div_ceil(8);
-            compute_pass.dispatch_workgroups(width, height, 1);
-        }
+        // Use ComputeShader dispatch
+        self.compute_shader.dispatch(&mut encoder, core);
         
         // Render the compute output to the screen
         {
@@ -772,7 +632,7 @@ impl ShaderManager for WaterShader {
             
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-            render_pass.set_bind_group(0, &self.output_texture.bind_group, &[]);
+            render_pass.set_bind_group(0, &self.compute_shader.output_texture.bind_group, &[]);
             
             render_pass.draw(0..4, 0..1);
         }

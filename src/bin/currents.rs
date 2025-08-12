@@ -5,7 +5,6 @@
 use cuneus::prelude::*;
 use cuneus::compute::*;
 use winit::event::WindowEvent;
-use std::path::PathBuf;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -101,229 +100,12 @@ impl UniformProvider for CurrentsParams {
 
 struct CurrentsShader {
     base: RenderKit,
-    params_uniform: UniformBinding<CurrentsParams>,
-    compute_time_uniform: UniformBinding<ComputeTimeUniform>,
-    
-    buffer_a_pipeline: wgpu::ComputePipeline,
-    buffer_b_pipeline: wgpu::ComputePipeline,
-    buffer_c_pipeline: wgpu::ComputePipeline,
-    buffer_d_pipeline: wgpu::ComputePipeline,
-    main_image_pipeline: wgpu::ComputePipeline,
-    
-    buffer_a_textures: (wgpu::Texture, wgpu::Texture),
-    buffer_b_textures: (wgpu::Texture, wgpu::Texture),
-    buffer_c_textures: (wgpu::Texture, wgpu::Texture),
-    buffer_d_textures: (wgpu::Texture, wgpu::Texture),
-    output_texture: wgpu::Texture,
-    
-    buffer_a_bind_groups: (wgpu::BindGroup, wgpu::BindGroup),
-    buffer_b_bind_groups: (wgpu::BindGroup, wgpu::BindGroup),
-    buffer_c_bind_groups: (wgpu::BindGroup, wgpu::BindGroup),
-    buffer_d_bind_groups: (wgpu::BindGroup, wgpu::BindGroup),
-    output_bind_group: wgpu::BindGroup,
-    
-    multi_texture_layout: wgpu::BindGroupLayout,
-    
-    frame_count: u32,
-    buffer_flip: bool,
-    hot_reload: ShaderHotReload,
+    multi_buffer: MultiBufferCompute<CurrentsParams>,
 }
 
-impl CurrentsShader {
-    
-    fn create_storage_texture(device: &wgpu::Device, width: u32, height: u32, label: &str) -> wgpu::Texture {
-        device.create_texture(&wgpu::TextureDescriptor {
-            label: Some(label),
-            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba16Float,
-            usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        })
-    }
-    
-    fn create_storage_bind_group(
-        device: &wgpu::Device,
-        layout: &wgpu::BindGroupLayout,
-        texture: &wgpu::Texture,
-        label: &str,
-    ) -> wgpu::BindGroup {
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(&view),
-            }],
-            label: Some(label),
-        })
-    }
-    
-    fn create_multi_texture_bind_group(
-        device: &wgpu::Device,
-        layout: &wgpu::BindGroupLayout,
-        texture0: &wgpu::Texture,
-        texture1: &wgpu::Texture, 
-        texture2: &wgpu::Texture,
-        sampler: &wgpu::Sampler,
-        label: &str,
-    ) -> wgpu::BindGroup {
-        let view0 = texture0.create_view(&wgpu::TextureViewDescriptor::default());
-        let view1 = texture1.create_view(&wgpu::TextureViewDescriptor::default());
-        let view2 = texture2.create_view(&wgpu::TextureViewDescriptor::default());
-        
-        device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&view0),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&view1),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::Sampler(sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: wgpu::BindingResource::TextureView(&view2),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 5,
-                    resource: wgpu::BindingResource::Sampler(sampler),
-                },
-            ],
-            label: Some(label),
-        })
-    }
-}
 
 impl ShaderManager for CurrentsShader {
     fn init(core: &Core) -> Self {
-        let storage_layout = create_bind_group_layout(
-            &core.device,
-            BindGroupLayoutType::StorageTexture,
-            "Storage Texture",
-        );
-        
-        let time_layout = create_bind_group_layout(
-            &core.device,
-            BindGroupLayoutType::TimeUniform,
-            "Time",
-        );
-        
-        let params_layout = create_bind_group_layout(
-            &core.device,
-            BindGroupLayoutType::CustomUniform,
-            "Params",
-        );
-        
-        let multi_texture_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 3,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 4,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 5,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-            label: Some("Multi-Texture Layout"),
-        });
-        
-        let params_uniform = UniformBinding::new(
-            &core.device,
-            "Currents Params",
-            CurrentsParams::default(),
-            &params_layout,
-            0,
-        );
-        
-        let compute_time_uniform = UniformBinding::new(
-            &core.device,
-            "Compute Time",
-            ComputeTimeUniform {
-                time: 0.0,
-                delta: 1.0/60.0,
-                frame: 0,
-                _padding: 0,
-            },
-            &time_layout,
-            0,
-        );
-        
-        let buffer_a_textures = (
-            Self::create_storage_texture(&core.device, core.size.width, core.size.height, "Buffer A0"),
-            Self::create_storage_texture(&core.device, core.size.width, core.size.height, "Buffer A1"),
-        );
-        
-        let buffer_b_textures = (
-            Self::create_storage_texture(&core.device, core.size.width, core.size.height, "Buffer B0"),
-            Self::create_storage_texture(&core.device, core.size.width, core.size.height, "Buffer B1"),
-        );
-        
-        let buffer_c_textures = (
-            Self::create_storage_texture(&core.device, core.size.width, core.size.height, "Buffer C0"),
-            Self::create_storage_texture(&core.device, core.size.width, core.size.height, "Buffer C1"),
-        );
-        
-        let buffer_d_textures = (
-            Self::create_storage_texture(&core.device, core.size.width, core.size.height, "Buffer D0"),
-            Self::create_storage_texture(&core.device, core.size.width, core.size.height, "Buffer D1"),
-        );
-        
-        let output_texture = Self::create_storage_texture(&core.device, core.size.width, core.size.height, "Output");
-        
         let texture_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -345,127 +127,7 @@ impl ShaderManager for CurrentsShader {
             ],
             label: Some("Texture Bind Group Layout"),
         });
-        
-        let _sampler = core.device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("Currents Sampler"),
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Nearest,
-            ..Default::default()
-        });
-        
-        let buffer_a_bind_groups = (
-            Self::create_storage_bind_group(&core.device, &storage_layout, &buffer_a_textures.0, "Buffer A0 Bind Group"),
-            Self::create_storage_bind_group(&core.device, &storage_layout, &buffer_a_textures.1, "Buffer A1 Bind Group"),
-        );
-        
-        let buffer_b_bind_groups = (
-            Self::create_storage_bind_group(&core.device, &storage_layout, &buffer_b_textures.0, "Buffer B0 Bind Group"),
-            Self::create_storage_bind_group(&core.device, &storage_layout, &buffer_b_textures.1, "Buffer B1 Bind Group"),
-        );
-        
-        let buffer_c_bind_groups = (
-            Self::create_storage_bind_group(&core.device, &storage_layout, &buffer_c_textures.0, "Buffer C0 Bind Group"),
-            Self::create_storage_bind_group(&core.device, &storage_layout, &buffer_c_textures.1, "Buffer C1 Bind Group"),
-        );
-        
-        let buffer_d_bind_groups = (
-            Self::create_storage_bind_group(&core.device, &storage_layout, &buffer_d_textures.0, "Buffer D0 Bind Group"),
-            Self::create_storage_bind_group(&core.device, &storage_layout, &buffer_d_textures.1, "Buffer D1 Bind Group"),
-        );
-        
-        let output_bind_group = Self::create_storage_bind_group(&core.device, &storage_layout, &output_texture, "Output Bind Group");
-        
-        let cs_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Currents Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/currents.wgsl").into()),
-        });
 
-        let hot_reload = ShaderHotReload::new_compute(
-            core.device.clone(),
-            PathBuf::from("shaders/currents.wgsl"),
-            cs_module.clone(),
-            "buffer_a",
-        ).expect("Failed to initialize hot reload");
-        
-        let buffer_a_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: None,
-            bind_group_layouts: &[&time_layout, &params_layout, &storage_layout, &multi_texture_layout],
-            push_constant_ranges: &[],
-        });
-        
-        let buffer_b_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: None,
-            bind_group_layouts: &[&time_layout, &params_layout, &storage_layout, &multi_texture_layout],
-            push_constant_ranges: &[],
-        });
-        
-        let buffer_c_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: None,
-            bind_group_layouts: &[&time_layout, &params_layout, &storage_layout, &multi_texture_layout],
-            push_constant_ranges: &[],
-        });
-        
-        let buffer_d_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: None,
-            bind_group_layouts: &[&time_layout, &params_layout, &storage_layout, &multi_texture_layout],
-            push_constant_ranges: &[],
-        });
-        
-        let main_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: None,
-            bind_group_layouts: &[&time_layout, &params_layout, &storage_layout, &multi_texture_layout],
-            push_constant_ranges: &[],
-        });
-        
-        let buffer_a_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: None,
-            layout: Some(&buffer_a_layout),
-            module: &cs_module,
-            entry_point: Some("buffer_a"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        });
-        
-        let buffer_b_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: None,
-            layout: Some(&buffer_b_layout),
-            module: &cs_module,
-            entry_point: Some("buffer_b"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        });
-        
-        let buffer_c_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: None,
-            layout: Some(&buffer_c_layout),
-            module: &cs_module,
-            entry_point: Some("buffer_c"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        });
-        
-        let buffer_d_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: None,
-            layout: Some(&buffer_d_layout),
-            module: &cs_module,
-            entry_point: Some("buffer_d"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        });
-        
-        let main_image_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: None,
-            layout: Some(&main_layout),
-            module: &cs_module,
-            entry_point: Some("main_image"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        });
-        
         let base = RenderKit::new(
             core,
             include_str!("../../shaders/vertex.wgsl"),
@@ -473,350 +135,135 @@ impl ShaderManager for CurrentsShader {
             &[&texture_bind_group_layout],
             None,
         );
-        
-        Self {
-            base,
-            params_uniform,
-            compute_time_uniform,
-            buffer_a_pipeline,
-            buffer_b_pipeline,
-            buffer_c_pipeline,
-            buffer_d_pipeline,
-            main_image_pipeline,
-            buffer_a_textures,
-            buffer_b_textures,
-            buffer_c_textures,
-            buffer_d_textures,
-            output_texture,
-            buffer_a_bind_groups,
-            buffer_b_bind_groups,
-            buffer_c_bind_groups,
-            buffer_d_bind_groups,
-            output_bind_group,
-            multi_texture_layout,
-            frame_count: 0,
-            buffer_flip: false,
-            hot_reload,
-        }
+
+        // Create multi-buffer compute system
+        let multi_buffer = MultiBufferCompute::new(
+            core,
+            &["buffer_a", "buffer_b", "buffer_c", "buffer_d"],
+            "shaders/currents.wgsl",
+            &["buffer_a", "buffer_b", "buffer_c", "buffer_d", "main_image"],
+            CurrentsParams::default(),
+        );
+
+        Self { base, multi_buffer }
     }
-    
+
     fn update(&mut self, core: &Core) {
-        if let Some(new_shader) = self.hot_reload.reload_compute_shader() {
+        // Check hot reload
+        if let Some(new_shader) = self.multi_buffer.hot_reload.reload_compute_shader() {
             println!("Reloading Currents shader at time: {:.2}s", self.base.start_time.elapsed().as_secs_f32());
             
-            // Recreate all pipeline layouts
-            let time_layout = create_bind_group_layout(&core.device, BindGroupLayoutType::TimeUniform, "Currents Compute");
+            // Recreate all pipelines with updated shader
+            let time_layout = create_bind_group_layout(&core.device, BindGroupLayoutType::TimeUniform, "Currents Time");
             let params_layout = create_bind_group_layout(&core.device, BindGroupLayoutType::CustomUniform, "Currents Params");
-            let storage_layout = create_bind_group_layout(&core.device, BindGroupLayoutType::StorageTexture, "Currents Storage");
             
-            let buffer_a_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Updated Buffer A Layout"),
-                bind_group_layouts: &[&time_layout, &params_layout, &storage_layout, &self.multi_texture_layout],
-                push_constant_ranges: &[],
-            });
-            
-            let buffer_b_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Updated Buffer B Layout"),
-                bind_group_layouts: &[&time_layout, &params_layout, &storage_layout, &self.multi_texture_layout],
-                push_constant_ranges: &[],
-            });
-            
-            let buffer_c_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Updated Buffer C Layout"),
-                bind_group_layouts: &[&time_layout, &params_layout, &storage_layout, &self.multi_texture_layout],
-                push_constant_ranges: &[],
-            });
-            
-            let buffer_d_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Updated Buffer D Layout"),
-                bind_group_layouts: &[&time_layout, &params_layout, &storage_layout, &self.multi_texture_layout],
-                push_constant_ranges: &[],
-            });
-            
-            let main_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Updated Main Layout"),
-                bind_group_layouts: &[&time_layout, &params_layout, &storage_layout, &self.multi_texture_layout],
+            let pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Updated Currents Pipeline Layout"),
+                bind_group_layouts: &[
+                    &time_layout,
+                    &params_layout,
+                    self.multi_buffer.buffer_manager.get_storage_layout(),
+                    self.multi_buffer.buffer_manager.get_multi_texture_layout(),
+                ],
                 push_constant_ranges: &[],
             });
 
-            // Recreate all pipelines
-            self.buffer_a_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Updated Buffer A Pipeline"),
-                layout: Some(&buffer_a_layout),
-                module: &new_shader,
-                entry_point: Some("buffer_a"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                cache: None,
-            });
-            
-            self.buffer_b_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Updated Buffer B Pipeline"),
-                layout: Some(&buffer_b_layout),
-                module: &new_shader,
-                entry_point: Some("buffer_b"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                cache: None,
-            });
-            
-            self.buffer_c_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Updated Buffer C Pipeline"),
-                layout: Some(&buffer_c_layout),
-                module: &new_shader,
-                entry_point: Some("buffer_c"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                cache: None,
-            });
-            
-            self.buffer_d_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Updated Buffer D Pipeline"),
-                layout: Some(&buffer_d_layout),
-                module: &new_shader,
-                entry_point: Some("buffer_d"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                cache: None,
-            });
-            
-            self.main_image_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Updated Main Image Pipeline"),
-                layout: Some(&main_layout),
-                module: &new_shader,
-                entry_point: Some("main_image"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                cache: None,
-            });
+            // Update pipelines
+            for entry_point in &["buffer_a", "buffer_b", "buffer_c", "buffer_d", "main_image"] {
+                let pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                    label: Some(&format!("Updated Currents Pipeline - {}", entry_point)),
+                    layout: Some(&pipeline_layout),
+                    module: &new_shader,
+                    entry_point: Some(entry_point),
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                    cache: None,
+                });
+                self.multi_buffer.pipelines.insert(entry_point.to_string(), pipeline);
+            }
         }
-        
+
         self.base.fps_tracker.update();
     }
-    
-    fn resize(&mut self, _core: &Core) {
-        self.frame_count = 0;
+
+    fn resize(&mut self, core: &Core) {
+        self.multi_buffer.buffer_manager.resize(core, core.size.width, core.size.height, COMPUTE_TEXTURE_FORMAT_RGBA16);
+        self.multi_buffer.frame_count = 0;
     }
-    
+
     fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {
         let output = core.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = core.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: None,
+            label: Some("Currents Render Encoder"),
         });
-        
+
+        // Update time
         let current_time = self.base.controls.get_time(&self.base.start_time);
-        
-        self.compute_time_uniform.data.time = current_time;
-        self.compute_time_uniform.data.delta = 1.0/60.0;
-        self.compute_time_uniform.data.frame = self.frame_count;
-        self.compute_time_uniform.update(&core.queue);
-        
-        let width = core.size.width.div_ceil(16);
-        let height = core.size.height.div_ceil(16);
-        
-        // Ping-pong buffer selection
-        let (_read_a, write_a) = if self.buffer_flip {
-            (&self.buffer_a_bind_groups.0, &self.buffer_a_bind_groups.1)
-        } else {
-            (&self.buffer_a_bind_groups.1, &self.buffer_a_bind_groups.0)
-        };
-        
-        let (_read_b, write_b) = if self.buffer_flip {
-            (&self.buffer_b_bind_groups.0, &self.buffer_b_bind_groups.1)
-        } else {
-            (&self.buffer_b_bind_groups.1, &self.buffer_b_bind_groups.0)
-        };
-        
-        let (_read_c, write_c) = if self.buffer_flip {
-            (&self.buffer_c_bind_groups.0, &self.buffer_c_bind_groups.1)
-        } else {
-            (&self.buffer_c_bind_groups.1, &self.buffer_c_bind_groups.0)
-        };
-        
-        let (_read_d, write_d) = if self.buffer_flip {
-            (&self.buffer_d_bind_groups.0, &self.buffer_d_bind_groups.1)
-        } else {
-            (&self.buffer_d_bind_groups.1, &self.buffer_d_bind_groups.0)
-        };
-        
-        // Create input bind groups for cross-buffer dependencies
-        let sampler = core.device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("Currents Sampler"),
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Nearest,
-            ..Default::default()
-        });
-        
-        let buffer_a_texture = if self.buffer_flip { &self.buffer_a_textures.0 } else { &self.buffer_a_textures.1 };
-        let buffer_b_texture = if self.buffer_flip { &self.buffer_b_textures.0 } else { &self.buffer_b_textures.1 };
-        let buffer_c_texture = if self.buffer_flip { &self.buffer_c_textures.0 } else { &self.buffer_c_textures.1 };
-        let buffer_d_texture = if self.buffer_flip { &self.buffer_d_textures.0 } else { &self.buffer_d_textures.1 };
-        
-        let new_buffer_a_texture = if self.buffer_flip { &self.buffer_a_textures.1 } else { &self.buffer_a_textures.0 };
-        let new_buffer_b_texture = if self.buffer_flip { &self.buffer_b_textures.1 } else { &self.buffer_b_textures.0 };
-        let new_buffer_c_texture = if self.buffer_flip { &self.buffer_c_textures.1 } else { &self.buffer_c_textures.0 };
-        let new_buffer_d_texture = if self.buffer_flip { &self.buffer_d_textures.1 } else { &self.buffer_d_textures.0 };
-        
+        self.multi_buffer.update_time(&core.queue, current_time);
+
+        // Execute multi-buffer compute passes in dependency order
         // Buffer A: self-feedback
-        let buffer_a_input = Self::create_multi_texture_bind_group(
-            &core.device,
-            &self.multi_texture_layout,
-            buffer_a_texture,
-            buffer_a_texture,
-            buffer_a_texture,
-            &sampler,
-            "Buffer A Input Dynamic",
-        );
+        self.multi_buffer.dispatch_buffer(&mut encoder, core, "buffer_a", &["buffer_a"]);
         
-        // Buffer B: reads BufferB + BufferA
-        let buffer_b_input = Self::create_multi_texture_bind_group(
-            &core.device,
-            &self.multi_texture_layout,
-            buffer_b_texture,
-            new_buffer_a_texture, // Use the NEWLY computed Buffer A
-            buffer_a_texture,
-            &sampler,
-            "Buffer B Input Dynamic",
-        );
+        // Buffer B: reads BufferB + BufferA  
+        self.multi_buffer.dispatch_buffer(&mut encoder, core, "buffer_b", &["buffer_b", "buffer_a"]);
         
         // Buffer C: reads BufferC + BufferA
-        let buffer_c_input = Self::create_multi_texture_bind_group(
-            &core.device,
-            &self.multi_texture_layout,
-            buffer_c_texture,
-            new_buffer_a_texture, // Use the NEWLY computed Buffer A
-            buffer_a_texture,
-            &sampler,
-            "Buffer C Input Dynamic",
-        );
+        self.multi_buffer.dispatch_buffer(&mut encoder, core, "buffer_c", &["buffer_c", "buffer_a"]);
         
         // Buffer D: reads BufferD + BufferC + BufferB
-        let buffer_d_input = Self::create_multi_texture_bind_group(
-            &core.device,
-            &self.multi_texture_layout,
-            buffer_d_texture,
-            new_buffer_c_texture, // Use NEWLY computed Buffer C
-            new_buffer_b_texture, // Use NEWLY computed Buffer B  
-            &sampler,
-            "Buffer D Input Dynamic",
-        );
+        self.multi_buffer.dispatch_buffer(&mut encoder, core, "buffer_d", &["buffer_d", "buffer_c", "buffer_b"]);
         
-        // Main Image: reads BufferD
-        let main_input = Self::create_multi_texture_bind_group(
-            &core.device,
-            &self.multi_texture_layout,
-            new_buffer_d_texture, // Use NEWLY computed Buffer D
-            buffer_d_texture,
-            buffer_d_texture,
-            &sampler,
-            "Main Input Dynamic",
-        );
-        
-        {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: None,
-                timestamp_writes: None,
-            });
-            compute_pass.set_pipeline(&self.buffer_a_pipeline);
-            compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(2, write_a, &[]);
-            compute_pass.set_bind_group(3, &buffer_a_input, &[]);
-            compute_pass.dispatch_workgroups(width, height, 1);
-        }
-        
-        {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: None,
-                timestamp_writes: None,
-            });
-            compute_pass.set_pipeline(&self.buffer_b_pipeline);
-            compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(2, write_b, &[]);
-            compute_pass.set_bind_group(3, &buffer_b_input, &[]);
-            compute_pass.dispatch_workgroups(width, height, 1);
-        }
-        
-        {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: None,
-                timestamp_writes: None,
-            });
-            compute_pass.set_pipeline(&self.buffer_c_pipeline);
-            compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(2, write_c, &[]);
-            compute_pass.set_bind_group(3, &buffer_c_input, &[]);
-            compute_pass.dispatch_workgroups(width, height, 1);
-        }
-        
-        {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: None,
-                timestamp_writes: None,
-            });
-            compute_pass.set_pipeline(&self.buffer_d_pipeline);
-            compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(2, write_d, &[]);
-            compute_pass.set_bind_group(3, &buffer_d_input, &[]);
-            compute_pass.dispatch_workgroups(width, height, 1);
-        }
-        
-        {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: None,
-                timestamp_writes: None,
-            });
-            compute_pass.set_pipeline(&self.main_image_pipeline);
-            compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(2, &self.output_bind_group, &[]);
-            compute_pass.set_bind_group(3, &main_input, &[]);
-            compute_pass.dispatch_workgroups(width, height, 1);
-        }
-        
-        let output_view = self.output_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        // Main image uses buffer_d output
         let sampler = core.device.create_sampler(&wgpu::SamplerDescriptor::default());
-        let display_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &self.base.renderer.render_pipeline.get_bind_group_layout(0),
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&output_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
-                },
-            ],
-            label: None,
-        });
+        let main_input_bind_group = self.multi_buffer.buffer_manager.create_input_bind_group(&core.device, &sampler, &["buffer_d"]);
         
         {
-            let mut render_pass = cuneus::Renderer::begin_render_pass(
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("Currents Main Image Pass"),
+                timestamp_writes: None,
+            });
+
+            if let Some(pipeline) = self.multi_buffer.pipelines.get("main_image") {
+                compute_pass.set_pipeline(pipeline);
+                compute_pass.set_bind_group(0, &self.multi_buffer.time_uniform.bind_group, &[]);
+                compute_pass.set_bind_group(1, &self.multi_buffer.params_uniform.bind_group, &[]);
+                compute_pass.set_bind_group(2, self.multi_buffer.buffer_manager.get_output_bind_group(), &[]);
+                compute_pass.set_bind_group(3, &main_input_bind_group, &[]);
+
+                let width = core.size.width.div_ceil(16);
+                let height = core.size.height.div_ceil(16);
+                compute_pass.dispatch_workgroups(width, height, 1);
+            }
+        }
+
+        // Render to screen
+        let display_bind_group = create_display_bind_group(
+            &core.device,
+            &self.base.renderer.render_pipeline.get_bind_group_layout(0),
+            self.multi_buffer.buffer_manager.get_output_texture(),
+        );
+
+        {
+            let mut render_pass = Renderer::begin_render_pass(
                 &mut encoder,
                 &view,
                 wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                None,
+                Some("Currents Display Pass"),
             );
-            
+
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
             render_pass.set_bind_group(0, &display_bind_group, &[]);
-            
             render_pass.draw(0..4, 0..1);
         }
-        
-        let mut params = self.params_uniform.data;
+
+        // Handle UI and controls
+        let mut params = self.multi_buffer.params_uniform.data;
         let mut changed = false;
         let mut should_start_export = false;
         let mut export_request = self.base.export_manager.get_ui_request();
-        let mut controls_request = self.base.controls.get_ui_request(
-            &self.base.start_time,
-            &core.size
-        );
+        let mut controls_request = self.base.controls.get_ui_request(&self.base.start_time, &core.size);
         controls_request.current_fps = Some(self.base.fps_tracker.fps());
 
         let full_output = if self.base.key_handler.show_ui {
@@ -959,93 +406,42 @@ impl ShaderManager for CurrentsShader {
                         should_start_export = ExportManager::render_export_ui_widget(ui, &mut export_request);
                         
                         ui.separator();
-                        ui.label(format!("Frame: {}", self.frame_count));
-                        ui.label("Multi-buffer system with ping-pong textures");
+                        ui.label(format!("Frame: {}", self.multi_buffer.frame_count));
+                        ui.label("Multi-buffer system with ping-pong textures - Simplified");
                     });
             })
         } else {
             self.base.render_ui(core, |_ctx| {})
         };
 
+        // Handle control requests
         self.base.export_manager.apply_ui_request(export_request);
         if controls_request.should_clear_buffers {
-            // Recreate storage textures to clear buffer data
-            self.buffer_a_textures = (
-                Self::create_storage_texture(&core.device, core.size.width, core.size.height, "Buffer A0 Clear"),
-                Self::create_storage_texture(&core.device, core.size.width, core.size.height, "Buffer A1 Clear"),
-            );
-            
-            self.buffer_b_textures = (
-                Self::create_storage_texture(&core.device, core.size.width, core.size.height, "Buffer B0 Clear"),
-                Self::create_storage_texture(&core.device, core.size.width, core.size.height, "Buffer B1 Clear"),
-            );
-            
-            self.buffer_c_textures = (
-                Self::create_storage_texture(&core.device, core.size.width, core.size.height, "Buffer C0 Clear"),
-                Self::create_storage_texture(&core.device, core.size.width, core.size.height, "Buffer C1 Clear"),
-            );
-            
-            self.buffer_d_textures = (
-                Self::create_storage_texture(&core.device, core.size.width, core.size.height, "Buffer D0 Clear"),
-                Self::create_storage_texture(&core.device, core.size.width, core.size.height, "Buffer D1 Clear"),
-            );
-            
-            self.output_texture = Self::create_storage_texture(&core.device, core.size.width, core.size.height, "Output Clear");
-            
-            // Recreate bind groups with fresh textures
-            let storage_layout = create_bind_group_layout(
-                &core.device,
-                BindGroupLayoutType::StorageTexture,
-                "Storage Texture",
-            );
-            
-            self.buffer_a_bind_groups = (
-                Self::create_storage_bind_group(&core.device, &storage_layout, &self.buffer_a_textures.0, "Buffer A0 Clear Bind Group"),
-                Self::create_storage_bind_group(&core.device, &storage_layout, &self.buffer_a_textures.1, "Buffer A1 Clear Bind Group"),
-            );
-            
-            self.buffer_b_bind_groups = (
-                Self::create_storage_bind_group(&core.device, &storage_layout, &self.buffer_b_textures.0, "Buffer B0 Clear Bind Group"),
-                Self::create_storage_bind_group(&core.device, &storage_layout, &self.buffer_b_textures.1, "Buffer B1 Clear Bind Group"),
-            );
-            
-            self.buffer_c_bind_groups = (
-                Self::create_storage_bind_group(&core.device, &storage_layout, &self.buffer_c_textures.0, "Buffer C0 Clear Bind Group"),
-                Self::create_storage_bind_group(&core.device, &storage_layout, &self.buffer_c_textures.1, "Buffer C1 Clear Bind Group"),
-            );
-            
-            self.buffer_d_bind_groups = (
-                Self::create_storage_bind_group(&core.device, &storage_layout, &self.buffer_d_textures.0, "Buffer D0 Clear Bind Group"),
-                Self::create_storage_bind_group(&core.device, &storage_layout, &self.buffer_d_textures.1, "Buffer D1 Clear Bind Group"),
-            );
-            
-            self.output_bind_group = Self::create_storage_bind_group(&core.device, &storage_layout, &self.output_texture, "Output Clear Bind Group");
-            
-            // Reset frame count and ping-pong state
-            self.frame_count = 0;
-            self.buffer_flip = false;
+            self.multi_buffer.buffer_manager.clear_all(core, COMPUTE_TEXTURE_FORMAT_RGBA16);
+            self.multi_buffer.frame_count = 0;
         }
         self.base.apply_control_request(controls_request);
 
         if changed {
-            self.params_uniform.data = params;
-            self.params_uniform.update(&core.queue);
+            self.multi_buffer.params_uniform.data = params;
+            self.multi_buffer.params_uniform.update(&core.queue);
         }
 
         if should_start_export {
             self.base.export_manager.start_export();
         }
+
         self.base.handle_render_output(core, &view, full_output, &mut encoder);
-        
         core.queue.submit(std::iter::once(encoder.finish()));
         output.present();
-        
-        self.frame_count += 1;
-        self.buffer_flip = !self.buffer_flip;
-        
+
+        // Update frame count and flip buffers
+        self.multi_buffer.frame_count += 1;
+        self.multi_buffer.buffer_manager.flip_buffers();
+
         Ok(())
     }
-    
+
     fn handle_input(&mut self, core: &Core, event: &WindowEvent) -> bool {
         if self.base.egui_state.on_window_event(core.window(), event).consumed {
             return true;

@@ -37,10 +37,9 @@ struct SinhParams {
     fractal_scale: f32,
     vignette_offset: f32,
 };
-@group(1) @binding(0) var<uniform> params: SinhParams;
+@group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
 
-@group(2) @binding(0) var output: texture_storage_2d<rgba16float, write>;
-@group(3) @binding(0) var<storage, read_write> atomic_buffer: array<atomic<u32>>;
+@group(2) @binding(0) var<uniform> params: SinhParams;
 
 alias v4 = vec4<f32>;
 alias v3 = vec3<f32>;

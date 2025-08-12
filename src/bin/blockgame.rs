@@ -1,7 +1,7 @@
 // Block Game, Enes Altun, 2025, MIT License
 
 use cuneus::{Core, ShaderApp, ShaderManager, RenderKit, UniformProvider};
-use cuneus::compute::{ComputeShaderConfig, COMPUTE_TEXTURE_FORMAT_RGBA16};
+use cuneus::compute::{ComputeShaderConfig, COMPUTE_TEXTURE_FORMAT_RGBA16, create_bind_group_layout, BindGroupLayoutType};
 use winit::event::*;
 
 #[repr(C)]
@@ -114,19 +114,11 @@ impl ShaderManager for BlockTowerGame {
         );
         
         // Create mouse uniform for game interactions
-        let mouse_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-            label: Some("mouse_bind_group_layout"),
-        });
+        let mouse_bind_group_layout = create_bind_group_layout(
+            &core.device,
+            BindGroupLayoutType::MouseUniform,
+            "Block Game Mouse"
+        );
         
         let mouse_uniform = cuneus::UniformBinding::new(
             &core.device,
@@ -147,9 +139,12 @@ impl ShaderManager for BlockTowerGame {
             enable_audio_buffer: true,
             // Storage for game state and blocks
             audio_buffer_size: 1024,
-            mouse_bind_group_layout: Some(mouse_bind_group_layout),
+            mouse_bind_group_layout: None,  // Don't pass here, add separately
             entry_points: vec!["main".to_string()],
             label: "Block Tower Game".to_string(),
+            enable_custom_uniform: false,
+            enable_input_texture: false,
+            custom_storage_buffers: Vec::new(),
             ..Default::default()
         };
         
@@ -164,6 +159,21 @@ impl ShaderManager for BlockTowerGame {
                 &mouse_uniform.bind_group,
                 2
             );
+        }
+        
+        // Enable hot reload
+        if let Some(compute_shader) = &mut base.compute_shader {
+            let shader_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Blockgame Compute Shader Hot Reload"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/blockgame.wgsl").into()),
+            });
+            if let Err(e) = compute_shader.enable_hot_reload(
+                core.device.clone(),
+                std::path::PathBuf::from("shaders/blockgame.wgsl"),
+                shader_module,
+            ) {
+                eprintln!("Failed to enable compute shader hot reload: {}", e);
+            }
         }
         
         Self {

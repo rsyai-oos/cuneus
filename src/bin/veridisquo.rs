@@ -107,10 +107,13 @@ impl ShaderManager for VeridisQuo {
             sampler_address_mode: wgpu::AddressMode::ClampToEdge,
             sampler_filter_mode: wgpu::FilterMode::Linear,
             label: "Veridis Quo".to_string(),
-            mouse_bind_group_layout: Some(song_params_bind_group_layout.clone()),
+            mouse_bind_group_layout: None,  // Don't pass here, add separately
             enable_fonts: true,
             enable_audio_buffer: true,
             audio_buffer_size: 4096,
+            enable_custom_uniform: true,
+            enable_input_texture: false,
+            custom_storage_buffers: Vec::new(),
         };
         
         base.compute_shader = Some(cuneus::compute::ComputeShader::new_with_config(
@@ -120,10 +123,7 @@ impl ShaderManager for VeridisQuo {
         ));
         
         if let Some(compute_shader) = &mut base.compute_shader {
-            compute_shader.add_mouse_uniform_binding(
-                &song_params_uniform.bind_group,
-                2
-            );
+            compute_shader.add_custom_uniform_binding(&song_params_uniform.bind_group);
         }
         
         if let Some(compute_shader) = &mut base.compute_shader {

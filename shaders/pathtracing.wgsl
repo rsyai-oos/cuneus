@@ -28,11 +28,11 @@ struct PathTracingParams {
 
     exposure: f32,
 }
-@group(1) @binding(0) var<uniform> params: PathTracingParams;
+@group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
+@group(1) @binding(1) var background_texture: texture_2d<f32>;
+@group(1) @binding(2) var background_sampler: sampler;
 
-@group(2) @binding(0) var output: texture_storage_2d<rgba16float, write>;
-@group(2) @binding(1) var background_texture: texture_2d<f32>;
-@group(2) @binding(2) var background_sampler: sampler;
+@group(2) @binding(0) var<uniform> params: PathTracingParams;
 @group(3) @binding(0) var<storage, read_write> atomic_buffer: array<atomic<u32>>;
 
 alias v4 = vec4<f32>;

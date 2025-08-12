@@ -1,5 +1,5 @@
 use cuneus::{Core, ShaderApp, ShaderManager, RenderKit, ShaderControls};
-use cuneus::compute::{ComputeShaderConfig, COMPUTE_TEXTURE_FORMAT_RGBA16};
+use cuneus::compute::{ComputeShaderConfig, COMPUTE_TEXTURE_FORMAT_RGBA16, create_bind_group_layout, BindGroupLayoutType};
 use cuneus::audio::SynthesisManager;
 use winit::event::*;
 use std::path::PathBuf;
@@ -41,19 +41,11 @@ impl ShaderManager for DebugScreen {
             None,
         );
         
-        let mouse_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-            label: Some("mouse_bind_group_layout"),
-        });
+        let mouse_bind_group_layout = create_bind_group_layout(
+            &core.device,
+            BindGroupLayoutType::MouseUniform,
+            "Debug Screen Mouse"
+        );
         
         let mouse_uniform = cuneus::UniformBinding::new(
             &core.device,
@@ -77,10 +69,13 @@ impl ShaderManager for DebugScreen {
             sampler_address_mode: wgpu::AddressMode::ClampToEdge,
             sampler_filter_mode: wgpu::FilterMode::Linear,
             label: "Basic Compute".to_string(),
-            mouse_bind_group_layout: Some(mouse_bind_group_layout),
+            mouse_bind_group_layout: None,  // Don't pass here, add separately
             enable_fonts: true,
             enable_audio_buffer: true,
             audio_buffer_size: 1024,
+            enable_custom_uniform: false,
+            enable_input_texture: false,
+            custom_storage_buffers: Vec::new(),
         };
         
         // Create compute shader with our backend

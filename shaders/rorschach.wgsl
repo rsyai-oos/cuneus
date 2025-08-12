@@ -45,9 +45,10 @@ struct RorschachParams {
     color2_g: f32,
     color2_b: f32,
 }
-@group(1) @binding(0) var<uniform> params: RorschachParams;
+@group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
 
-@group(2) @binding(0) var output: texture_storage_2d<rgba16float, write>;
+@group(2) @binding(0) var<uniform> params: RorschachParams;
+
 @group(3) @binding(0) var<storage, read_write> atomic_buffer: array<atomic<u32>>;
 
 alias v4 = vec4<f32>;
@@ -199,7 +200,7 @@ fn Splat(@builtin(global_invocation_id) id: vec3<u32>) {
     
     for(var i = 0; i < iterations; i++) {
         let r = hash11(f32(i) + base_time);
-        var j = i32(r * 4.0) & 3;
+        var j = i32(r * 4.0 * base_time) & 3;
         if (r > 0.95) {
             j += 1;
         }
