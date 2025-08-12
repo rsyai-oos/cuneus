@@ -73,12 +73,12 @@ impl Default for ComputeShaderConfig {
     }
 }
 
-//bind group layout types for different shader needs
+// Bind group layout types for different shader configurations
 pub enum BindGroupLayoutType {
     StorageTexture,
     StorageTextureWithInput,
-    StorageTextureWithFonts, // New layout for CNN-style shaders (output texture + font atlas + font sampler)
-    TextureWithInputAndFonts, // Legacy layout
+    StorageTextureWithFonts,
+    TextureWithInputAndFonts,
     TimeUniform,
     CustomUniform,
     AtomicBuffer,
@@ -185,7 +185,6 @@ pub fn create_bind_group_layout(
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some(&format!("{} Storage Texture with Input Layout", label)),
                 entries: &[
-                    // Output storage texture at binding 0 (pathtracing expects this order)
                     wgpu::BindGroupLayoutEntry {
                         binding: 0,
                         visibility: wgpu::ShaderStages::COMPUTE,
@@ -196,7 +195,6 @@ pub fn create_bind_group_layout(
                         },
                         count: None,
                     },
-                    // Input texture at binding 1
                     wgpu::BindGroupLayoutEntry {
                         binding: 1,
                         visibility: wgpu::ShaderStages::COMPUTE,
@@ -207,7 +205,6 @@ pub fn create_bind_group_layout(
                         },
                         count: None,
                     },
-                    // Input sampler at binding 2
                     wgpu::BindGroupLayoutEntry {
                         binding: 2,
                         visibility: wgpu::ShaderStages::COMPUTE,
@@ -221,7 +218,6 @@ pub fn create_bind_group_layout(
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some(&format!("{} Storage Texture with Fonts Layout", label)),
                 entries: &[
-                    // Output storage texture at binding 0
                     wgpu::BindGroupLayoutEntry {
                         binding: 0,
                         visibility: wgpu::ShaderStages::COMPUTE,
@@ -232,7 +228,6 @@ pub fn create_bind_group_layout(
                         },
                         count: None,
                     },
-                    // Font atlas texture at binding 1
                     wgpu::BindGroupLayoutEntry {
                         binding: 1,
                         visibility: wgpu::ShaderStages::COMPUTE,
@@ -243,7 +238,6 @@ pub fn create_bind_group_layout(
                         },
                         count: None,
                     },
-                    // Font sampler at binding 2
                     wgpu::BindGroupLayoutEntry {
                         binding: 2,
                         visibility: wgpu::ShaderStages::COMPUTE,
@@ -257,7 +251,7 @@ pub fn create_bind_group_layout(
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some(&format!("{} Texture with Input and Fonts Layout", label)),
                 entries: &[
-                    // Input texture at binding 0 (CNN expects this order)
+                    // Input texture at binding 0
                     wgpu::BindGroupLayoutEntry {
                         binding: 0,
                         visibility: wgpu::ShaderStages::COMPUTE,
@@ -268,14 +262,12 @@ pub fn create_bind_group_layout(
                         },
                         count: None,
                     },
-                    // Input sampler at binding 1
                     wgpu::BindGroupLayoutEntry {
                         binding: 1,
                         visibility: wgpu::ShaderStages::COMPUTE,
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
-                    // Output storage texture at binding 2
                     wgpu::BindGroupLayoutEntry {
                         binding: 2,
                         visibility: wgpu::ShaderStages::COMPUTE,
@@ -286,7 +278,6 @@ pub fn create_bind_group_layout(
                         },
                         count: None,
                     },
-                    // Font atlas texture at binding 3
                     wgpu::BindGroupLayoutEntry {
                         binding: 3,
                         visibility: wgpu::ShaderStages::COMPUTE,
@@ -297,7 +288,6 @@ pub fn create_bind_group_layout(
                         },
                         count: None,
                     },
-                    // Font sampler at binding 4
                     wgpu::BindGroupLayoutEntry {
                         binding: 4,
                         visibility: wgpu::ShaderStages::COMPUTE,
@@ -403,7 +393,6 @@ pub fn create_bind_group_layout(
         BindGroupLayoutType::FontTexture => {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
-                    // Font uniforms
                     wgpu::BindGroupLayoutEntry {
                         binding: 0,
                         visibility: wgpu::ShaderStages::COMPUTE,
@@ -414,7 +403,6 @@ pub fn create_bind_group_layout(
                         },
                         count: None,
                     },
-                    // Font atlas texture
                     wgpu::BindGroupLayoutEntry {
                         binding: 1,
                         visibility: wgpu::ShaderStages::COMPUTE,
@@ -425,7 +413,6 @@ pub fn create_bind_group_layout(
                         },
                         count: None,
                     },
-                    // Font atlas sampler
                     wgpu::BindGroupLayoutEntry {
                         binding: 2,
                         visibility: wgpu::ShaderStages::COMPUTE,
@@ -439,7 +426,6 @@ pub fn create_bind_group_layout(
         BindGroupLayoutType::FontWithAudio => {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
-                    // Font uniforms
                     wgpu::BindGroupLayoutEntry {
                         binding: 0,
                         visibility: wgpu::ShaderStages::COMPUTE,
@@ -450,7 +436,6 @@ pub fn create_bind_group_layout(
                         },
                         count: None,
                     },
-                    // Font atlas texture
                     wgpu::BindGroupLayoutEntry {
                         binding: 1,
                         visibility: wgpu::ShaderStages::COMPUTE,
@@ -461,14 +446,12 @@ pub fn create_bind_group_layout(
                         },
                         count: None,
                     },
-                    // Font atlas sampler
                     wgpu::BindGroupLayoutEntry {
                         binding: 2,
                         visibility: wgpu::ShaderStages::COMPUTE,
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
-                    // Audio buffer
                     wgpu::BindGroupLayoutEntry {
                         binding: 3,
                         visibility: wgpu::ShaderStages::COMPUTE,
@@ -655,8 +638,7 @@ impl ComputeShader {
             &format!("{} Output Texture", config.label),
         );
         
-        // Create external texture layout if needed (but not if input texture is already handled or atomic buffer is used)
-        // For particle systems with atomic buffers, we don't need external textures since atomic accumulation handles multi-pass
+        // Create external texture layout for multi-stage shaders
         let external_texture_bind_group_layout = if config.entry_points.len() > 1 && !config.enable_input_texture && !config.enable_atomic_buffer {
             Some(create_bind_group_layout(
                 &core.device, 
@@ -667,7 +649,6 @@ impl ComputeShader {
             None
         };
         
-        // Create atomic buffer layout if needed
         let atomic_bind_group_layout = if config.enable_atomic_buffer {
             Some(create_bind_group_layout(
                 &core.device, 
@@ -697,8 +678,6 @@ impl ComputeShader {
         };
         
         let audio_bind_group_layout = if config.enable_audio_buffer && !config.enable_fonts {
-            // Only create separate audio layout if fonts are not enabled
-            // If fonts are enabled, audio is included in the font layout
             Some(create_bind_group_layout(
                 &core.device, 
                 BindGroupLayoutType::AudioBuffer,
@@ -736,12 +715,9 @@ impl ComputeShader {
                 mapped_at_creation: false,
             });
             
-            // Create bind group - use font layout if fonts are enabled, otherwise use audio layout
             let bind_group = if config.enable_fonts {
-                // Audio is combined with fonts in group 3
-                None // Will be created with font bind group later
+                None
             } else {
-                // Audio has its own separate bind group
                 Some(core.device.create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some(&format!("{} Audio Bind Group", config.label)),
                     layout: audio_bind_group_layout.as_ref().unwrap(),
@@ -760,11 +736,10 @@ impl ComputeShader {
         let view = output_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
         let storage_bind_group = if !config.enable_input_texture && config.enable_fonts {
             // For StorageTextureWithFonts layout, we need output storage, font atlas, font sampler
-            // Get font textures - use font system if available, otherwise use output as fallback
-            let (font_view, font_sampler) = if let Some(ref font_system) = font_system {
+                        let (font_view, font_sampler) = if let Some(ref font_system) = font_system {
                 (&font_system.atlas_texture.view, &font_system.atlas_texture.sampler)
             } else {
-                (&output_texture.view, &output_texture.sampler) // Fallback
+                (&output_texture.view, &output_texture.sampler)
             };
             
             core.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -809,7 +784,7 @@ impl ComputeShader {
             let (font_view, font_sampler) = if let Some(ref font_system) = font_system {
                 (&font_system.atlas_texture.view, &font_system.atlas_texture.sampler)
             } else {
-                (&dummy_view, &dummy_sampler) // Fallback to dummy
+                (&dummy_view, &dummy_sampler)
             };
             
             core.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -971,20 +946,12 @@ impl ComputeShader {
             None
         };
 
-        // Create pipeline layout following traditional Cuneus shader layout:
-        // Group 0: Time uniform
-        // Group 1: Storage texture (output) 
-        // Group 2: Custom uniforms (mouse, params, etc.)
-        // Group 3: Fonts and/or Audio (combined when both enabled)
+        // Pipeline layout: Group 0 (time), Group 1 (storage), Group 2 (uniforms), Group 3 (optional)
         let mut bind_group_layouts: Vec<&wgpu::BindGroupLayout> = vec![];
         
-        // Group 0: Time uniform (always present)
         bind_group_layouts.push(&time_bind_group_layout);
         
-        // Group 1: Storage texture (always present - this is what shaders expect at group 1)
         bind_group_layouts.push(&storage_texture_layout);
-        
-        // Group 2: Custom uniform OR mouse uniform OR dummy (to maintain contiguous indices)
         if config.enable_custom_uniform {
             if let Some(ref custom_layout) = custom_uniform_bind_group_layout {
                 bind_group_layouts.push(custom_layout);
@@ -996,12 +963,10 @@ impl ComputeShader {
             bind_group_layouts.push(dummy_layout);
         }
         
-        // Group 3: Fonts and/or Audio, OR custom storage buffers (prioritize custom storage for CNN-style shaders)
         if let Some(layout) = &custom_storage_bind_group_layout {
             // CNN-style shaders with custom storage buffers
             bind_group_layouts.push(layout);
         } else if let Some(layout) = &font_bind_group_layout {
-            // Standard shaders with fonts (may include audio buffer at binding 3)
             bind_group_layouts.push(layout);
         } else if let Some(layout) = &audio_bind_group_layout {
             // Audio-only shaders
@@ -1159,7 +1124,6 @@ impl ComputeShader {
     pub fn clear_atomic_buffer(&self, core: &Core) {
         if let Some(atomic_buffer) = &self.atomic_buffer {
             // The atomic buffer size is determined by the config when created
-            // Use 3 as default multiplier (RGB channels) which matches mandelbulb usage
             let multiplier = self.config.as_ref().map(|c| c.atomic_buffer_multiples).unwrap_or(3);
             let buffer_size = core.size.width * core.size.height * multiplier as u32;
             let clear_data = vec![0u32; buffer_size as usize];
@@ -1185,15 +1149,15 @@ impl ComputeShader {
                     entries: &[
                         wgpu::BindGroupEntry {
                             binding: 0,
-                            resource: wgpu::BindingResource::TextureView(&output_view), // Output storage texture (write-only)
+                            resource: wgpu::BindingResource::TextureView(&output_view),
                         },
                         wgpu::BindGroupEntry {
                             binding: 1,
-                            resource: wgpu::BindingResource::TextureView(input_view), // Input texture (read-only, must be different from output)
+                            resource: wgpu::BindingResource::TextureView(input_view),
                         },
                         wgpu::BindGroupEntry {
                             binding: 2,
-                            resource: wgpu::BindingResource::Sampler(input_sampler), // Input sampler
+                            resource: wgpu::BindingResource::Sampler(input_sampler),
                         },
                     ],
                 });
@@ -1246,7 +1210,6 @@ impl ComputeShader {
         
         self.output_texture = output_texture;
         
-        // Recreate atomic buffer if needed
         if let Some(atomic_bind_group_layout) = &self.atomic_bind_group_layout {
             let buffer_size = core.size.width * core.size.height;
             self.atomic_buffer = Some(AtomicBuffer::new(
@@ -1256,16 +1219,14 @@ impl ComputeShader {
             ));
         }
         
-        // Recreate storage bind group - handle all layout types
         let view = self.output_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
         
         if !config.enable_input_texture && config.enable_fonts {
             // For StorageTextureWithFonts layout, we need output storage, font atlas, font sampler
-            // Get font textures - use font system if available, otherwise use output as fallback
-            let (font_view, font_sampler) = if let Some(ref font_system) = self.font_system {
+                        let (font_view, font_sampler) = if let Some(ref font_system) = self.font_system {
                 (&font_system.atlas_texture.view, &font_system.atlas_texture.sampler)
             } else {
-                (&self.output_texture.view, &self.output_texture.sampler) // Fallback
+                (&self.output_texture.view, &self.output_texture.sampler)
             };
             
             self.storage_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -1310,7 +1271,7 @@ impl ComputeShader {
             let (font_view, font_sampler) = if let Some(ref font_system) = self.font_system {
                 (&font_system.atlas_texture.view, &font_system.atlas_texture.sampler)
             } else {
-                (&default_view, &default_sampler) // Fallback to default
+                (&default_view, &default_sampler)
             };
             
             self.storage_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -1369,7 +1330,7 @@ impl ComputeShader {
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&default_view), // Input texture (separate dummy)
+                        resource: wgpu::BindingResource::TextureView(&default_view),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
@@ -1474,7 +1435,6 @@ impl ComputeShader {
             1,
         ]);
         
-        // For multi-pass compute shaders (e.g., clear -> process -> generate)
         for (i, pipeline) in self.pipelines.iter().enumerate() {
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                 label: Some(&format!("Compute Pass {}", i)),
@@ -1483,30 +1443,21 @@ impl ComputeShader {
             
             compute_pass.set_pipeline(pipeline);
             
-            // Group 0: Time uniform (always present)
             compute_pass.set_bind_group(0, &self.time_uniform.bind_group, &[]);
             
-            // Group 1: Storage texture (always present) 
             compute_pass.set_bind_group(1, &self.storage_bind_group, &[]);
             
-            // Group 2: Custom uniform OR Mouse uniform (depending on configuration)
-            // Only bind if we have actual data - dummy Group 2 layouts don't need binding
             if let Some(custom_bind_group) = &self.custom_uniform_bind_group {
                 compute_pass.set_bind_group(2, custom_bind_group, &[]);
             } else if let Some(mouse_bind_group) = &self.mouse_bind_group {
                 compute_pass.set_bind_group(2, mouse_bind_group, &[]);
             }
-            // Note: If neither exists, Group 2 is a dummy layout for contiguous indices and doesn't need binding
             
-            // Group 3: Custom storage buffers OR Fonts+Audio OR Atomic buffer OR External texture
-            // (same priority order as pipeline layout creation)
             if let Some(custom_storage_bind_group) = &self.custom_storage_bind_group {
                 compute_pass.set_bind_group(3, custom_storage_bind_group, &[]);
             } else if let Some(font_bind_group) = &self.font_bind_group {
-                // Font bind group includes audio buffer at binding 3 if both are enabled
                 compute_pass.set_bind_group(3, font_bind_group, &[]);
             } else if let Some(audio_bind_group) = &self.audio_bind_group {
-                // Audio-only bind group
                 compute_pass.set_bind_group(3, audio_bind_group, &[]);
             } else if let Some(atomic_buffer) = &self.atomic_buffer {
                 compute_pass.set_bind_group(3, &atomic_buffer.bind_group, &[]);
@@ -1565,11 +1516,10 @@ impl ComputeShader {
         
         let storage_bind_group = if !config.enable_input_texture && config.enable_fonts {
             // For StorageTextureWithFonts layout, we need output storage, font atlas, font sampler
-            // Get font textures - use font system if available, otherwise use output as fallback
-            let (font_view, font_sampler) = if let Some(ref font_system) = self.font_system {
+                        let (font_view, font_sampler) = if let Some(ref font_system) = self.font_system {
                 (&font_system.atlas_texture.view, &font_system.atlas_texture.sampler)
             } else {
-                (&output_texture.view, &output_texture.sampler) // Fallback
+                (&output_texture.view, &output_texture.sampler)
             };
             
             core.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -1599,7 +1549,7 @@ impl ComputeShader {
             let (font_view, font_sampler) = if let Some(ref font_system) = self.font_system {
                 (&font_system.atlas_texture.view, &font_system.atlas_texture.sampler)
             } else {
-                (default_view, default_sampler) // Fallback to default
+                (default_view, default_sampler)
             };
             
             core.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -1683,10 +1633,7 @@ impl ComputeShader {
     pub fn get_output_texture(&self) -> &TextureManager {
         &self.output_texture
     }
-    /// NOTE: This buffer reading approach caused crackling audio on macOS when used for real-time playback.
-    /// Read GPU-computed audio parameters from shader's audio_buffer
-    /// Reduced blocking operations and faster polling for GPU↔CPU parameter communication
-    /// GPU shaders write computed frequencies/amplitudes to audio_buffer, CPU reads for real-time synthesis
+    // Read audio samples from GPU buffer
     pub async fn read_audio_samples(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
         if let (Some(audio_buffer), Some(staging_buffer)) = (&self.audio_buffer, &self.audio_staging_buffer) {
             let config = self.config.as_ref().unwrap();
@@ -1763,35 +1710,29 @@ impl ComputeShader {
         
         let mut current_bind_idx = 1;
         
-        // Custom uniform at bind group 1 if enabled
         if let Some(custom_bind_group) = &self.custom_uniform_bind_group {
             compute_pass.set_bind_group(current_bind_idx, custom_bind_group, &[]);
             current_bind_idx += 1;
         }
         
-        // Storage texture comes after custom uniform
         compute_pass.set_bind_group(current_bind_idx, &self.storage_bind_group, &[]);
         current_bind_idx += 1;
         
-        // Mouse uniform at next available slot
         if let (Some(mouse_bind_group), Some(_)) = (&self.mouse_bind_group, self.mouse_bind_group_index) {
             compute_pass.set_bind_group(current_bind_idx, mouse_bind_group, &[]);
             current_bind_idx += 1;
         }
         
-        // If this is a multi-stage compute shader with external textures
         if let Some(external_bind_group) = &self.external_texture_bind_group {
             compute_pass.set_bind_group(current_bind_idx, external_bind_group, &[]);
             current_bind_idx += 1;
         }
         
-        // If atomic buffer is used
         if let Some(atomic_buffer) = &self.atomic_buffer {
             compute_pass.set_bind_group(current_bind_idx, &atomic_buffer.bind_group, &[]);
             current_bind_idx += 1;
         }
         
-        // If font system is used
         if let Some(font_bind_group) = &self.font_bind_group {
             compute_pass.set_bind_group(current_bind_idx, font_bind_group, &[]);
         }
@@ -1802,13 +1743,12 @@ impl ComputeShader {
             workgroup_count[2],
         );
         
-        // Only increment the frame counter if this is the last pipeline in sequence
         if pipeline_index == self.pipelines.len() - 1 {
             self.current_frame += 1;
         }
     }
 
-    /// Dispatch a specific stage by entry point index for multi-stage pipelines
+    // Dispatch a specific stage by entry point index
     pub fn dispatch_stage(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -1828,14 +1768,10 @@ impl ComputeShader {
 
         compute_pass.set_pipeline(&self.pipelines[stage_index]);
 
-        // Bind group 0: Time uniform (always present)
         compute_pass.set_bind_group(0, &self.time_uniform.bind_group, &[]);
 
-        // Bind group 1: Storage texture (always present)
         compute_pass.set_bind_group(1, &self.storage_bind_group, &[]);
 
-        // Bind group 2: Custom uniform or mouse uniform (depending on configuration)
-        // Only bind if we have actual data - dummy Group 2 layouts don't need binding
         if let Some(custom_bind_group) = custom_uniforms {
             compute_pass.set_bind_group(2, custom_bind_group, &[]);
         } else if let Some(ref custom_uniform_bind_group) = self.custom_uniform_bind_group {
@@ -1843,9 +1779,7 @@ impl ComputeShader {
         } else if let Some(ref mouse_bind_group) = self.mouse_bind_group {
             compute_pass.set_bind_group(2, mouse_bind_group, &[]);
         }
-        // Note: If none exist, Group 2 is a dummy layout for contiguous indices and doesn't need binding
 
-        // Bind group 3: Custom storage, atomic buffer, or other optional buffers
         if let Some(ref custom_storage_bind_group) = self.custom_storage_bind_group {
             compute_pass.set_bind_group(3, custom_storage_bind_group, &[]);
         } else if let Some(ref atomic_buffer) = self.atomic_buffer {
@@ -1887,10 +1821,8 @@ impl MultiBufferManager {
             "Multi-Buffer Storage",
         );
 
-        // Create multi-texture layout for reading multiple buffers
         let multi_texture_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
-                // Up to 3 textures + 3 samplers (ichannel0, ichannel1, ichannel2)
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::COMPUTE,
@@ -2008,7 +1940,7 @@ impl MultiBufferManager {
         })
     }
 
-    /// Get the bind group for writing to a buffer (current frame)
+    // Get write bind group for current frame
     pub fn get_write_bind_group(&self, buffer_name: &str) -> &wgpu::BindGroup {
         let bind_groups = self.bind_groups.get(buffer_name).expect("Buffer not found");
         if self.frame_flip {
@@ -2018,7 +1950,7 @@ impl MultiBufferManager {
         }
     }
 
-    /// Get the texture for reading from a buffer (previous frame)
+    // Get read texture for previous frame
     pub fn get_read_texture(&self, buffer_name: &str) -> &wgpu::Texture {
         let textures = self.buffers.get(buffer_name).expect("Buffer not found");
         if self.frame_flip {
@@ -2028,7 +1960,7 @@ impl MultiBufferManager {
         }
     }
 
-    /// Get the texture for writing to a buffer (current frame)
+    // Get write texture for current frame
     pub fn get_write_texture(&self, buffer_name: &str) -> &wgpu::Texture {
         let textures = self.buffers.get(buffer_name).expect("Buffer not found");
         if self.frame_flip {
@@ -2038,12 +1970,10 @@ impl MultiBufferManager {
         }
     }
 
-    /// Create a bind group for reading multiple textures (ichannel pattern)
+    // Create input bind group for multiple textures
     pub fn create_input_bind_group(&self, device: &wgpu::Device, sampler: &wgpu::Sampler, channels: &[&str]) -> wgpu::BindGroup {
-        // Create views that will live long enough
         let mut views = Vec::new();
         
-        // Fill up to 3 channels, using the first channel for unused slots
         for i in 0..3 {
             let channel_name = channels.get(i).unwrap_or(&channels[0]);
             let texture = self.get_read_texture(channel_name);
@@ -2085,22 +2015,22 @@ impl MultiBufferManager {
         })
     }
 
-    /// Get the output texture bind group
+    // Get output bind group
     pub fn get_output_bind_group(&self) -> &wgpu::BindGroup {
         &self.output_bind_group
     }
 
-    /// Get the output texture for display
+    // Get output texture
     pub fn get_output_texture(&self) -> &wgpu::Texture {
         &self.output_texture
     }
 
-    /// Flip ping-pong buffers
+    // Flip ping-pong buffers
     pub fn flip_buffers(&mut self) {
         self.frame_flip = !self.frame_flip;
     }
 
-    /// Clear all buffers by recreating them
+    // Clear all buffers
     pub fn clear_all(&mut self, core: &Core, texture_format: wgpu::TextureFormat) {
         // Recreate all buffer textures
         for (name, textures) in &mut self.buffers {
@@ -2122,7 +2052,7 @@ impl MultiBufferManager {
         self.frame_flip = false;
     }
 
-    /// Resize all buffers
+    // Resize all buffers
     pub fn resize(&mut self, core: &Core, width: u32, height: u32, texture_format: wgpu::TextureFormat) {
         self.width = width;
         self.height = height;
@@ -2277,14 +2207,14 @@ impl<P: UniformProvider> MultiBufferCompute<P> {
         }
     }
     
-    /// Create MultiBufferCompute with custom storage buffers for specialized shaders (particle systems, etc)
+    // Create MultiBufferCompute with custom storage buffers
     pub fn new_with_custom_buffers(
         core: &Core,
         buffer_names: &[&str],
         shader_path: &str,
         entry_points: &[&str],
         params: P,
-        custom_buffers: &[(String, u64)], // (label, size) pairs
+        custom_buffers: &[(String, u64)],
     ) -> Self {
         let buffer_manager = MultiBufferManager::new(core, buffer_names, COMPUTE_TEXTURE_FORMAT_RGBA16);
 

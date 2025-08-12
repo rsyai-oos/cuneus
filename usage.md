@@ -73,39 +73,61 @@ fn fs_main(@builtin(position) frag_coord: vec4<f32>) -> @location(0) vec4<f32> {
 
 ## Compute Shaders
 
-
-**Rust (`debugscreen.rs`):**
+**Basic setup:**
 ```rust
-// In init(), create a compute shader config
 let compute_config = ComputeShaderConfig {
     workgroup_size: [16, 16, 1],
-    enable_fonts: true,  // Optionally enable the font system
+    entry_points: vec!["main".to_string()],
+    enable_custom_uniform: true,
     ..Default::default()
 };
 
-// Add the compute shader to your RenderKit instance
-base.compute_shader = Some(cuneus::compute::ComputeShader::new_with_config(
+let mut compute_shader = ComputeShader::new_with_config(
     core,
-    include_str!("../../shaders/my_compute.wgsl"),
+    include_str!("../../shaders/my_shader.wgsl"),
     compute_config,
-));
+);
 ```
 
-**WGSL (`debugscreen.wgsl`):**
+**Common patterns:**
+
+*Single-stage shader:*
+```rust
+entry_points: vec!["main".to_string()],
+// Use compute_shader.dispatch() - handles hot reload automatically
+```
+
+*Multi-stage shader:*
+```rust
+entry_points: vec!["clear".to_string(), "process".to_string(), "output".to_string()],
+// Use compute_shader.dispatch_stage(stage_index, workgroups, uniforms)
+// Call compute_shader.check_hot_reload() manually
+```
+
+*Particle systems:*
+```rust
+enable_atomic_buffer: true,
+atomic_buffer_multiples: 3,  // RGB channels
+```
+
+*Neural networks:*
+```rust
+custom_storage_buffers: vec![
+    CustomStorageBuffer {
+        label: "Weights".to_string(),
+        size: 1024 * 1024,
+        usage: wgpu::BufferUsages::STORAGE,
+    }
+]
+```
+
+**WGSL bind groups:**
 ```wgsl
-@group(0) @binding(0) var<uniform> u_time: TimeUniform;
+@group(0) @binding(0) var<uniform> time: TimeUniform;
 @group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
-
-@compute @workgroup_size(16, 16, 1)
-fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-    let dims = textureDimensions(output);
-    if (id.x >= dims.x || id.y >= dims.y) { return; }
-    
-    // Your compute logic here
-    textureStore(output, id.xy, vec4<f32>(1.0, 0.0, 0.0, 1.0));
-}
+@group(2) @binding(0) var<uniform> params: MyParams;
+@group(3) @binding(0) var<storage, read_write> atomic_buffer: array<atomic<u32>>;
 ```
-*For complex effects like particle systems, you can also manage compute pipelines manually instead of using `base.compute_shader`. See `cliffordcompute.rs` for an example.*
 
 ## Media Support
 
