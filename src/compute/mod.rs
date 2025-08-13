@@ -2093,18 +2093,6 @@ impl<P: UniformProvider> MultiBufferCompute<P> {
         entry_points: &[&str],
         params: P,
     ) -> Self {
-        Self::new_with_storage_buffer(core, buffer_names, shader_path, entry_points, params, None)
-    }
-    
-    /// Create with optional storage buffer for FFT-style workflows
-    pub fn new_with_storage_buffer(
-        core: &Core,
-        buffer_names: &[&str],
-        shader_path: &str,
-        entry_points: &[&str],
-        params: P,
-        _storage_buffer_size: Option<u64>,
-    ) -> Self {
         let buffer_manager = MultiBufferManager::new(core, buffer_names, COMPUTE_TEXTURE_FORMAT_RGBA16);
 
         // Create uniforms
@@ -2160,7 +2148,7 @@ impl<P: UniformProvider> MultiBufferCompute<P> {
 
         // Create pipelines for each entry point
         let mut pipelines = HashMap::new();
-        for &entry_point in entry_points {
+        for entry_point in entry_points {
             let pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
                 label: Some(&format!("Multi-Buffer Pipeline - {}", entry_point)),
                 layout: Some(&pipeline_layout),
