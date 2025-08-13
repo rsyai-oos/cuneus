@@ -130,21 +130,8 @@ impl ShaderManager for ColorProjection {
     }
     
     fn update(&mut self, core: &Core) {
-        // Update video/webcam textures and update input texture for color projection
-        if self.base.using_video_texture {
-            self.base.update_video_texture(core, &core.queue);
-            if let Some(ref video_manager) = self.base.video_texture_manager {
-                let texture_manager = video_manager.texture_manager();
-                self.compute_shader.update_input_texture(core, &texture_manager.view, &texture_manager.sampler);
-            }
-        } else if self.base.using_webcam_texture {
-            self.base.update_webcam_texture(core, &core.queue);
-            if let Some(ref webcam_manager) = self.base.webcam_texture_manager {
-                let texture_manager = webcam_manager.texture_manager();
-                self.compute_shader.update_input_texture(core, &texture_manager.view, &texture_manager.sampler);
-            }
-        } else if let Some(ref texture_manager) = self.base.texture_manager {
-            // Update with static image texture
+        self.base.update_current_texture(core, &core.queue);
+        if let Some(texture_manager) = self.base.get_current_texture_manager() {
             self.compute_shader.update_input_texture(core, &texture_manager.view, &texture_manager.sampler);
         }
         
@@ -292,7 +279,6 @@ impl ShaderManager for ColorProjection {
         self.base.time_uniform.data.frame = self.frame_count;
         self.base.time_uniform.update(&core.queue);
         
-        // CRITICAL: The ComputeShader uses its own time uniform which needs to be updated too!
         // This is essential for the animation
         self.compute_shader.set_time(current_time, 1.0/60.0, &core.queue);
 
@@ -369,7 +355,6 @@ impl ShaderManager for ColorProjection {
             if let Err(e) = self.base.load_media(core, path) {
                 eprintln!("Failed to load dropped file: {:?}", e);
             } else {
-                // Ensure input texture is updated immediately for dropped files
                 if let Some(ref texture_manager) = self.base.texture_manager {
                     self.compute_shader.update_input_texture(core, &texture_manager.view, &texture_manager.sampler);
                 }
