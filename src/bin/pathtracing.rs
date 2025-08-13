@@ -451,24 +451,9 @@ impl ShaderManager for PathTracingShader {
     }
     
     fn update(&mut self, core: &Core) {
-        // Update video/webcam textures
-        if self.base.using_video_texture {
-            self.base.update_video_texture(core, &core.queue);
-        } else if self.base.using_webcam_texture {
-            self.base.update_webcam_texture(core, &core.queue);
-        }
-        
-        // Always update ComputeShader input texture when using dynamic textures
-        if self.base.using_video_texture {
-            if let Some(ref video_manager) = self.base.video_texture_manager {
-                let texture_manager = video_manager.texture_manager();
-                self.compute_shader.update_input_texture(core, &texture_manager.view, &texture_manager.sampler);
-            }
-        } else if self.base.using_webcam_texture {
-            if let Some(ref webcam_manager) = self.base.webcam_texture_manager {
-                let texture_manager = webcam_manager.texture_manager();
-                self.compute_shader.update_input_texture(core, &texture_manager.view, &texture_manager.sampler);
-            }
+        self.base.update_current_texture(core, &core.queue);
+        if let Some(texture_manager) = self.base.get_current_texture_manager() {
+            self.compute_shader.update_input_texture(core, &texture_manager.view, &texture_manager.sampler);
         }
         
         if self.base.export_manager.is_exporting() {
