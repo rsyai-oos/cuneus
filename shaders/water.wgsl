@@ -56,9 +56,9 @@ struct WaterParams {
     fresnel_strength: f32,
     reflection_strength: f32,
 };
-@group(1) @binding(0) var<uniform> params: WaterParams;
+@group(2) @binding(0) var<uniform> params: WaterParams;
 
-@group(2) @binding(0) var output: texture_storage_2d<rgba16float, write>;
+@group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
 
 alias v3 = vec3<f32>;
 alias v2 = vec2<f32>;
@@ -321,7 +321,7 @@ fn tonemap(c: v3) -> v3 {
     return pow(clamp(m2 * (a / b), v3(0.0), v3(1.0)), v3(1.0 / params.gamma));
 }
 
-@compute @workgroup_size(8, 8, 1)
+@compute @workgroup_size(16, 16, 1)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let dims = textureDimensions(output);
     R = v2(dims);

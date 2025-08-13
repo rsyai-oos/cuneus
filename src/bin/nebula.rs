@@ -1,7 +1,6 @@
-use cuneus::{Core, ShaderManager, UniformProvider, UniformBinding, RenderKit, ShaderControls, ExportManager, ShaderApp};
-use cuneus::compute::{create_bind_group_layout, BindGroupLayoutType};
+use cuneus::prelude::*;
+use cuneus::compute::*;
 use winit::event::WindowEvent;
-use std::path::PathBuf;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -59,24 +58,8 @@ impl UniformProvider for NebulaParams {
 struct NebulaShader {
     base: RenderKit,
     params_uniform: UniformBinding<NebulaParams>,
-    compute_time_uniform: UniformBinding<cuneus::compute::ComputeTimeUniform>,
-    
-    volumetric_pipeline: wgpu::ComputePipeline,
-    composition_pipeline: wgpu::ComputePipeline,
-    
-    output_texture: cuneus::TextureManager,
-    
-    time_bind_group_layout: wgpu::BindGroupLayout,
-    params_bind_group_layout: wgpu::BindGroupLayout,
-    storage_bind_group_layout: wgpu::BindGroupLayout,
-    atomic_bind_group_layout: wgpu::BindGroupLayout,
-    
-    storage_bind_group: wgpu::BindGroup,
-    
-    atomic_buffer: cuneus::AtomicBuffer,
-    
+    compute_shader: ComputeShader,
     frame_count: u32,
-    hot_reload: cuneus::ShaderHotReload,
 }
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
@@ -115,7 +98,7 @@ impl NebulaShader {
             );
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-            render_pass.set_bind_group(0, &self.output_texture.bind_group, &[]);
+            render_pass.set_bind_group(0, &self.compute_shader.output_texture.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
         }
         encoder.copy_texture_to_buffer( 
@@ -192,39 +175,6 @@ impl ShaderManager for NebulaShader {
             label: Some("texture_bind_group_layout"),
         });
         
-        let mut base = RenderKit::new(
-            core,
-            include_str!("../../shaders/vertex.wgsl"),
-            include_str!("../../shaders/blit.wgsl"),
-            &[&texture_bind_group_layout],
-            None,
-        );
-        base.setup_mouse_uniform(core);
-
-        let time_bind_group_layout = create_bind_group_layout(
-            &core.device, 
-            BindGroupLayoutType::TimeUniform, 
-            "Nebula Time"
-        );
-        
-        let params_bind_group_layout = create_bind_group_layout(
-            &core.device, 
-            BindGroupLayoutType::CustomUniform, 
-            "Nebula Params"
-        );
-        
-        let storage_bind_group_layout = create_bind_group_layout(
-            &core.device, 
-            BindGroupLayoutType::StorageTexture, 
-            "Nebula Storage"
-        );
-        
-        let atomic_bind_group_layout = create_bind_group_layout(
-            &core.device, 
-            BindGroupLayoutType::AtomicBuffer, 
-            "Nebula Atomic"
-        );
-
         let params_uniform = UniformBinding::new(
             &core.device,
             "Nebula Params Uniform",
@@ -272,154 +222,82 @@ impl ShaderManager for NebulaShader {
                 _padding2: 0.0,
                 _padding3: 0.0,
             },
-            &params_bind_group_layout,
+            &create_bind_group_layout(&core.device, BindGroupLayoutType::CustomUniform, "Nebula Params"),
             0,
         );
 
-        let compute_time_uniform = UniformBinding::new(
-            &core.device,
-            "Nebula Compute Time Uniform",
-            cuneus::compute::ComputeTimeUniform {
-                time: 0.0,
-                delta: 0.0,
-                frame: 0,
-                _padding: 0,
-            },
-            &time_bind_group_layout,
-            0,
+        let base = RenderKit::new(
+            core,
+            include_str!("../../shaders/vertex.wgsl"),
+            include_str!("../../shaders/blit.wgsl"),
+            &[&texture_bind_group_layout],
+            None,
         );
 
+        let compute_config = ComputeShaderConfig {
+            workgroup_size: [16, 16, 1],
+            workgroup_count: None,
+            dispatch_once: false,
+            storage_texture_format: COMPUTE_TEXTURE_FORMAT_RGBA16,
+            enable_atomic_buffer: true,
+            atomic_buffer_multiples: 2,
+            entry_points: vec!["volumetric_render".to_string(), "main_image".to_string()],
+            sampler_address_mode: wgpu::AddressMode::ClampToEdge,
+            sampler_filter_mode: wgpu::FilterMode::Linear,
+            label: "Nebula".to_string(),
+            mouse_bind_group_layout: None, // Mouse data passed through custom uniform instead
+            enable_fonts: false,
+            enable_audio_buffer: false,
+            audio_buffer_size: 0,
+            enable_custom_uniform: true,
+            enable_input_texture: false,
+            custom_storage_buffers: Vec::new(),
+        };
 
-        let atomic_buffer = cuneus::AtomicBuffer::new(
-            &core.device,
-            core.config.width * core.config.height * 2,
-            &atomic_bind_group_layout,
+        let mut compute_shader = ComputeShader::new_with_config(
+            core,
+            include_str!("../../shaders/nebula.wgsl"),
+            compute_config,
         );
 
-        let output_texture = cuneus::compute::create_output_texture(
-            &core.device,
-            core.config.width,
-            core.config.height,
-            wgpu::TextureFormat::Rgba16Float,
-            &texture_bind_group_layout,
-            wgpu::AddressMode::ClampToEdge,
-            wgpu::FilterMode::Linear,
-            "Nebula Output Texture",
-        );
-
-        let storage_view = output_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let storage_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Nebula Storage Bind Group"),
-            layout: &storage_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&storage_view),
-                },
-            ],
-        });
-        
+        // Enable hot reload
         let shader_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Nebula Compute Shader"),
+            label: Some("Nebula Compute Shader Hot Reload"),
             source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/nebula.wgsl").into()),
         });
-        
-        let hot_reload = cuneus::ShaderHotReload::new_compute(
+        if let Err(e) = compute_shader.enable_hot_reload(
             core.device.clone(),
-            PathBuf::from("shaders/nebula.wgsl"),
-            shader_module.clone(),
-            "volumetric_render",
-        ).expect("Failed to initialize hot reload");
+            std::path::PathBuf::from("shaders/nebula.wgsl"),
+            shader_module,
+        ) {
+            eprintln!("Failed to enable compute shader hot reload: {}", e);
+        }
 
-        let compute_pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Nebula Compute Pipeline Layout"),
-            bind_group_layouts: &[
-                &time_bind_group_layout,      
-                &params_bind_group_layout,    
-                &storage_bind_group_layout,   
-                &atomic_bind_group_layout,
-            ],
-            push_constant_ranges: &[],
-        });
-
-        let volumetric_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("Volumetric Render Pipeline"),
-            layout: Some(&compute_pipeline_layout),
-            module: &shader_module,
-            entry_point: Some("volumetric_render"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        });
-
-        let composition_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("Composition Pipeline"),
-            layout: Some(&compute_pipeline_layout),
-            module: &shader_module,
-            entry_point: Some("main_image"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        });
-
+        // Add custom parameters uniform to the compute shader
+        compute_shader.add_custom_uniform_binding(&params_uniform.bind_group);
 
         Self {
             base,
             params_uniform,
-            compute_time_uniform,
-            volumetric_pipeline,
-            composition_pipeline,
-            output_texture,
-            time_bind_group_layout,
-            params_bind_group_layout,
-            storage_bind_group_layout,
-            atomic_bind_group_layout,
-            storage_bind_group,
-            atomic_buffer,
+            compute_shader,
             frame_count: 0,
-            hot_reload,
         }
     }
 
     fn update(&mut self, core: &Core) {
-        if let Some(new_shader) = self.hot_reload.reload_compute_shader() {
-            println!("Reloading Nebula shader at time: {:.2}s", self.base.start_time.elapsed().as_secs_f32());
-            let compute_pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Updated Nebula Compute Pipeline Layout"),
-                bind_group_layouts: &[
-                    &self.time_bind_group_layout,
-                    &self.params_bind_group_layout,
-                    &self.storage_bind_group_layout,
-                    &self.atomic_bind_group_layout,
-                ],
-                push_constant_ranges: &[],
-            });
-            
-            self.volumetric_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Updated Volumetric Pipeline"),
-                layout: Some(&compute_pipeline_layout),
-                module: &new_shader,
-                entry_point: Some("volumetric_render"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                cache: None,
-            });
-            
-            self.composition_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Updated Composition Pipeline"),
-                layout: Some(&compute_pipeline_layout),
-                module: &new_shader,
-                entry_point: Some("main_image"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                cache: None,
-            });
-            
-        }
-        
         if self.base.export_manager.is_exporting() {
             self.handle_export(core);
         }
         
-        self.base.update_mouse_uniform(&core.queue);
         self.base.fps_tracker.update();
     }
+    
+    fn resize(&mut self, core: &Core) {
+        println!("Resizing to {:?}", core.size);
+        self.base.update_resolution(&core.queue, core.size);
+        self.compute_shader.resize(core, core.size.width, core.size.height);
+    }
+
     fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {
         let output = core.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -534,62 +412,54 @@ impl ShaderManager for NebulaShader {
         };
 
         self.base.export_manager.apply_ui_request(export_request);
+        if controls_request.should_clear_buffers {
+            self.compute_shader.clear_atomic_buffer(core);
+            self.frame_count = 0;
+        }
         self.base.apply_control_request(controls_request);
         
         if changed {
             self.params_uniform.data = params;
             self.params_uniform.update(&core.queue);
         }
-
+        
+        let current_time = self.base.controls.get_time(&self.base.start_time);
+        
+        self.base.time_uniform.data.time = current_time;
+        self.base.time_uniform.data.frame = self.frame_count;
+        self.base.time_uniform.update(&core.queue);
+        
+        // Update compute shader with the same time data
+        self.compute_shader.set_time(current_time, 1.0/60.0, &core.queue);
+        self.compute_shader.time_uniform.data.frame = self.frame_count;
+        self.compute_shader.time_uniform.update(&core.queue);
+        
+        // Mouse data is read from tracker and passed through custom uniform parameters
+        if self.base.mouse_tracker.uniform.buttons[0] & 1 != 0 {
+            params.rotation_x = self.base.mouse_tracker.uniform.position[0];
+            params.rotation_y = self.base.mouse_tracker.uniform.position[1];
+            params.click_state = 1;
+            changed = true;
+        } else {
+            params.click_state = 0;
+        }
+        
+        if changed {
+            self.params_uniform.data = params;
+            self.params_uniform.update(&core.queue);
+        }
+        
         if should_start_export {
             self.base.export_manager.start_export();
         }
-
-        let current_time = self.base.controls.get_time(&self.base.start_time);
         
         let mut encoder = core.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Render Encoder"),
         });
 
-        self.compute_time_uniform.data.time = current_time;
-        self.compute_time_uniform.data.delta = 1.0/60.0;
-        self.compute_time_uniform.data.frame = self.frame_count;
-        self.compute_time_uniform.update(&core.queue);
-
-        {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Particle Accumulation Pass"),
-                timestamp_writes: None,
-            });
-            
-            compute_pass.set_pipeline(&self.volumetric_pipeline);
-            compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(2, &self.storage_bind_group, &[]);
-            compute_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]);
-            
-            let workgroups_x = (core.config.width as f32 / 16.0).ceil() as u32;
-            let workgroups_y = (core.config.height as f32 / 16.0).ceil() as u32;
-            compute_pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
-        }
-
-        {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Nebula Render Pass"),
-                timestamp_writes: None,
-            });
-            
-            compute_pass.set_pipeline(&self.composition_pipeline);
-            compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(2, &self.storage_bind_group, &[]);
-            compute_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]);
-            
-            let workgroups_x = (core.config.width as f32 / 16.0).ceil() as u32;
-            let workgroups_y = (core.config.height as f32 / 16.0).ceil() as u32;
-            compute_pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
-        }
-
+        // Use ComputeShader dispatch (handles both volumetric_render and main_image passes)
+        self.compute_shader.dispatch(&mut encoder, core);
+        
         {
             let mut render_pass = cuneus::Renderer::begin_render_pass(
                 &mut encoder,
@@ -600,7 +470,7 @@ impl ShaderManager for NebulaShader {
             
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-            render_pass.set_bind_group(0, &self.output_texture.bind_group, &[]);
+            render_pass.set_bind_group(0, &self.compute_shader.output_texture.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
         }
         
@@ -611,61 +481,6 @@ impl ShaderManager for NebulaShader {
         output.present();
 
         Ok(())
-    }
-    fn resize(&mut self, core: &Core) {
-        self.base.update_resolution(&core.queue, core.size);
-        
-        let texture_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-            label: Some("texture_bind_group_layout"),
-        });
-        
-        self.atomic_buffer = cuneus::AtomicBuffer::new(
-            &core.device,
-            core.config.width * core.config.height * 2,
-            &self.atomic_bind_group_layout,
-        );
-
-        self.output_texture = cuneus::compute::create_output_texture(
-            &core.device,
-            core.config.width,
-            core.config.height,
-            wgpu::TextureFormat::Rgba16Float,
-            &texture_bind_group_layout,
-            wgpu::AddressMode::ClampToEdge,
-            wgpu::FilterMode::Linear,
-            "Nebula Output Texture",
-        );
-        
-        
-        let storage_view = self.output_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        self.storage_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Nebula Storage Bind Group"),
-            layout: &self.storage_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&storage_view),
-                },
-            ],
-        });
     }
 
     fn handle_input(&mut self, core: &Core, event: &WindowEvent) -> bool {

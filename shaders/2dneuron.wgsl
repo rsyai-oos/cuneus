@@ -1,27 +1,29 @@
 // 2D Neuron, by Enes Altun, 2025; MIT license
-// Ported from my shader on Shadertoy: https://www.shadertoy.com/view/3Xj3zz
-@group(0) @binding(0) var prev_frame: texture_2d<f32>;
-@group(0) @binding(1) var tex_sampler: sampler;
+// Ported from Shadertoy: https://www.shadertoy.com/view/3Xj3zz
 
-struct TimeUniform {
-    time: f32,
-    frame: u32,
-};
-@group(1) @binding(0)
-var<uniform> time_data: TimeUniform;
+struct TimeUniform { time: f32, delta: f32, frame: u32, _padding: u32 };
+@group(0) @binding(0) var<uniform> time_data: TimeUniform;
 
-struct Params {
+struct NeuronParams {
     pixel_offset: f32,
     pixel_offset2: f32,
     lights: f32,
     exp: f32,
     frame: f32,
-    col1:f32,
-    col2:f32,
+    col1: f32,
+    col2: f32,
     decay: f32,
 };
-@group(2) @binding(0)
-var<uniform> params: Params;
+@group(1) @binding(0) var<uniform> params: NeuronParams;
+
+// Storage texture for output
+@group(2) @binding(0) var output: texture_storage_2d<rgba16float, write>;
+
+// Multiple input textures for cross-buffer reading
+@group(3) @binding(0) var input_texture0: texture_2d<f32>;
+@group(3) @binding(1) var input_sampler0: sampler;
+@group(3) @binding(2) var input_texture1: texture_2d<f32>;
+@group(3) @binding(3) var input_sampler1: sampler;
 
 const PI: f32 = 3.14159265;
 
@@ -49,6 +51,7 @@ fn CL(p: vec2<f32>, a: vec2<f32>, b: vec2<f32>, t1: f32, t2: f32, c: f32) -> f32
     pos.y -= sin(h * PI) * c;
     return length(pos) - mix(t1, t2, h);
 }
+
 fn sdNeuron(p: vec2<f32>) -> f32 {
     let soma = C(p, 0.1);
     let nuc = C(p - vec2<f32>(0.02, 0.01), 0.04);
@@ -79,11 +82,14 @@ fn hash(p4: vec4<f32>) -> vec4<f32> {
     return fract((p.xxyz + p.yzzw) * p.zywx);
 }
 
-@fragment
-fn fs_pass1(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
-    let R = vec2<f32>(textureDimensions(prev_frame));
-    let U = FragCoord.xy;
-    let U0 = U;
+// Buffer A: Neuron geometry calculation with self-feedback
+@compute @workgroup_size(16, 16, 1)
+fn buffer_a(@builtin(global_invocation_id) id: vec3<u32>) {
+    let dims = textureDimensions(output);
+    if (id.x >= dims.x || id.y >= dims.y) { return; }
+
+    let R = vec2<f32>(dims);
+    let U = vec2<f32>(id.xy);
     var p = (2.0 * U - R) / min(R.x, R.y);
     p = vec2<f32>(-p.y + 0.5, p.x);
     let d = sdNeuron(p);
@@ -96,41 +102,46 @@ fn fs_pass1(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
     c += vec3<f32>(0.7, 0.75, 0.8) * 0.6 * nc;
     let edge = smoothstep(-0.001, 0.001, d);
     c = mix(c, vec3<f32>(1.0), (1.0 - edge) * 0.7);
-    var Q = vec4<f32>(0.0);
-    Q.x = (c.r + c.g + c.b) / 4.0;
     
-    return Q;
+    var result = vec4<f32>(0.0);
+    result.x = (c.r + c.g + c.b) / 4.0;
+    
+    textureStore(output, id.xy, result);
 }
 
-@fragment
-fn fs_pass2(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
-    let R = vec2<f32>(textureDimensions(prev_frame));
-    let U = FragCoord.xy;
+// Buffer B: Gradient computation from Buffer A
+@compute @workgroup_size(16, 16, 1)
+fn buffer_b(@builtin(global_invocation_id) id: vec3<u32>) {
+    let dims = textureDimensions(output);
+    if (id.x >= dims.x || id.y >= dims.y) { return; }
+
+    let R = vec2<f32>(dims);
+    let U = vec2<f32>(id.xy);
     let pixel_offset = params.pixel_offset;
     let pixel_offset_2 = params.pixel_offset2;
-    let n = textureSample(prev_frame, tex_sampler, (U - vec2<f32>(pixel_offset_2, -pixel_offset)) / R);
-    let e = textureSample(prev_frame, tex_sampler, (U - vec2<f32>(pixel_offset, pixel_offset_2)) / R);
-    let s = textureSample(prev_frame, tex_sampler, (U - vec2<f32>(pixel_offset_2, pixel_offset)) / R);
-    let w = textureSample(prev_frame, tex_sampler, (U - vec2<f32>(-pixel_offset, pixel_offset_2)) / R);
     
-    var Q = vec4<f32>(0.0);
-    Q.x = 0.1 * (e.x - w.x);
-    Q.y = 0.1 * (s.x - n.x);
-    Q.z = textureSample(prev_frame, tex_sampler, U / R).x;
+    let n = textureLoad(input_texture0, vec2<i32>(U - vec2<f32>(pixel_offset_2, -pixel_offset)), 0);
+    let e = textureLoad(input_texture0, vec2<i32>(U - vec2<f32>(pixel_offset, pixel_offset_2)), 0);
+    let s = textureLoad(input_texture0, vec2<i32>(U - vec2<f32>(pixel_offset_2, pixel_offset)), 0);
+    let w = textureLoad(input_texture0, vec2<i32>(U - vec2<f32>(-pixel_offset, pixel_offset_2)), 0);
     
-    return Q;
+    var result = vec4<f32>(0.0);
+    result.x = 0.1 * (e.x - w.x);
+    result.y = 0.1 * (s.x - n.x);
+    result.z = textureLoad(input_texture0, vec2<i32>(U), 0).x;
+    
+    textureStore(output, id.xy, result);
 }
 
-@group(0) @binding(0) var texBufferC: texture_2d<f32>;
-@group(0) @binding(1) var samplerC: sampler;
-@group(0) @binding(2) var texBufferB: texture_2d<f32>;
-@group(0) @binding(3) var samplerB: sampler;
+// Buffer C: Particle tracing with self-feedback + Buffer B input
+@compute @workgroup_size(16, 16, 1)
+fn buffer_c(@builtin(global_invocation_id) id: vec3<u32>) {
+    let dims = textureDimensions(output);
+    if (id.x >= dims.x || id.y >= dims.y) { return; }
 
-@fragment
-fn fs_pass3(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
-    let R = vec2<f32>(textureDimensions(texBufferC));
-    var U = FragCoord.xy;
-    var accumulated = textureSample(texBufferC, samplerC, U / R);
+    let R = vec2<f32>(dims);
+    var U = vec2<f32>(id.xy);
+    var accumulated = textureLoad(input_texture0, vec2<i32>(U), 0);
     let frameCount = max(f32(time_data.frame), 1.0);
     let frameWeight = 1.0 / frameCount;
     let seed = vec4<f32>(U, f32(time_data.frame) * 0.1, 1.0);
@@ -143,7 +154,8 @@ fn fs_pass3(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
     for(var i: f32 = 0.0; i < iter; i += 1.0) {
         U += d;
         
-        let b = textureSample(texBufferB, samplerB, U / R);
+        let coords = clamp(vec2<i32>(U), vec2<i32>(0), vec2<i32>(R) - vec2<i32>(1));
+        let b = textureLoad(input_texture1, coords, 0);
         
         d += (params.col2 + h.z) * 60.0 * b.xy;
         d = normalize(d);
@@ -153,22 +165,27 @@ fn fs_pass3(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
         
         currentFrameContribution -= vec4<f32>(1.0, 2.0, 3.0, 4.0) * 0.0005 * b.z * params.frame;
     }
+    
     let stabilizationFrames = 60.0;
     let blendFactor = min(frameCount, stabilizationFrames) / stabilizationFrames;
     let effectiveDecay = mix(params.decay, 1.0, blendFactor);
-    var Q = accumulated * effectiveDecay * (1.0 - frameWeight) + currentFrameContribution * frameWeight;
+    var result = accumulated * effectiveDecay * (1.0 - frameWeight) + currentFrameContribution * frameWeight;
     
-    return Q;
+    textureStore(output, id.xy, result);
 }
 
-@fragment
-fn fs_pass4(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
-    let R = vec2<f32>(textureDimensions(prev_frame));
-    let U = FragCoord.xy;
+// Main image: Final gamma correction from Buffer C
+@compute @workgroup_size(16, 16, 1)
+fn main_image(@builtin(global_invocation_id) id: vec3<u32>) {
+    let dims = textureDimensions(output);
+    if (id.x >= dims.x || id.y >= dims.y) { return; }
+
+    let R = vec2<f32>(dims);
+    let U = vec2<f32>(id.xy);
     
-    let raw_result = textureSample(prev_frame, tex_sampler, U / R);
+    let raw_result = textureLoad(input_texture0, vec2<i32>(U), 0);
     
     let result = pow(raw_result, vec4<f32>(params.lights));
     
-    return result;
+    textureStore(output, id.xy, result);
 }

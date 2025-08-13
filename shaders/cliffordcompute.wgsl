@@ -27,9 +27,9 @@ struct CliffordParams {
     dof_amount: f32,    
     dof_focal_dist: f32,  
 }
-@group(1) @binding(0) var<uniform> params: CliffordParams;
+@group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
 
-@group(2) @binding(0) var output: texture_storage_2d<rgba16float, write>;
+@group(2) @binding(0) var<uniform> params: CliffordParams;
 @group(3) @binding(0) var<storage, read_write> atomic_buffer: array<atomic<u32>>;
 
 // Aliases for common types
@@ -200,10 +200,8 @@ fn Splat(@builtin(global_invocation_id) id: vec3<u32>) {
         x = point.x;
         y = point.y;
     }
-    
-    // Main iteration loop for rendering
+
     for(var i = 0; i < iters; i++) {
-        // Generate next point on the Clifford attractor
         let point = clifford_point(x, y, clifford_params);
         x = point.x;
         y = point.y;
@@ -250,7 +248,6 @@ fn Splat(@builtin(global_invocation_id) id: vec3<u32>) {
     }
 }
 
-// Render accumulated points to screen
 @compute @workgroup_size(16, 16, 1)
 fn main_image(@builtin(global_invocation_id) id: vec3<u32>) {
     let res = vec2<u32>(textureDimensions(output));
@@ -267,12 +264,10 @@ fn main_image(@builtin(global_invocation_id) id: vec3<u32>) {
         0.3
     );
     
-    // Apply tonemapping for better visual result
     col = aces_tonemap(col);
     
     col += vec3<f32>(0.001, 0.001, 0.003);
     textureStore(output, vec2<i32>(id.xy), vec4<f32>(col, 1.0));
-    // Clear accumulation buffer for next frame
     atomicStore(&atomic_buffer[hist_id], 0u);
     atomicStore(&atomic_buffer[hist_id + res.x*res.y], 0u);
 }

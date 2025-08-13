@@ -64,7 +64,8 @@ pub mod prelude {
         RenderKit, ShaderControls, ExportManager, ShaderHotReload,
         TextureManager, Renderer, AtomicBuffer,
         KeyInputHandler, ControlsRequest, FontSystem, FontUniforms,
-        save_frame, compute::create_bind_group_layout,compute::BindGroupLayoutType
+        save_frame, compute::create_bind_group_layout, compute::BindGroupLayoutType,
+        compute::MultiBufferManager, compute::MultiBufferCompute, compute::create_display_bind_group
     };
     
     #[cfg(feature = "media")]

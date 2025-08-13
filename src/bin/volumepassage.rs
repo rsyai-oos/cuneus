@@ -1,7 +1,6 @@
-use cuneus::{Core, ShaderManager, UniformProvider, UniformBinding, RenderKit, ShaderControls, ExportManager};
-use cuneus::compute::{create_bind_group_layout, BindGroupLayoutType};
+use cuneus::prelude::*;
+use cuneus::compute::*;
 use winit::event::WindowEvent;
-use std::path::PathBuf;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -33,93 +32,20 @@ impl UniformProvider for VolumeParams {
 struct VolumeShader {
     base: RenderKit,
     params_uniform: UniformBinding<VolumeParams>,
-    compute_time_uniform: UniformBinding<cuneus::compute::ComputeTimeUniform>,
-    compute_pipeline: wgpu::ComputePipeline,
-    output_texture: cuneus::TextureManager,
-    compute_bind_group_layout: wgpu::BindGroupLayout,
-    time_bind_group_layout: wgpu::BindGroupLayout,
-    params_bind_group_layout: wgpu::BindGroupLayout,
-    compute_bind_group: wgpu::BindGroup,
+    compute_shader: ComputeShader,
     frame_count: u32,
-    hot_reload: cuneus::ShaderHotReload,
 }
 
-impl VolumeShader {
-    fn recreate_compute_resources(&mut self, core: &Core) {
-        self.output_texture = cuneus::compute::create_output_texture(
-            &core.device,
-            core.size.width,
-            core.size.height,
-            wgpu::TextureFormat::Rgba16Float,
-            &self.base.texture_bind_group_layout,
-            wgpu::AddressMode::ClampToEdge,
-            wgpu::FilterMode::Linear,
-            "Volume Output Texture",
-        );
-        let view_output = self.output_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        self.compute_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Volume Compute Bind Group"),
-            layout: &self.compute_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&view_output),
-                },
-            ],
-        });
-    }
-}
+impl VolumeShader {}
 
 impl ShaderManager for VolumeShader {
     fn init(core: &Core) -> Self {
         let texture_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
+                wgpu::BindGroupLayoutEntry { binding: 0, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Texture { multisampled: false, sample_type: wgpu::TextureSampleType::Float { filterable: true }, view_dimension: wgpu::TextureViewDimension::D2 }, count: None },
+                wgpu::BindGroupLayoutEntry { binding: 1, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None },
             ],
             label: Some("texture_bind_group_layout"),
-        });
-        
-        let time_bind_group_layout = create_bind_group_layout(
-            &core.device, 
-            BindGroupLayoutType::TimeUniform, 
-            "Volume Compute"
-        );
-        
-        let params_bind_group_layout = create_bind_group_layout(
-            &core.device, 
-            BindGroupLayoutType::CustomUniform, 
-            "Volume Params"
-        );
-        
-        let compute_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::StorageTexture {
-                        access: wgpu::StorageTextureAccess::WriteOnly,
-                        format: wgpu::TextureFormat::Rgba16Float,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-            ],
-            label: Some("volume_compute_output_layout"),
         });
         
         let params_uniform = UniformBinding::new(
@@ -143,134 +69,70 @@ impl ShaderManager for VolumeShader {
                 _padding2: 0.0,
                 _padding3: 0.0,
             },
-            &params_bind_group_layout,
+            &create_bind_group_layout(&core.device, BindGroupLayoutType::CustomUniform, "Volume Params"),
             0,
         );
         
-        let compute_time_uniform = UniformBinding::new(
-            &core.device,
-            "Compute Time Uniform",
-            cuneus::compute::ComputeTimeUniform {
-                time: 0.0,
-                delta: 0.0,
-                frame: 0,
-                _padding: 0,
-            },
-            &time_bind_group_layout,
-            0,
-        );
-        
-        let shader_source = include_str!("../../shaders/volumepassage.wgsl");
-        let cs_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Volume Compute Shader"),
-            source: wgpu::ShaderSource::Wgsl(shader_source.into()),
-        });
-        
-        let hot_reload = cuneus::ShaderHotReload::new_compute(
-            core.device.clone(),
-            PathBuf::from("shaders/volumepassage.wgsl"),
-            cs_module.clone(),
-            "main",
-        ).expect("Failed to initialize hot reload");
-        
-        let base = RenderKit::new(
+        let base = RenderKit::new(core, include_str!("../../shaders/vertex.wgsl"), include_str!("../../shaders/blit.wgsl"), &[&texture_bind_group_layout], None);
+
+        let compute_config = ComputeShaderConfig {
+            workgroup_size: [8, 8, 1],
+            workgroup_count: None,
+            dispatch_once: false,
+            storage_texture_format: COMPUTE_TEXTURE_FORMAT_RGBA16,
+            enable_atomic_buffer: false,
+            atomic_buffer_multiples: 0,
+            entry_points: vec!["main".to_string()],
+            sampler_address_mode: wgpu::AddressMode::ClampToEdge,
+            sampler_filter_mode: wgpu::FilterMode::Linear,
+            label: "Volume Passage".to_string(),
+            mouse_bind_group_layout: None,
+            enable_fonts: false,
+            enable_audio_buffer: false,
+            audio_buffer_size: 0,
+            enable_custom_uniform: true,
+            enable_input_texture: false,
+            custom_storage_buffers: Vec::new(),
+        };
+
+        let mut compute_shader = ComputeShader::new_with_config(
             core,
-            include_str!("../../shaders/vertex.wgsl"),
-            include_str!("../../shaders/blit.wgsl"),
-            &[&texture_bind_group_layout],
-            None,
+            include_str!("../../shaders/volumepassage.wgsl"),
+            compute_config,
         );
-        
-        let output_texture = cuneus::compute::create_output_texture(
-            &core.device,
-            core.config.width,
-            core.config.height,
-            wgpu::TextureFormat::Rgba16Float,
-            &texture_bind_group_layout,
-            wgpu::AddressMode::ClampToEdge,
-            wgpu::FilterMode::Linear,
-            "Volume Output Texture",
-        );
-        
-        let compute_pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Volume Compute Pipeline Layout"),
-            bind_group_layouts: &[
-                &time_bind_group_layout,
-                &params_bind_group_layout,
-                &compute_bind_group_layout,
-            ],
-            push_constant_ranges: &[],
+
+        // Enable hot reload
+        let shader_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("VolumePassage Compute Shader Hot Reload"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/volumepassage.wgsl").into()),
         });
-        
-        let compute_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("Volume Compute Pipeline"),
-            layout: Some(&compute_pipeline_layout),
-            module: &cs_module,
-            entry_point: Some("main"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        });
-        
-        let view_output = output_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let compute_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &compute_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&view_output),
-                },
-            ],
-            label: Some("Volume Compute Bind Group"),
-        });
-        
-        let mut result = Self {
+        if let Err(e) = compute_shader.enable_hot_reload(
+            core.device.clone(),
+            std::path::PathBuf::from("shaders/volumepassage.wgsl"),
+            shader_module,
+        ) {
+            eprintln!("Failed to enable compute shader hot reload: {}", e);
+        }
+
+        // Add custom parameters uniform to the compute shader
+        compute_shader.add_custom_uniform_binding(&params_uniform.bind_group);
+
+        Self {
             base,
             params_uniform,
-            compute_time_uniform,
-            compute_pipeline,
-            output_texture,
-            compute_bind_group_layout,
-            time_bind_group_layout,
-            params_bind_group_layout,
-            compute_bind_group,
+            compute_shader,
             frame_count: 0,
-            hot_reload,
-        };
-        
-        result.recreate_compute_resources(core);
-        result
+        }
     }
     
-    fn update(&mut self, core: &Core) {
-        if let Some(new_shader) = self.hot_reload.reload_compute_shader() {
-            println!("Reloading Volume shader at time: {:.2}s", self.base.start_time.elapsed().as_secs_f32());
-            
-            let compute_pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Updated Volume Compute Pipeline Layout"),
-                bind_group_layouts: &[
-                    &self.time_bind_group_layout,
-                    &self.params_bind_group_layout,
-                    &self.compute_bind_group_layout,
-                ],
-                push_constant_ranges: &[],
-            });
-            
-            self.compute_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Updated Volume Pipeline"),
-                layout: Some(&compute_pipeline_layout),
-                module: &new_shader,
-                entry_point: Some("main"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                cache: None,
-            });
-        }
-        
+    fn update(&mut self, _core: &Core) {
         self.base.fps_tracker.update();
     }
     
     fn resize(&mut self, core: &Core) {
         println!("Resizing to {:?}", core.size);
-        self.recreate_compute_resources(core);
+        self.base.update_resolution(&core.queue, core.size);
+        self.compute_shader.resize(core, core.size.width, core.size.height);
     }
     
     fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {
@@ -373,10 +235,10 @@ impl ShaderManager for VolumeShader {
         self.base.time_uniform.data.frame = self.frame_count;
         self.base.time_uniform.update(&core.queue);
         
-        self.compute_time_uniform.data.time = current_time;
-        self.compute_time_uniform.data.delta = 1.0/60.0;
-        self.compute_time_uniform.data.frame = self.frame_count;
-        self.compute_time_uniform.update(&core.queue);
+        // Update compute shader with the same time data
+        self.compute_shader.set_time(current_time, 1.0/60.0, &core.queue);
+        self.compute_shader.time_uniform.data.frame = self.frame_count;
+        self.compute_shader.time_uniform.update(&core.queue);
         
         if changed {
             self.params_uniform.data = params;
@@ -387,21 +249,8 @@ impl ShaderManager for VolumeShader {
             self.base.export_manager.start_export();
         }
         
-        {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Volume Compute Pass"),
-                timestamp_writes: None,
-            });
-            
-            compute_pass.set_pipeline(&self.compute_pipeline);
-            compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(2, &self.compute_bind_group, &[]);
-            
-            let width = core.size.width.div_ceil(8);
-            let height = core.size.height.div_ceil(8);
-            compute_pass.dispatch_workgroups(width, height, 1);
-        }
+        // Use ComputeShader dispatch
+        self.compute_shader.dispatch(&mut encoder, core);
         
         {
             let mut render_pass = cuneus::Renderer::begin_render_pass(
@@ -413,7 +262,7 @@ impl ShaderManager for VolumeShader {
             
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-            render_pass.set_bind_group(0, &self.output_texture.bind_group, &[]);
+            render_pass.set_bind_group(0, &self.compute_shader.output_texture.bind_group, &[]);
             
             render_pass.draw(0..4, 0..1);
         }

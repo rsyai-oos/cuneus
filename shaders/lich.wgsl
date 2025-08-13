@@ -1,17 +1,10 @@
-//// inspired by https://www.shadertoy.com/view/3sl3WH
-///
-// function "wavelength_to_rgb" based on the Michael Friendly (2015): https://gist.github.com/friendly/67a7df339aa999e2bcfcfec88311abfc
-@group(0) @binding(0) var prev_frame: texture_2d<f32>;
-@group(0) @binding(1) var tex_sampler: sampler;
-@group(3) @binding(0) var<storage, read_write> atomic_buffer: array<atomic<i32>>;
+// Inspired by https://www.shadertoy.com/view/3sl3WH
+// Function "wavelength_to_rgb" based on Michael Friendly (2015)
 
-struct TimeUniform {
-    time: f32,
-};
-@group(1) @binding(0)
-var<uniform> time_data: TimeUniform;
+struct TimeUniform { time: f32, delta: f32, frame: u32, _padding: u32 };
+@group(0) @binding(0) var<uniform> time_data: TimeUniform;
 
-struct Params {
+struct LichParams {
     cloud_density: f32,
     lightning_intensity: f32,
     branch_count: f32,
@@ -22,11 +15,19 @@ struct Params {
     spectrum_mix: f32,
     _pad2: vec2<f32>,
 };
-@group(2) @binding(0)
-var<uniform> params: Params;
+@group(1) @binding(0) var<uniform> params: LichParams;
+
+// Storage texture for output
+@group(2) @binding(0) var output: texture_storage_2d<rgba16float, write>;
+
+// Multiple input textures for cross-buffer reading
+@group(3) @binding(0) var input_texture0: texture_2d<f32>;
+@group(3) @binding(1) var input_sampler0: sampler;
+@group(3) @binding(2) var input_texture1: texture_2d<f32>;
+@group(3) @binding(3) var input_sampler1: sampler;
 
 const ATOMIC_SCALE: f32 = 2048.0;
-const SPECTRUM_SIZE: i32 = 45;
+
 fn wavelength_to_rgb(wave: f32) -> vec3<f32> {
     let x = (wave - 380.0) / 10.0;
     let factor = select(0.0, 
@@ -103,9 +104,9 @@ fn lineDist(a: vec2<f32>, b: vec2<f32>, uv: vec2<f32>) -> f32 {
     return length(uv-(a+normalize(b-a)*min(length(b-a),max(0.0,dot(normalize(b-a),(uv-a))))));
 }
 
-fn process_color(base_color: vec3<f32>, wave: f32) -> vec3<f32> {
+fn process_color(base_color: vec3<f32>, wave: f32, spectrum_mix: f32) -> vec3<f32> {
     let spectral = wavelength_to_rgb(wave * 380.0 + 400.0);
-    let mixed = mix(base_color, spectral, params.spectrum_mix);
+    let mixed = mix(base_color, spectral, spectrum_mix);
     
     let temp_adjust = vec3<f32>(
         1.0 + 0.0 * 0.2, 
@@ -116,17 +117,16 @@ fn process_color(base_color: vec3<f32>, wave: f32) -> vec3<f32> {
     return mixed * temp_adjust;
 }
 
-@fragment
-fn fs_pass1(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
-    let dimensions = vec2<f32>(textureDimensions(prev_frame));
-    let pixel_pos = vec2<i32>(FragCoord.xy);
-    let pixel_index = pixel_pos.y * i32(dimensions.x) + pixel_pos.x;
-    
-    atomicStore(&atomic_buffer[pixel_index * 3], 0);
-    atomicStore(&atomic_buffer[pixel_index * 3 + 1], 0);
-    atomicStore(&atomic_buffer[pixel_index * 3 + 2], 0);
-    
-    let uv = (FragCoord.xy * 2.0 - dimensions.xy) / dimensions.y;
+// Lightning generation pass (buffer_a writes to buffer_a)
+@compute @workgroup_size(16, 16, 1)
+fn buffer_a(@builtin(global_invocation_id) id: vec3<u32>) {
+    let dims = textureDimensions(output);
+    if (id.x >= dims.x || id.y >= dims.y) { return; }
+
+    let pixel_pos = vec2<i32>(id.xy);
+    let dimensions = vec2<f32>(dims);
+    let FragCoord = vec2<f32>(id.xy);
+    let uv = (FragCoord * 2.0 - dimensions.xy) / dimensions.y;
     var ds = 1e4;
     
     for(var q = 0; q < 1; q = q + 1) {
@@ -137,7 +137,6 @@ fn fs_pass1(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: ve
         var a = vec2<f32>(0.0, 1.0);
         var b = vec2<f32>(0.2, 0.7) + 0.4 * randn(rand2(seed ^ 859375)) / 8.0;
         
-        // Apply branch_count parameter to control branching intensity
         let branch_factor = 30.0 * params.branch_count;
         for(var k = 0; k < i32(branch_factor); k = k + 1) {
             let l = length(b - a);
@@ -174,34 +173,46 @@ fn fs_pass1(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: ve
     }
     
     let intensity = max(0.0, 1.0 - ds * dimensions.y / params.color_shift) * params.lightning_intensity;
+    var current = vec3<f32>(0.0);
+    
     if(intensity > 0.001) {
         let wave = Hash(i32(time_data.time * 1000.0));
-        let color = process_color(params.base_color, wave) * intensity;
-        
-        let scaled_color = vec3<i32>(floor(ATOMIC_SCALE * color));
-        atomicAdd(&atomic_buffer[pixel_index * 3], scaled_color.x);
-        atomicAdd(&atomic_buffer[pixel_index * 3 + 1], scaled_color.y);
-        atomicAdd(&atomic_buffer[pixel_index * 3 + 2], scaled_color.z);
+        current = process_color(params.base_color, wave, params.spectrum_mix) * intensity;
     }
     
-    let current = vec3<f32>(
-        f32(atomicLoad(&atomic_buffer[pixel_index * 3])),
-        f32(atomicLoad(&atomic_buffer[pixel_index * 3 + 1])),
-        f32(atomicLoad(&atomic_buffer[pixel_index * 3 + 2]))
-    ) / ATOMIC_SCALE;
+    let result = vec4<f32>(current, 1.0);
+    textureStore(output, pixel_pos, result);
+}
+
+// Feedback accumulation pass (combines buffer_a + buffer_b with decay)
+@compute @workgroup_size(16, 16, 1)
+fn buffer_b(@builtin(global_invocation_id) id: vec3<u32>) {
+    let dims = textureDimensions(output);
+    if (id.x >= dims.x || id.y >= dims.y) { return; }
+
+    let pixel_pos = vec2<i32>(id.xy);
+    let uv = vec2<f32>(id.xy) / vec2<f32>(dims);
     
-    let prev = textureSample(prev_frame, tex_sampler, tex_coords);
-    return vec4<f32>(current + prev.rgb * params.feedback_decay, 1.0);
+    let current_lightning = textureLoad(input_texture0, pixel_pos, 0);
+    
+    let previous_frame = textureLoad(input_texture1, pixel_pos, 0);
+    
+    let result = current_lightning + previous_frame * params.feedback_decay;
+    
+    textureStore(output, pixel_pos, result);
 }
 
-@fragment
-fn fs_pass2(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
-    return textureSample(prev_frame, tex_sampler, tex_coords);
-}
+@compute @workgroup_size(16, 16, 1)
+fn main_image(@builtin(global_invocation_id) id: vec3<u32>) {
+    let dims = textureDimensions(output);
+    if (id.x >= dims.x || id.y >= dims.y) { return; }
 
-@fragment
-fn fs_pass3(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
-    let color = textureSample(prev_frame, tex_sampler, tex_coords);
-    let exposed = pow(color.rgb * (1.0 + 0.0), vec3<f32>(1.0/2.2));
-    return vec4<f32>(exposed, color.a);
+    let pixel_pos = vec2<i32>(id.xy);
+    
+    let raw_result = textureLoad(input_texture0, pixel_pos, 0);
+    
+    let exposed = pow(raw_result.rgb * (1.0 + 0.0), vec3<f32>(1.0/2.2));
+    let result = vec4<f32>(exposed, 1.0);
+    
+    textureStore(output, pixel_pos, result);
 }

@@ -1,16 +1,23 @@
 // 3D RGB Colorspace Projection with Quaternion Rotations
+// Standard Cuneus bind group layout: Group 0=Time, Group 1=Storage, Group 2=Custom, Group 3=Resources
+
 struct TimeUniform { time: f32, delta: f32, frame: u32, _padding: u32 };
 @group(0) @binding(0) var<uniform> time_data: TimeUniform;
 
+// Group 1: Storage texture with input support
+@group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
+@group(1) @binding(1) var input_texture: texture_2d<f32>;
+@group(1) @binding(2) var tex_sampler: sampler;
+
+// Group 2: Custom uniform parameters
 struct Params {
     rotation_speed: f32, intensity: f32,
     rot_x: f32, rot_y: f32, rot_z: f32, rot_w: f32,
     scale: f32, _padding: u32,
 }
-@group(1) @binding(0) var<uniform> params: Params;
-@group(2) @binding(0) var input_texture: texture_2d<f32>;
-@group(2) @binding(1) var tex_sampler: sampler;
-@group(2) @binding(2) var output: texture_storage_2d<rgba16float, write>;
+@group(2) @binding(0) var<uniform> params: Params;
+
+// Group 3: Custom storage buffer (atomic buffer)
 @group(3) @binding(0) var<storage, read_write> atomic_buffer: array<atomic<i32>>;
 
 const PI = 3.14159;

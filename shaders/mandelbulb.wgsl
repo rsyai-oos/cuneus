@@ -67,9 +67,9 @@ struct MandelbulbParams {
     glow_color_g: f32,
     glow_color_b: f32,
 }
-@group(1) @binding(0) var<uniform> params: MandelbulbParams;
+@group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
 
-@group(2) @binding(0) var output: texture_storage_2d<rgba16float, write>;
+@group(2) @binding(0) var<uniform> params: MandelbulbParams;
 @group(3) @binding(0) var<storage, read_write> atomic_buffer: array<atomic<u32>>;
 
 alias v4 = vec4<f32>;

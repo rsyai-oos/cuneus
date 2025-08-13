@@ -1,6 +1,6 @@
 use cuneus::prelude::*;
+use cuneus::compute::*;
 use winit::event::WindowEvent;
-use std::path::PathBuf;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -38,100 +38,15 @@ impl UniformProvider for LorenzParams {
 struct LorenzShader {
     base: RenderKit,
     params_uniform: UniformBinding<LorenzParams>,
-    compute_time_uniform: UniformBinding<cuneus::compute::ComputeTimeUniform>,
-    
-    mouse_look_enabled: bool,
-    
-    splat_pipeline: wgpu::ComputePipeline,
-    main_image_pipeline: wgpu::ComputePipeline,
-    
-    output_texture: cuneus::TextureManager,
-    
-    compute_bind_group_layout: wgpu::BindGroupLayout,
-    atomic_bind_group_layout: wgpu::BindGroupLayout,
-    time_bind_group_layout: wgpu::BindGroupLayout,
-    params_bind_group_layout: wgpu::BindGroupLayout,
-    storage_bind_group_layout: wgpu::BindGroupLayout,
-    
-    compute_bind_group: wgpu::BindGroup,
-    storage_bind_group: wgpu::BindGroup,
-    
-    particle_buffer: wgpu::Buffer,
-    atomic_buffer: cuneus::AtomicBuffer,
-    
+    compute_shader: ComputeShader,
     frame_count: u32,
-    hot_reload: cuneus::ShaderHotReload,
+    mouse_look_enabled: bool,
 }
 
 impl LorenzShader {
-    fn recreate_compute_resources(&mut self, core: &Core) {
-        self.output_texture = cuneus::compute::create_output_texture(
-            &core.device,
-            core.size.width,
-            core.size.height,
-            wgpu::TextureFormat::Rgba16Float,
-            &self.base.texture_bind_group_layout,
-            wgpu::AddressMode::ClampToEdge,
-            wgpu::FilterMode::Linear,
-            "Lorenz Output Texture",
-        );
-        
-        let buffer_size = core.size.width * core.size.height * 4;
-        self.atomic_buffer = cuneus::AtomicBuffer::new(
-            &core.device,
-            buffer_size,
-            &self.atomic_bind_group_layout,
-        );
-        
-        let particle_count = 2000;
-        let particle_size = (particle_count * particle_count * 2 * 4 * 4) as u64;
-        self.particle_buffer = core.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Particle Buffer"),
-            size: particle_size,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let view_output = self.output_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        self.compute_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Lorenz Compute Bind Group"),
-            layout: &self.compute_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&view_output),
-                },
-            ],
-        });
-        self.storage_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Lorenz Storage Bind Group"),
-            layout: &self.storage_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &self.particle_buffer,
-                        offset: 0,
-                        size: None,
-                    }),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &self.atomic_buffer.buffer,
-                        offset: 0,
-                        size: None,
-                    }),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &self.base.mouse_uniform.as_ref().unwrap().buffer,
-                        offset: 0,
-                        size: None,
-                    }),
-                },
-            ],
-        });
+    fn clear_atomic_buffer(&mut self, core: &Core) {
+        self.compute_shader.clear_atomic_buffer(core);
+        self.frame_count = 0;
     }
     fn capture_frame(&mut self, core: &Core, time: f32) -> Result<Vec<u8>, wgpu::SurfaceError> {
         let settings = self.base.export_manager.settings();
@@ -159,7 +74,7 @@ impl LorenzShader {
             );
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-            render_pass.set_bind_group(0, &self.output_texture.bind_group, &[]);
+            render_pass.set_bind_group(0, &self.compute_shader.output_texture.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
         }
         encoder.copy_texture_to_buffer(
@@ -215,23 +130,6 @@ impl LorenzShader {
 
 impl ShaderManager for LorenzShader {
     fn init(core: &Core) -> Self {
-        let time_bind_group_layout = create_bind_group_layout(
-            &core.device, 
-            BindGroupLayoutType::TimeUniform, 
-            "Lorenz Compute Time"
-        );
-        
-        let params_bind_group_layout = create_bind_group_layout(
-            &core.device, 
-            BindGroupLayoutType::CustomUniform, 
-            "Lorenz Params"
-        );
-        
-        let atomic_bind_group_layout = create_bind_group_layout(
-            &core.device, 
-            BindGroupLayoutType::AtomicBuffer, 
-            "Lorenz Atomic"
-        );
         let texture_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -252,57 +150,6 @@ impl ShaderManager for LorenzShader {
                 },
             ],
             label: Some("texture_bind_group_layout"),
-        });
-        let compute_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::StorageTexture {
-                        access: wgpu::StorageTextureAccess::WriteOnly,
-                        format: wgpu::TextureFormat::Rgba16Float,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-            ],
-            label: Some("lorenz_compute_output_layout"),
-        });
-        
-        let storage_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-            ],
-            label: Some("lorenz_storage_layout"),
         });
         let params_uniform = UniformBinding::new(
             &core.device,
@@ -331,23 +178,10 @@ impl ShaderManager for LorenzShader {
                 particle_count: 1000.0,
                 decay_speed: 8.0,
             },
-            &params_bind_group_layout,
+            &create_bind_group_layout(&core.device, BindGroupLayoutType::CustomUniform, "Lorenz Params"),
             0,
         );
-        
-        let compute_time_uniform = UniformBinding::new(
-            &core.device,
-            "Compute Time Uniform",
-            cuneus::compute::ComputeTimeUniform {
-                time: 0.0,
-                delta: 0.0,
-                frame: 0,
-                _padding: 0,
-            },
-            &time_bind_group_layout,
-            0,
-        );
-        
+
         let base = RenderKit::new(
             core,
             include_str!("../../shaders/vertex.wgsl"),
@@ -355,183 +189,72 @@ impl ShaderManager for LorenzShader {
             &[&texture_bind_group_layout],
             None,
         );
-        let mut base = base;
-        base.setup_mouse_uniform(core);
-        let output_texture = cuneus::compute::create_output_texture(
-            &core.device,
-            core.size.width,
-            core.size.height,
-            wgpu::TextureFormat::Rgba16Float,
-            &texture_bind_group_layout,
-            wgpu::AddressMode::ClampToEdge,
-            wgpu::FilterMode::Linear,
-            "Lorenz Output Texture",
+        // Mouse data is passed through custom uniform instead of separate mouse uniform bind group
+        // base.setup_mouse_uniform(core);
+
+        let compute_config = ComputeShaderConfig {
+            workgroup_size: [16, 16, 1],
+            workgroup_count: None,
+            dispatch_once: false,
+            storage_texture_format: COMPUTE_TEXTURE_FORMAT_RGBA16,
+            enable_atomic_buffer: true,
+            atomic_buffer_multiples: 3,
+            entry_points: vec!["Splat".to_string(), "main_image".to_string()],
+            sampler_address_mode: wgpu::AddressMode::ClampToEdge,
+            sampler_filter_mode: wgpu::FilterMode::Linear,
+            label: "Lorenz".to_string(),
+            mouse_bind_group_layout: None, // Mouse data passed through custom uniform instead
+            enable_fonts: false,
+            enable_audio_buffer: false,
+            audio_buffer_size: 0,
+            enable_custom_uniform: true,
+            enable_input_texture: false,
+            custom_storage_buffers: Vec::new(),
+        };
+
+        let mut compute_shader = ComputeShader::new_with_config(
+            core,
+            include_str!("../../shaders/lorenz.wgsl"),
+            compute_config,
         );
-        let buffer_size = core.size.width * core.size.height * 4;
-        let atomic_buffer = cuneus::AtomicBuffer::new(
-            &core.device,
-            buffer_size,
-            &atomic_bind_group_layout,
-        );
-        
-        let particle_count = 2000;
-        let particle_size = (particle_count * particle_count * 2 * 4 * 4) as u64;
-        let particle_buffer = core.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Particle Buffer"),
-            size: particle_size,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
+
+        // Enable hot reload
+        let shader_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Lorenz Compute Shader Hot Reload"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/lorenz.wgsl").into()),
         });
-        
-        let view_output = output_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let compute_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Lorenz Compute Bind Group"),
-            layout: &compute_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&view_output),
-                },
-            ],
-        });
-        
-        let storage_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Lorenz Storage Bind Group"),
-            layout: &storage_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &particle_buffer,
-                        offset: 0,
-                        size: None,
-                    }),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &atomic_buffer.buffer,
-                        offset: 0,
-                        size: None,
-                    }),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &base.mouse_uniform.as_ref().unwrap().buffer,
-                        offset: 0,
-                        size: None,
-                    }),
-                },
-            ],
-        });
-        let shader_source = include_str!("../../shaders/lorenz.wgsl");
-        let cs_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Lorenz Compute Shader"),
-            source: wgpu::ShaderSource::Wgsl(shader_source.into()),
-        });
-        
-        let hot_reload = cuneus::ShaderHotReload::new_compute(
+        if let Err(e) = compute_shader.enable_hot_reload(
             core.device.clone(),
-            PathBuf::from("shaders/lorenz.wgsl"),
-            cs_module.clone(),
-            "Splat",
-        ).expect("Failed to initialize hot reload");
-        
-        let compute_pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Lorenz Compute Pipeline Layout"),
-            bind_group_layouts: &[
-                &time_bind_group_layout,
-                &params_bind_group_layout,
-                &compute_bind_group_layout,
-                &atomic_bind_group_layout,
-            ],
-            push_constant_ranges: &[],
-        });
-        
-        let splat_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("Splat Pipeline"),
-            layout: Some(&compute_pipeline_layout),
-            module: &cs_module,
-            entry_point: Some("Splat"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        });
-        
-        let main_image_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("Main Image Pipeline"),
-            layout: Some(&compute_pipeline_layout),
-            module: &cs_module,
-            entry_point: Some("main_image"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        });
-        
+            std::path::PathBuf::from("shaders/lorenz.wgsl"),
+            shader_module,
+        ) {
+            eprintln!("Failed to enable compute shader hot reload: {}", e);
+        }
+
+        // Add custom parameters uniform to the compute shader
+        compute_shader.add_custom_uniform_binding(&params_uniform.bind_group);
+
         Self {
             base,
             params_uniform,
-            compute_time_uniform,
-            splat_pipeline,
-            main_image_pipeline,
-            output_texture,
-            compute_bind_group_layout,
-            atomic_bind_group_layout,
-            time_bind_group_layout,
-            params_bind_group_layout,
-            storage_bind_group_layout,
-            compute_bind_group,
-            storage_bind_group,
-            particle_buffer,
-            atomic_buffer,
+            compute_shader,
             frame_count: 0,
-            hot_reload,
             mouse_look_enabled: false,
         }
     }
     
     fn update(&mut self, core: &Core) {
-        if let Some(new_shader) = self.hot_reload.reload_compute_shader() {
-            println!("Reloading Lorenz shader at time: {:.2}s", self.base.start_time.elapsed().as_secs_f32());
-            
-            let compute_pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Updated Lorenz Compute Pipeline Layout"),
-                bind_group_layouts: &[
-                    &self.time_bind_group_layout,
-                    &self.params_bind_group_layout,
-                    &self.compute_bind_group_layout,
-                    &self.atomic_bind_group_layout,
-                ],
-                push_constant_ranges: &[],
-            });
-            
-            self.splat_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Updated Splat Pipeline"),
-                layout: Some(&compute_pipeline_layout),
-                module: &new_shader,
-                entry_point: Some("Splat"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                cache: None,
-            });
-            
-            self.main_image_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Updated Main Image Pipeline"),
-                layout: Some(&compute_pipeline_layout),
-                module: &new_shader,
-                entry_point: Some("main_image"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                cache: None,
-            });
-        }
-        
         if self.base.export_manager.is_exporting() {
             self.handle_export(core);
         }
+        
         self.base.fps_tracker.update();
     }
     
     fn resize(&mut self, core: &Core) {
         println!("Resizing to {:?}", core.size);
-        self.recreate_compute_resources(core);
+        self.base.update_resolution(&core.queue, core.size);
+        self.compute_shader.resize(core, core.size.width, core.size.height);
     }
     
     fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {
@@ -680,7 +403,7 @@ impl ShaderManager for LorenzShader {
         
         self.base.export_manager.apply_ui_request(export_request);
         if controls_request.should_clear_buffers {
-            self.recreate_compute_resources(core);
+            self.clear_atomic_buffer(core);
         }
         self.base.apply_control_request(controls_request);
         
@@ -690,11 +413,13 @@ impl ShaderManager for LorenzShader {
         self.base.time_uniform.data.frame = self.frame_count;
         self.base.time_uniform.update(&core.queue);
         
-        self.compute_time_uniform.data.time = current_time;
-        self.compute_time_uniform.data.delta = 1.0/60.0;
-        self.compute_time_uniform.data.frame = self.frame_count;
-        self.compute_time_uniform.update(&core.queue);
-        self.base.update_mouse_uniform(&core.queue);
+        // Update compute shader with the same time data
+        self.compute_shader.set_time(current_time, 1.0/60.0, &core.queue);
+        self.compute_shader.time_uniform.data.frame = self.frame_count;
+        self.compute_shader.time_uniform.update(&core.queue);
+        
+        // Mouse data is read from tracker and passed through custom uniform parameters
+        // self.base.update_mouse_uniform(&core.queue);
         if self.mouse_look_enabled {
             params.rotation_x = self.base.mouse_tracker.uniform.position[0];
             params.rotation_y = self.base.mouse_tracker.uniform.position[1];
@@ -711,37 +436,8 @@ impl ShaderManager for LorenzShader {
             self.base.export_manager.start_export();
         }
         
-        {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Splat Pass"),
-                timestamp_writes: None,
-            });
-            
-            compute_pass.set_pipeline(&self.splat_pipeline);
-            compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(2, &self.compute_bind_group, &[]);
-            compute_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]);
-            
-            compute_pass.dispatch_workgroups(256, 1, 1);
-        }
-        
-        {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Main Image Pass"),
-                timestamp_writes: None,
-            });
-            
-            compute_pass.set_pipeline(&self.main_image_pipeline);
-            compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(2, &self.compute_bind_group, &[]);
-            compute_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]);
-            
-            let width = core.size.width.div_ceil(16);
-            let height = core.size.height.div_ceil(16);
-            compute_pass.dispatch_workgroups(width, height, 1);
-        }
+        // Use ComputeShader dispatch
+        self.compute_shader.dispatch(&mut encoder, core);
         
         {
             let mut render_pass = cuneus::Renderer::begin_render_pass(
@@ -753,7 +449,7 @@ impl ShaderManager for LorenzShader {
             
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-            render_pass.set_bind_group(0, &self.output_texture.bind_group, &[]);
+            render_pass.set_bind_group(0, &self.compute_shader.output_texture.bind_group, &[]);
             
             render_pass.draw(0..4, 0..1);
         }

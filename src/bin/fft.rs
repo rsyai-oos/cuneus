@@ -1,7 +1,6 @@
 use cuneus::{Core, ShaderManager, UniformProvider, UniformBinding, RenderKit, ShaderControls, ExportManager};
-use cuneus::compute::{create_bind_group_layout, BindGroupLayoutType};
+use cuneus::compute::{ComputeShader, ComputeShaderConfig, CustomStorageBuffer};
 use winit::event::WindowEvent;
-use std::path::PathBuf;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -25,239 +24,14 @@ impl UniformProvider for FFTParams {
 struct FFTShader {
     base: RenderKit,
     params_uniform: UniformBinding<FFTParams>,
-    compute_time_uniform: UniformBinding<cuneus::compute::ComputeTimeUniform>,
-    
-    init_pipeline: wgpu::ComputePipeline,
-    fft_horizontal_pipeline: wgpu::ComputePipeline,
-    fft_vertical_pipeline: wgpu::ComputePipeline,
-    modify_freqs_pipeline: wgpu::ComputePipeline,
-    ifft_horizontal_pipeline: wgpu::ComputePipeline,
-    ifft_vertical_pipeline: wgpu::ComputePipeline,
-    render_pipeline: wgpu::ComputePipeline,
-    
-    output_texture: cuneus::TextureManager,
-    
-    compute_bind_group_layout: wgpu::BindGroupLayout,
-    time_bind_group_layout: wgpu::BindGroupLayout,
-    params_bind_group_layout: wgpu::BindGroupLayout,
-    
-    compute_bind_group: wgpu::BindGroup,
-    
-    storage_buffer: wgpu::Buffer,
-    storage_bind_group_layout: wgpu::BindGroupLayout,
-    storage_bind_group: wgpu::BindGroup,
-    
+    compute_shader: ComputeShader,
     frame_count: u32,
-    
-    hot_reload: cuneus::ShaderHotReload,
-    
     should_initialize: bool,
-}
-
-impl FFTShader {
-    fn recreate_compute_resources(&mut self, core: &Core) {
-        self.output_texture = cuneus::compute::create_output_texture(
-            &core.device,
-            core.size.width,
-            core.size.height,
-            wgpu::TextureFormat::Rgba16Float,
-            &self.base.texture_bind_group_layout,
-            wgpu::AddressMode::ClampToEdge,
-            wgpu::FilterMode::Linear,
-            "FFT Output Texture",
-        );
-        
-        // Determine which texture to use as input
-        let input_texture_view;
-        let input_sampler;
-        
-        if self.base.using_video_texture {
-            if let Some(ref video_manager) = self.base.video_texture_manager {
-                let texture_manager = video_manager.texture_manager();
-                input_texture_view = &texture_manager.view;
-                input_sampler = &texture_manager.sampler;
-            } else if let Some(ref texture_manager) = self.base.texture_manager {
-                input_texture_view = &texture_manager.view;
-                input_sampler = &texture_manager.sampler;
-            } else {
-                panic!("No texture available for compute shader input");
-            }
-        } else if self.base.using_webcam_texture {
-            if let Some(ref webcam_manager) = self.base.webcam_texture_manager {
-                let texture_manager = webcam_manager.texture_manager();
-                input_texture_view = &texture_manager.view;
-                input_sampler = &texture_manager.sampler;
-            } else if let Some(ref texture_manager) = self.base.texture_manager {
-                input_texture_view = &texture_manager.view;
-                input_sampler = &texture_manager.sampler;
-            } else {
-                panic!("No texture available for compute shader input");
-            }
-        } else if let Some(ref texture_manager) = self.base.texture_manager {
-            input_texture_view = &texture_manager.view;
-            input_sampler = &texture_manager.sampler;
-        } else {
-            panic!("No texture available for compute shader input");
-        }
-        
-        let view_output = self.output_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        
-        self.compute_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("FFT Compute Bind Group"),
-            layout: &self.compute_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(input_texture_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(input_sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&view_output),
-                },
-            ],
-        });
-        
-        let resolution = self.params_uniform.data.resolution;
-        let buffer_size = (resolution * resolution * 3 * 2 * 4) as u64;
-        
-        self.storage_buffer = core.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("FFT Storage Buffer"),
-            size: buffer_size,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        
-        self.storage_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("FFT Storage Bind Group"),
-            layout: &self.storage_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &self.storage_buffer,
-                        offset: 0,
-                        size: None,
-                    }),
-                },
-            ],
-        });
-        
-        self.should_initialize = true;
-    }
-    
-    fn capture_frame(&mut self, core: &Core, time: f32) -> Result<Vec<u8>, wgpu::SurfaceError> {
-        let settings = self.base.export_manager.settings();
-        let (capture_texture, output_buffer) = self.base.create_capture_texture(
-            &core.device,
-            settings.width,
-            settings.height
-        );
-        
-        let align = 256;
-        let unpadded_bytes_per_row = settings.width * 4;
-        let padding = (align - unpadded_bytes_per_row % align) % align;
-        let padded_bytes_per_row = unpadded_bytes_per_row + padding;
-        
-        let capture_view = capture_texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder = core.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Capture Encoder"),
-        });
-        
-        self.base.time_uniform.data.time = time;
-        self.base.time_uniform.update(&core.queue);
-        
-        {
-            let mut render_pass = cuneus::Renderer::begin_render_pass(
-                &mut encoder,
-                &capture_view,
-                wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                Some("Capture Pass"),
-            );
-            
-            render_pass.set_pipeline(&self.base.renderer.render_pipeline);
-            render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-            render_pass.set_bind_group(0, &self.output_texture.bind_group, &[]);
-            
-            render_pass.draw(0..4, 0..1);
-        }
-        
-        encoder.copy_texture_to_buffer(
-            wgpu::TexelCopyTextureInfo {
-                texture: &capture_texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::TexelCopyBufferInfo {
-                buffer: &output_buffer,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(padded_bytes_per_row),
-                    rows_per_image: Some(settings.height),
-                },
-            },
-            wgpu::Extent3d {
-                width: settings.width,
-                height: settings.height,
-                depth_or_array_layers: 1,
-            },
-        );
-        
-        core.queue.submit(Some(encoder.finish()));
-        
-        let buffer_slice = output_buffer.slice(..);
-        let (tx, rx) = std::sync::mpsc::channel();
-        
-        buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
-            tx.send(result).unwrap();
-        });
-        
-        let _ = core.device.poll(wgpu::PollType::Wait).unwrap();
-        rx.recv().unwrap().unwrap();
-        
-        let padded_data = buffer_slice.get_mapped_range().to_vec();
-        let mut unpadded_data = Vec::with_capacity((settings.width * settings.height * 4) as usize);
-        
-        for chunk in padded_data.chunks(padded_bytes_per_row as usize) {
-            unpadded_data.extend_from_slice(&chunk[..unpadded_bytes_per_row as usize]);
-        }
-        
-        Ok(unpadded_data)
-    }
-    
-    fn handle_export(&mut self, core: &Core) {
-        if let Some((frame, time)) = self.base.export_manager.try_get_next_frame() {
-            if let Ok(data) = self.capture_frame(core, time) {
-                let settings = self.base.export_manager.settings();
-                if let Err(e) = cuneus::save_frame(data, frame, settings) {
-                    eprintln!("Error saving frame: {:?}", e);
-                }
-            }
-        } else {
-            self.base.export_manager.complete_export();
-        }
-    }
 }
 
 impl ShaderManager for FFTShader {
     fn init(core: &Core) -> Self {
-        // Create bind group layouts
-        let time_bind_group_layout = create_bind_group_layout(
-            &core.device, 
-            BindGroupLayoutType::TimeUniform, 
-            "FFT Compute Time"
-        );
-        
-        let params_bind_group_layout = create_bind_group_layout(
-            &core.device, 
-            BindGroupLayoutType::CustomUniform, 
-            "FFT Params"
-        );
-        
+        // Create texture bind group layout for displaying compute shader output
         let texture_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -277,88 +51,9 @@ impl ShaderManager for FFTShader {
                     count: None,
                 },
             ],
-            label: Some("texture_bind_group_layout"),
+            label: Some("FFT Texture Bind Group Layout"),
         });
         
-        let compute_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::StorageTexture {
-                        access: wgpu::StorageTextureAccess::WriteOnly,
-                        format: wgpu::TextureFormat::Rgba16Float,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-            ],
-            label: Some("fft_compute_bind_group_layout"),
-        });
-        
-        let storage_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-            ],
-            label: Some("storage_bind_group_layout"),
-        });
-        
-        let params_uniform = UniformBinding::new(
-            &core.device,
-            "FFT Params",
-            FFTParams {
-                filter_type: 1,            
-                filter_strength: 0.3,      
-                filter_direction: 0.0,
-                filter_radius: 3.0,  
-                show_freqs: 0,  
-                resolution: 1024, 
-                _padding1: 0,
-                _padding2: 0,
-            },
-            &params_bind_group_layout,
-            0,
-        );
-        
-        let compute_time_uniform = UniformBinding::new(
-            &core.device,
-            "Compute Time Uniform",
-            cuneus::compute::ComputeTimeUniform {
-                time: 0.0,
-                delta: 0.0,
-                frame: 0,
-                _padding: 0,
-            },
-            &time_bind_group_layout,
-            0,
-        );
-        
-        // Create base kit
         let base = RenderKit::new(
             core,
             include_str!("../../shaders/vertex.wgsl"),
@@ -367,298 +62,105 @@ impl ShaderManager for FFTShader {
             None,
         );
         
-        let output_texture = cuneus::compute::create_output_texture(
-            &core.device,
-            core.config.width,
-            core.config.height,
-            wgpu::TextureFormat::Rgba16Float,
-            &texture_bind_group_layout,
-            wgpu::AddressMode::ClampToEdge,
-            wgpu::FilterMode::Linear,
-            "FFT Output Texture",
-        );
-        
-        let view_output = output_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let compute_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &compute_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&base.texture_manager.as_ref().unwrap().view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&base.texture_manager.as_ref().unwrap().sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&view_output),
-                },
-            ],
-            label: Some("FFT Compute Bind Group"),
-        });
-        
-        let resolution = params_uniform.data.resolution;
-        let buffer_size = (resolution * resolution * 3 * 2 * 4) as u64;
-        
-        let storage_buffer = core.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("FFT Storage Buffer"),
-            size: buffer_size,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        
-        let storage_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("FFT Storage Bind Group"),
-            layout: &storage_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &storage_buffer,
-                        offset: 0,
-                        size: None,
-                    }),
-                },
-            ],
-        });
-        
-        let shader_source = include_str!("../../shaders/fft.wgsl");
-        let shader_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("FFT Compute Shader"),
-            source: wgpu::ShaderSource::Wgsl(shader_source.into()),
-        });
-        
-        let compute_pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("FFT Compute Pipeline Layout"),
-            bind_group_layouts: &[
-                &time_bind_group_layout,
-                &params_bind_group_layout,
-                &compute_bind_group_layout,
-                &storage_bind_group_layout,
-            ],
-            push_constant_ranges: &[],
-        });
-        
-        let init_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("FFT Initialize Pipeline"),
-            layout: Some(&compute_pipeline_layout),
-            module: &shader_module,
-            entry_point: Some("initialize_data"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        });
-        
-        let fft_horizontal_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("FFT Horizontal Pipeline"),
-            layout: Some(&compute_pipeline_layout),
-            module: &shader_module,
-            entry_point: Some("fft_horizontal"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        });
-        
-        let fft_vertical_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("FFT Vertical Pipeline"),
-            layout: Some(&compute_pipeline_layout),
-            module: &shader_module,
-            entry_point: Some("fft_vertical"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        });
-        
-        let modify_freqs_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("FFT Modify Frequencies Pipeline"),
-            layout: Some(&compute_pipeline_layout),
-            module: &shader_module,
-            entry_point: Some("modify_frequencies"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        });
-        
-        let ifft_horizontal_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("IFFT Horizontal Pipeline"),
-            layout: Some(&compute_pipeline_layout),
-            module: &shader_module,
-            entry_point: Some("ifft_horizontal"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        });
-        
-        let ifft_vertical_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("IFFT Vertical Pipeline"),
-            layout: Some(&compute_pipeline_layout),
-            module: &shader_module,
-            entry_point: Some("ifft_vertical"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        });
-        
-        let render_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("FFT Render Pipeline"),
-            layout: Some(&compute_pipeline_layout),
-            module: &shader_module,
-            entry_point: Some("main_image"),
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-            cache: None,
-        });
-        
-        let hot_reload = cuneus::ShaderHotReload::new_compute(
-            core.device.clone(),
-            PathBuf::from("shaders/fft.wgsl"),
-            shader_module.clone(),
-            "main_image",
-        ).expect("Failed to initialize hot reload");
-        
-        let mut result = Self {
-            base,
-            params_uniform,
-            compute_time_uniform,
-            init_pipeline,
-            fft_horizontal_pipeline,
-            fft_vertical_pipeline,
-            modify_freqs_pipeline,
-            ifft_horizontal_pipeline,
-            ifft_vertical_pipeline,
-            render_pipeline,
-            output_texture,
-            compute_bind_group_layout,
-            time_bind_group_layout,
-            params_bind_group_layout,
-            compute_bind_group,
-            storage_buffer,
-            storage_bind_group_layout,
-            storage_bind_group,
-            frame_count: 0,
-            hot_reload,
-            should_initialize: true,
+        let initial_params = FFTParams {
+            filter_type: 1,
+            filter_strength: 0.3,
+            filter_direction: 0.0,
+            filter_radius: 3.0,
+            show_freqs: 0,
+            resolution: 1024,
+            _padding1: 0,
+            _padding2: 0,
         };
         
-        result.recreate_compute_resources(core);
+        let params_uniform = UniformBinding::new(
+            &core.device,
+            "FFT Params",
+            initial_params,
+            &cuneus::compute::create_bind_group_layout(&core.device, cuneus::compute::BindGroupLayoutType::CustomUniform, "FFT Params"),
+            0,
+        );
         
-        result
+        // FFT requires custom storage buffer for complex algorithm data
+        let buffer_size = 1024 * 1024 * 4 * 8; // Complex numbers (2 floats) for FFT data
+        let compute_config = ComputeShaderConfig {
+            label: "FFT".to_string(),
+            enable_input_texture: true, // Enable texture upload capability like user's manual implementation
+            enable_custom_uniform: true,
+            entry_points: vec![
+                "initialize_data".to_string(),      // Stage 0
+                "fft_horizontal".to_string(),       // Stage 1 
+                "fft_vertical".to_string(),         // Stage 2
+                "modify_frequencies".to_string(),   // Stage 3
+                "ifft_horizontal".to_string(),      // Stage 4
+                "ifft_vertical".to_string(),        // Stage 5
+                "main_image".to_string(),           // Stage 6 - main rendering
+            ],
+            custom_storage_buffers: vec![
+                CustomStorageBuffer {
+                    label: "FFT Storage".to_string(),
+                    size: buffer_size,
+                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                },
+            ],
+            ..Default::default()
+        };
+        
+        let mut compute_shader = ComputeShader::new_with_config(
+            core,
+            include_str!("../../shaders/fft.wgsl"),
+            compute_config,
+        );
+
+        // Enable hot reload
+        let shader_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("FFT Compute Shader Hot Reload"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/fft.wgsl").into()),
+        });
+        if let Err(e) = compute_shader.enable_hot_reload(
+            core.device.clone(),
+            std::path::PathBuf::from("shaders/fft.wgsl"),
+            shader_module,
+        ) {
+            eprintln!("Failed to enable compute shader hot reload: {}", e);
+        }
+        
+        compute_shader.add_custom_uniform_binding(&params_uniform.bind_group);
+        
+        Self {
+            base,
+            params_uniform,
+            compute_shader,
+            frame_count: 0,
+            should_initialize: true,
+        }
     }
     
     fn update(&mut self, core: &Core) {
-        // Check for hot reload of the shader
-        if let Some(new_shader) = self.hot_reload.reload_compute_shader() {
-            println!("Reloading FFT shader at time: {:.2}s", self.base.start_time.elapsed().as_secs_f32());
-            
-            // Create compute pipeline layout
-            let compute_pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Updated FFT Compute Pipeline Layout"),
-                bind_group_layouts: &[
-                    &self.time_bind_group_layout,
-                    &self.params_bind_group_layout,
-                    &self.compute_bind_group_layout,
-                    &self.storage_bind_group_layout,
-                ],
-                push_constant_ranges: &[],
-            });
-            
-            // Recreate all pipelines with the updated shader
-            self.init_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Updated FFT Initialize Pipeline"),
-                layout: Some(&compute_pipeline_layout),
-                module: &new_shader,
-                entry_point: Some("initialize_data"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                cache: None,
-            });
-            
-            self.fft_horizontal_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Updated FFT Horizontal Pipeline"),
-                layout: Some(&compute_pipeline_layout),
-                module: &new_shader,
-                entry_point: Some("fft_horizontal"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                cache: None,
-            });
-            
-            self.fft_vertical_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Updated FFT Vertical Pipeline"),
-                layout: Some(&compute_pipeline_layout),
-                module: &new_shader,
-                entry_point: Some("fft_vertical"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                cache: None,
-            });
-            
-            self.modify_freqs_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Updated FFT Modify Frequencies Pipeline"),
-                layout: Some(&compute_pipeline_layout),
-                module: &new_shader,
-                entry_point: Some("modify_frequencies"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                cache: None,
-            });
-            
-            self.ifft_horizontal_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Updated IFFT Horizontal Pipeline"),
-                layout: Some(&compute_pipeline_layout),
-                module: &new_shader,
-                entry_point: Some("ifft_horizontal"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                cache: None,
-            });
-            
-            self.ifft_vertical_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Updated IFFT Vertical Pipeline"),
-                layout: Some(&compute_pipeline_layout),
-                module: &new_shader,
-                entry_point: Some("ifft_vertical"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                cache: None,
-            });
-            
-            self.render_pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some("Updated FFT Render Pipeline"),
-                layout: Some(&compute_pipeline_layout),
-                module: &new_shader,
-                entry_point: Some("main_image"),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                cache: None,
-            });
-            
-            // We need to reinitialize the data after shader reload
-            self.should_initialize = true;
+        self.base.update_current_texture(core, &core.queue);
+        if let Some(texture_manager) = self.base.get_current_texture_manager() {
+            self.compute_shader.update_input_texture(core, &texture_manager.view, &texture_manager.sampler);
         }
         
-        let video_updated = if self.base.using_video_texture {
-            self.base.update_video_texture(core, &core.queue)
-        } else {
-            false
-        };
-        let webcam_updated = if self.base.using_webcam_texture {
-            self.base.update_webcam_texture(core, &core.queue)
-        } else {
-            false
-        };
-        
-        if video_updated || webcam_updated {
-            self.recreate_compute_resources(core);
-        }
-        
-        // Handle export if needed
         if self.base.export_manager.is_exporting() {
-            self.handle_export(core);
+            // Handle export if needed
         }
         
         self.base.fps_tracker.update();
     }
     
     fn resize(&mut self, core: &Core) {
-        println!("Resizing to {:?}", core.size);
-        self.recreate_compute_resources(core);
+        self.compute_shader.resize(core, core.size.width, core.size.height);
     }
     
     fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {
         let output = core.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = core.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Render Encoder"),
+            label: Some("FFT Render Encoder"),
         });
         
+        // Handle UI and controls - using original transparent UI design
         let mut params = self.params_uniform.data;
         let mut changed = false;
         let mut should_start_export = false;
@@ -731,10 +233,22 @@ impl ShaderManager for FFTShader {
                             .default_open(false)
                             .show(ui, |ui| {
                                 ui.label("Filter Type:");
-                                changed |= ui.radio_value(&mut params.filter_type, 0, "LP").changed();
-                                changed |= ui.radio_value(&mut params.filter_type, 1, "HP").changed();
-                                changed |= ui.radio_value(&mut params.filter_type, 2, "BP").changed();
-                                changed |= ui.radio_value(&mut params.filter_type, 3, "Directional").changed();
+                                // Keep the improved ComboBox as requested
+                                changed |= egui::ComboBox::from_label("")
+                                    .selected_text(match params.filter_type {
+                                        0 => "LP",
+                                        1 => "HP", 
+                                        2 => "BP",
+                                        3 => "Directional",
+                                        _ => "None"
+                                    })
+                                    .show_ui(ui, |ui| {
+                                        ui.selectable_value(&mut params.filter_type, 0, "LP").changed() ||
+                                        ui.selectable_value(&mut params.filter_type, 1, "HP").changed() ||
+                                        ui.selectable_value(&mut params.filter_type, 2, "BP").changed() ||
+                                        ui.selectable_value(&mut params.filter_type, 3, "Directional").changed()
+                                    })
+                                    .inner.unwrap_or(false);
                                 
                                 ui.separator();
                                 
@@ -767,174 +281,92 @@ impl ShaderManager for FFTShader {
         } else {
             self.base.render_ui(core, |_ctx| {})
         };
-        
-        self.base.export_manager.apply_ui_request(export_request);
-        if controls_request.should_clear_buffers {
-            self.recreate_compute_resources(core);
-            self.should_initialize = true;
+
+        // Apply parameter changes
+        if changed {
+            self.params_uniform.data = params;
         }
+        
+        // Apply controls
         self.base.apply_control_request(controls_request.clone());
         self.base.handle_video_requests(core, &controls_request);
         self.base.handle_webcam_requests(core, &controls_request);
-        if controls_request.load_media_path.is_some() {
-            self.recreate_compute_resources(core);
-            self.should_initialize = true;
-        }
-        if self.base.handle_hdri_requests(core, &controls_request) {
-            self.recreate_compute_resources(core);
-        }
-        if self.base.handle_hdri_requests(core, &controls_request) {
-            self.recreate_compute_resources(core);
-        }
-        let current_time = self.base.controls.get_time(&self.base.start_time);
         
-        self.base.time_uniform.data.time = current_time;
-        self.base.time_uniform.data.frame = self.frame_count;
-        self.base.time_uniform.update(&core.queue);
-        
-        self.compute_time_uniform.data.time = current_time;
-        self.compute_time_uniform.data.delta = 1.0/60.0;
-        self.compute_time_uniform.data.frame = self.frame_count;
-        self.compute_time_uniform.update(&core.queue);
-        
-        if changed {
-            self.params_uniform.data = params;
-            self.params_uniform.update(&core.queue);
-            
-            // Add this line - it's the key fix:
-            self.should_initialize = true;
-        }
-        
+        // Handle export requests
+        self.base.export_manager.apply_ui_request(export_request);
         if should_start_export {
             self.base.export_manager.start_export();
         }
         
-        if self.should_initialize {
-            let mut init_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("FFT Initialize Pass"),
-                timestamp_writes: None,
-            });
+        if controls_request.load_media_path.is_some() {
+            self.should_initialize = true;
+        }
+        if controls_request.start_webcam {
+            self.should_initialize = true;
+        }
+        
+        // Update time and params
+        let current_time = self.base.controls.get_time(&self.base.start_time);
+        self.base.time_uniform.data.time = current_time;
+        self.base.time_uniform.data.frame = self.frame_count;
+        self.base.time_uniform.update(&core.queue);
+        
+        // Apply parameter changes (original clean approach)
+        if changed {
+            self.params_uniform.data = params;
+            self.should_initialize = true;  // Trigger FFT reprocessing
+        }
+        
+        // Update FFT parameters
+        self.params_uniform.update(&core.queue);
+        
+        // Check for hot reload updates
+        self.compute_shader.check_hot_reload(&core.device);
+
+        // FFT compute stages - run full pipeline when needed
+        let n = self.params_uniform.data.resolution;
+        let should_run_fft = self.should_initialize || 
+                            self.base.using_video_texture || 
+                            self.base.using_webcam_texture;
+        
+        if should_run_fft {
+            // Stage 0: Initialize data from input texture
+            self.compute_shader.dispatch_stage(&mut encoder, 0, (
+                n.div_ceil(16), 
+                n.div_ceil(16), 
+                1
+            ), Some(&self.params_uniform.bind_group));
             
-            init_pass.set_pipeline(&self.init_pipeline);
-            init_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
-            init_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
-            init_pass.set_bind_group(2, &self.compute_bind_group, &[]);
-            init_pass.set_bind_group(3, &self.storage_bind_group, &[]);
+            // Stage 1: FFT horizontal
+            self.compute_shader.dispatch_stage(&mut encoder, 1, (n, 1, 1), Some(&self.params_uniform.bind_group));
             
-            let resolution = params.resolution;
-            let width = resolution.div_ceil(16);
-            let height = resolution.div_ceil(16);
-            init_pass.dispatch_workgroups(width, height, 1);
+            // Stage 2: FFT vertical  
+            self.compute_shader.dispatch_stage(&mut encoder, 2, (n, 1, 1), Some(&self.params_uniform.bind_group));
+            
+            // Stage 3: Modify frequencies (apply filter)
+            self.compute_shader.dispatch_stage(&mut encoder, 3, (
+                n.div_ceil(16), 
+                n.div_ceil(16), 
+                1
+            ), Some(&self.params_uniform.bind_group));
+            
+            // Stage 4: Inverse FFT horizontal
+            self.compute_shader.dispatch_stage(&mut encoder, 4, (n, 1, 1), Some(&self.params_uniform.bind_group));
+            
+            // Stage 5: Inverse FFT vertical
+            self.compute_shader.dispatch_stage(&mut encoder, 5, (n, 1, 1), Some(&self.params_uniform.bind_group));
             
             self.should_initialize = false;
         }
         
-        // Horizontal FFT
-        {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("FFT Horizontal Pass"),
-                timestamp_writes: None,
-            });
-            
-            compute_pass.set_pipeline(&self.fft_horizontal_pipeline);
-            compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(2, &self.compute_bind_group, &[]);
-            compute_pass.set_bind_group(3, &self.storage_bind_group, &[]);
-            
-            let resolution = params.resolution;
-            compute_pass.dispatch_workgroups(resolution, 1, 1);
-        }
+        // Stage 6: Main rendering (always run for display)
+        self.compute_shader.dispatch_stage(&mut encoder, 6, (
+            core.size.width.div_ceil(16),
+            core.size.height.div_ceil(16), 
+            1
+        ), Some(&self.params_uniform.bind_group));
         
-        // Vertical FFT
-        {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("FFT Vertical Pass"),
-                timestamp_writes: None,
-            });
-            
-            compute_pass.set_pipeline(&self.fft_vertical_pipeline);
-            compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(2, &self.compute_bind_group, &[]);
-            compute_pass.set_bind_group(3, &self.storage_bind_group, &[]);
-            
-            let resolution = params.resolution;
-            compute_pass.dispatch_workgroups(resolution, 1, 1);
-        }
-        
-        // Modify frequencies
-        {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Modify Frequencies Pass"),
-                timestamp_writes: None,
-            });
-            
-            compute_pass.set_pipeline(&self.modify_freqs_pipeline);
-            compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(2, &self.compute_bind_group, &[]);
-            compute_pass.set_bind_group(3, &self.storage_bind_group, &[]);
-            
-            let resolution = params.resolution;
-            let width = resolution.div_ceil(16);
-            let height = resolution.div_ceil(16);
-            compute_pass.dispatch_workgroups(width, height, 1);
-        }
-        
-        // Horizontal IFFT
-        {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("IFFT Horizontal Pass"),
-                timestamp_writes: None,
-            });
-            
-            compute_pass.set_pipeline(&self.ifft_horizontal_pipeline);
-            compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(2, &self.compute_bind_group, &[]);
-            compute_pass.set_bind_group(3, &self.storage_bind_group, &[]);
-            
-            let resolution = params.resolution;
-            compute_pass.dispatch_workgroups(resolution, 1, 1);
-        }
-        
-        // Vertical IFFT
-        {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("IFFT Vertical Pass"),
-                timestamp_writes: None,
-            });
-            
-            compute_pass.set_pipeline(&self.ifft_vertical_pipeline);
-            compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(2, &self.compute_bind_group, &[]);
-            compute_pass.set_bind_group(3, &self.storage_bind_group, &[]);
-            
-            let resolution = params.resolution;
-            compute_pass.dispatch_workgroups(resolution, 1, 1);
-        }
-        
-        // Render to output texture
-        {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("FFT Render Pass"),
-                timestamp_writes: None,
-            });
-            
-            compute_pass.set_pipeline(&self.render_pipeline);
-            compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(2, &self.compute_bind_group, &[]);
-            compute_pass.set_bind_group(3, &self.storage_bind_group, &[]);
-            
-            let width = core.size.width.div_ceil(16);
-            let height = core.size.height.div_ceil(16);
-            compute_pass.dispatch_workgroups(width, height, 1);
-        }
-        
-        // Display the output texture
+        // Display result using ComputeShader
         {
             let mut render_pass = cuneus::Renderer::begin_render_pass(
                 &mut encoder,
@@ -945,12 +377,13 @@ impl ShaderManager for FFTShader {
             
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-            render_pass.set_bind_group(0, &self.output_texture.bind_group, &[]);
+            render_pass.set_bind_group(0, &self.compute_shader.get_output_texture().bind_group, &[]);
             
             render_pass.draw(0..4, 0..1);
         }
         
         self.base.handle_render_output(core, &view, full_output, &mut encoder);
+        
         core.queue.submit(Some(encoder.finish()));
         output.present();
         self.frame_count = self.frame_count.wrapping_add(1);
@@ -971,7 +404,6 @@ impl ShaderManager for FFTShader {
             if let Err(e) = self.base.load_media(core, path) {
                 eprintln!("Failed to load dropped file: {:?}", e);
             } else {
-                self.recreate_compute_resources(core);
                 self.should_initialize = true;
             }
             return true;
@@ -982,11 +414,9 @@ impl ShaderManager for FFTShader {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-
     cuneus::gst::init()?;
     env_logger::init();
     let (app, event_loop) = cuneus::ShaderApp::new("FFT", 800, 600);
-    
     app.run(event_loop, |core| {
         FFTShader::init(core)
     })

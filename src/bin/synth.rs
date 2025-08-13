@@ -1,7 +1,7 @@
 // This example demonstrates a how to generate audio using cunes via compute shaders
 use cuneus::{Core, ShaderApp, ShaderManager, RenderKit, UniformProvider, UniformBinding, ShaderControls};
 use cuneus::audio::SynthesisManager;
-use cuneus::compute::{ComputeShaderConfig, COMPUTE_TEXTURE_FORMAT_RGBA16};
+use cuneus::compute::{ComputeShaderConfig, COMPUTE_TEXTURE_FORMAT_RGBA16, create_bind_group_layout, BindGroupLayoutType};
 use winit::event::*;
 use std::path::PathBuf;
 
@@ -102,19 +102,11 @@ impl ShaderManager for SynthManager {
             ],
         });
         
-        let params_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-            label: Some("params_bind_group_layout"),
-        });
+        let params_bind_group_layout = create_bind_group_layout(
+            &core.device,
+            BindGroupLayoutType::CustomUniform,
+            "Synth Params"
+        );
         
         let mut base = RenderKit::new(
             core,
@@ -136,10 +128,13 @@ impl ShaderManager for SynthManager {
             sampler_address_mode: wgpu::AddressMode::ClampToEdge,
             sampler_filter_mode: wgpu::FilterMode::Linear,
             label: "Synth".to_string(),
-            mouse_bind_group_layout: Some(params_bind_group_layout.clone()),
+            mouse_bind_group_layout: None,  // Don't pass here, add separately
             enable_fonts: false,
             enable_audio_buffer: true,
             audio_buffer_size: 2048,
+            enable_custom_uniform: true,
+            enable_input_texture: false,
+            custom_storage_buffers: Vec::new(),
         };
         
         let params_uniform = UniformBinding::new(
@@ -181,7 +176,7 @@ impl ShaderManager for SynthManager {
         ));
         
         if let Some(compute_shader) = &mut base.compute_shader {
-            compute_shader.add_mouse_uniform_binding(&params_uniform.bind_group, 2);
+            compute_shader.add_custom_uniform_binding(&params_uniform.bind_group);
         }
         
         if let Some(compute_shader) = &mut base.compute_shader {

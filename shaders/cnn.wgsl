@@ -35,19 +35,16 @@ struct CNNParams {
     _padding2: f32,
     _padding3: f32,
 }
-@group(1) @binding(0) var<uniform> params: CNNParams;
+@group(1) @binding(0) var output_texture: texture_storage_2d<rgba16float, write>;
+@group(1) @binding(1) var font_atlas: texture_2d<f32>;
+@group(1) @binding(2) var font_sampler: sampler;
 
-@group(2) @binding(0) var input_texture: texture_2d<f32>;
-@group(2) @binding(1) var input_sampler: sampler;
-@group(2) @binding(2) var output_texture: texture_storage_2d<rgba16float, write>;
+@group(2) @binding(0) var<uniform> params: CNNParams;
 
 @group(3) @binding(0) var<storage, read_write> canvas_data: array<f32>;      
 @group(3) @binding(1) var<storage, read_write> conv1_data: array<f32>;       
 @group(3) @binding(2) var<storage, read_write> conv2_data: array<f32>;       
-@group(3) @binding(3) var<storage, read_write> fc_data: array<f32>;
-
-@group(2) @binding(3) var font_atlas: texture_2d<f32>;
-@group(2) @binding(4) var font_sampler: sampler;          
+@group(3) @binding(3) var<storage, read_write> fc_data: array<f32>;          
 
 const INPUT_SIZE: u32 = 28u;
 const CONV1_SIZE: u32 = 12u;  

@@ -1,21 +1,15 @@
+// Scene Color Palette - Single-Pass Compute Shader
 // MIT License, Enes Altun, 2025
-@group(0) @binding(0) var tex: texture_2d<f32>;
-@group(0) @binding(1) var tex_sampler: sampler;
-@group(1) @binding(0) var<uniform> u_time: TimeUniform;
-@group(2) @binding(0) var<uniform> params: Params;
-@group(3) @binding(0) var<uniform> u_resolution: ResolutionUniform;
 
-struct ResolutionUniform {
-    dimensions: vec2<f32>,
-    _padding: vec2<f32>,
-};
+struct TimeUniform { time: f32, delta: f32, frame: u32, _padding: u32 };
+@group(0) @binding(0) var<uniform> time_data: TimeUniform;
 
-struct TimeUniform {
-    time: f32,
-};
+// Group 1: Storage texture for output + input texture
+@group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
+@group(1) @binding(1) var input_texture: texture_2d<f32>;
+@group(1) @binding(2) var input_sampler: sampler;
 
-struct Params {
-    // Palette settings
+struct SceneColorParams {
     num_segments: f32,
     palette_height: f32,
     samples_x: i32,
@@ -26,44 +20,57 @@ struct Params {
     _pad3: f32,
     _pad4: f32,
 };
+@group(2) @binding(0) var<uniform> params: SceneColorParams;
 
-fn mix(a: f32, b: f32, t: f32) -> f32 {
+fn mix_f32(a: f32, b: f32, t: f32) -> f32 {
     return a * (1.0 - t) + b * t;
 }
 
-@fragment
-fn fs_main(@builtin(position) fragCoord: vec4<f32>) -> @location(0) vec4<f32> {
-    let dimensions = u_resolution.dimensions;
-    let uv = fragCoord.xy / dimensions;
+@compute @workgroup_size(16, 16, 1)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    let dims = textureDimensions(output);
+    if (id.x >= dims.x || id.y >= dims.y) { return; }
+
+    let pixel_pos = vec2<i32>(id.xy);
+    let dimensions = vec2<f32>(dims);
+    let uv = vec2<f32>(id.xy) / dimensions;
     
-    // original texture in the main area
+    // Original texture in the main area
     if (uv.y <= (1.0 - params.palette_height)) {
-        return textureSample(tex, tex_sampler, uv);
+        let color = textureLoad(input_texture, pixel_pos, 0);
+        textureStore(output, pixel_pos, color);
+        return;
     }
     
-    // I m going to create a plate on bottom, this can be adjustable via egui
+    // Create a color palette on the bottom
     let segmentWidth = dimensions.x / params.num_segments;
-    let segmentIndex = i32(fragCoord.x / segmentWidth);
+    let segmentIndex = i32(f32(id.x) / segmentWidth);
     
-
     let startX = f32(segmentIndex) / params.num_segments;
     let endX = f32(segmentIndex + 1) / params.num_segments;
     
-    // average color for this segment
+    // Calculate average color for this segment
     var avgColor = vec3<f32>(0.0);
     var sampleCount = 0;
     
     // Sample evenly across the vertical dimension and within the segment horizontally
-    for (var y = 0; y < params.samples_y; y = y + 1) {
+    // Use fixed loop bounds to avoid dynamic loops issue
+    for (var y = 0; y < 32; y = y + 1) {
+        if (y >= params.samples_y) { break; }
         let sampleY = f32(y) / f32(params.samples_y - 1);
-        for (var x = 0; x < params.samples_x; x = x + 1) {
+        for (var x = 0; x < 32; x = x + 1) {
+            if (x >= params.samples_x) { break; }
             // Sample within the segment's horizontal range
-            let sampleX = mix(startX, endX, f32(x) / f32(params.samples_x - 1));
-            avgColor += textureSample(tex, tex_sampler, vec2<f32>(sampleX, sampleY)).rgb;
+            let sampleX = mix_f32(startX, endX, f32(x) / f32(params.samples_x - 1));
+            let sample_pixel = vec2<i32>(i32(sampleX * dimensions.x), i32(sampleY * dimensions.y));
+            avgColor += textureLoad(input_texture, sample_pixel, 0).rgb;
             sampleCount = sampleCount + 1;
         }
     }
+    
     // Calculate the average
     avgColor = avgColor / f32(sampleCount);
-    return vec4<f32>(avgColor, 1.0);
+    
+    let result = vec4<f32>(avgColor, 1.0);
+    textureStore(output, pixel_pos, result);
 }

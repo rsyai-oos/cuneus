@@ -30,9 +30,9 @@ struct LorenzParams {
     particle_count: f32,
     decay_speed: f32,
 }
-@group(1) @binding(0) var<uniform> params: LorenzParams;
+@group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
 
-@group(2) @binding(0) var output: texture_storage_2d<rgba16float, write>;
+@group(2) @binding(0) var<uniform> params: LorenzParams;
 @group(3) @binding(0) var<storage, read_write> atomic_buffer: array<atomic<u32>>;
 
 alias iv4 = vec4<i32>;

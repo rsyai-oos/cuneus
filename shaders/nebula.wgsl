@@ -54,9 +54,9 @@ struct NebulaParams {
     _padding2: f32,
     _padding3: f32,
 }
-@group(1) @binding(0) var<uniform> params: NebulaParams;
+@group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
 
-@group(2) @binding(0) var output: texture_storage_2d<rgba16float, write>;
+@group(2) @binding(0) var<uniform> params: NebulaParams;
 @group(3) @binding(0) var<storage, read_write> atomic_buffer: array<atomic<u32>>;
 
 const pi = 3.14159265359;
