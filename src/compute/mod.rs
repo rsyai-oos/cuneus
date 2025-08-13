@@ -2015,6 +2015,7 @@ impl MultiBufferManager {
         })
     }
 
+
     // Get output bind group
     pub fn get_output_bind_group(&self) -> &wgpu::BindGroup {
         &self.output_bind_group
@@ -2081,6 +2082,7 @@ pub struct MultiBufferCompute<P: UniformProvider> {
     pub custom_buffers: Vec<(String, wgpu::Buffer)>,
     pub atomic_buffer: Option<AtomicBuffer>,
     pub atomic_layout: Option<wgpu::BindGroupLayout>,
+    external_texture: Option<(wgpu::TextureView, wgpu::Sampler)>,
 }
 
 impl<P: UniformProvider> MultiBufferCompute<P> {
@@ -2180,6 +2182,7 @@ impl<P: UniformProvider> MultiBufferCompute<P> {
             custom_buffers: Vec::new(),
             atomic_buffer: None,
             atomic_layout: None,
+            external_texture: None,
         }
     }
 
@@ -2187,7 +2190,51 @@ impl<P: UniformProvider> MultiBufferCompute<P> {
     pub fn dispatch_buffer(&mut self, encoder: &mut wgpu::CommandEncoder, core: &Core, buffer_name: &str, input_channels: &[&str]) {
         if let Some(pipeline) = self.pipelines.get(buffer_name) {
             let sampler = core.device.create_sampler(&wgpu::SamplerDescriptor::default());
-            let input_bind_group = self.buffer_manager.create_input_bind_group(&core.device, &sampler, input_channels);
+            
+            let input_bind_group = if let Some((external_view, external_sampler)) = &self.external_texture {
+                // Create custom bind group with external texture support
+                let mut input_views = Vec::new();
+                for i in 0..1 {
+                    let channel_name = input_channels.get(i).unwrap_or(&input_channels[0]);
+                    let texture = self.buffer_manager.get_read_texture(channel_name);
+                    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+                    input_views.push(view);
+                }
+                
+                core.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("Multi-Buffer Input with External Texture"),
+                    layout: self.buffer_manager.get_multi_texture_layout(),
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&input_views[0]),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(&sampler),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::TextureView(external_view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: wgpu::BindingResource::Sampler(external_sampler),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 4,
+                            resource: wgpu::BindingResource::TextureView(&input_views[0]),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 5,
+                            resource: wgpu::BindingResource::Sampler(&sampler),
+                        },
+                    ],
+                })
+            } else {
+                self.buffer_manager.create_input_bind_group(&core.device, &sampler, input_channels)
+            };
+            
             let write_bind_group = self.buffer_manager.get_write_bind_group(buffer_name);
 
             let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -2326,6 +2373,7 @@ impl<P: UniformProvider> MultiBufferCompute<P> {
             custom_buffers: storage_buffers,
             atomic_buffer: Some(atomic_buffer),
             atomic_layout: Some(atomic_layout),
+            external_texture: None,
         }
     }
 
@@ -2433,6 +2481,7 @@ impl<P: UniformProvider> MultiBufferCompute<P> {
             custom_buffers: Vec::new(),
             atomic_buffer: Some(atomic_buffer),
             atomic_layout: Some(atomic_layout),
+            external_texture: None,
         }
     }
 
@@ -2483,6 +2532,14 @@ impl<P: UniformProvider> MultiBufferCompute<P> {
         self.time_uniform.data.delta = 1.0/60.0;
         self.time_uniform.data.frame = self.frame_count;
         self.time_uniform.update(queue);
+    }
+
+    /// Update external texture for ch support
+    pub fn update_input_texture(&mut self, input_view: &wgpu::TextureView, input_sampler: &wgpu::Sampler) {
+        self.external_texture = Some((
+            input_view.clone(),
+            input_sampler.clone()
+        ));
     }
 }
 
