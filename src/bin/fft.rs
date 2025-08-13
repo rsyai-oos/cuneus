@@ -137,21 +137,8 @@ impl ShaderManager for FFTShader {
     }
     
     fn update(&mut self, core: &Core) {
-        // Update video/webcam textures and update input texture for FFT
-        if self.base.using_video_texture {
-            self.base.update_video_texture(core, &core.queue);
-            if let Some(ref video_manager) = self.base.video_texture_manager {
-                let texture_manager = video_manager.texture_manager();
-                self.compute_shader.update_input_texture(core, &texture_manager.view, &texture_manager.sampler);
-            }
-        } else if self.base.using_webcam_texture {
-            self.base.update_webcam_texture(core, &core.queue);
-            if let Some(ref webcam_manager) = self.base.webcam_texture_manager {
-                let texture_manager = webcam_manager.texture_manager();
-                self.compute_shader.update_input_texture(core, &texture_manager.view, &texture_manager.sampler);
-            }
-        } else if let Some(ref texture_manager) = self.base.texture_manager {
-            // Update with static image texture
+        self.base.update_current_texture(core, &core.queue);
+        if let Some(texture_manager) = self.base.get_current_texture_manager() {
             self.compute_shader.update_input_texture(core, &texture_manager.view, &texture_manager.sampler);
         }
         
@@ -313,10 +300,6 @@ impl ShaderManager for FFTShader {
         
         if controls_request.load_media_path.is_some() {
             self.should_initialize = true;
-            // For first texture upload, ensure input texture is updated immediately
-            if let Some(ref texture_manager) = self.base.texture_manager {
-                self.compute_shader.update_input_texture(core, &texture_manager.view, &texture_manager.sampler);
-            }
         }
         if controls_request.start_webcam {
             self.should_initialize = true;
@@ -422,10 +405,6 @@ impl ShaderManager for FFTShader {
                 eprintln!("Failed to load dropped file: {:?}", e);
             } else {
                 self.should_initialize = true;
-                // Ensure input texture is updated immediately for dropped files
-                if let Some(ref texture_manager) = self.base.texture_manager {
-                    self.compute_shader.update_input_texture(core, &texture_manager.view, &texture_manager.sampler);
-                }
             }
             return true;
         }
