@@ -848,4 +848,31 @@ impl RenderKit {
         
         self.mouse_tracker.handle_mouse_input(event, window_size, ui_handled)
     }
+
+    /// Get current active texture manager (video, webcam, or static image)
+    pub fn get_current_texture_manager(&self) -> Option<&TextureManager> {
+        #[cfg(feature = "media")]
+        {
+            if self.using_video_texture {
+                return self.video_texture_manager.as_ref().map(|vm| vm.texture_manager());
+            } else if self.using_webcam_texture {
+                return self.webcam_texture_manager.as_ref().map(|wm| wm.texture_manager());
+            }
+        }
+        self.texture_manager.as_ref()
+    }
+
+    /// Update current active texture and return whether an external texture update is needed
+    pub fn update_current_texture(&mut self, core: &Core, queue: &wgpu::Queue) -> bool {
+        #[cfg(feature = "media")]
+        {
+            if self.using_video_texture {
+                return self.update_video_texture(core, queue);
+            } else if self.using_webcam_texture {
+                return self.update_webcam_texture(core, queue);
+            }
+        }
+        // Static textures don't need updates
+        false
+    }
 }
