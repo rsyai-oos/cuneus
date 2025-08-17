@@ -199,7 +199,7 @@ struct PathTracingShader {
 }
 
 impl PathTracingShader {
-    // Helper function to create pathtracing bind group (eliminates duplication)
+    // Helper function to create pathtracing bind group
     fn create_pathtracing_bind_group(&self, core: &Core, label: &str) -> Option<wgpu::BindGroup> {
         if let Some(ref texture_manager) = self.base.texture_manager {
             let output_view = self.compute_shader.get_output_texture().texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -659,8 +659,7 @@ impl ShaderManager for PathTracingShader {
         if self.params_uniform.data.accumulate > 0 {
             self.frame_count += 1;
         } else {
-            // Still increment for noise generation when not accumulating
-            self.frame_count = (self.frame_count + 1) % 1000; // Keep it reasonable to avoid overflow
+            self.frame_count = (self.frame_count + 1) % 1000;
         }
         
         Ok(())

@@ -1,7 +1,7 @@
 // This example demonstrates a how to generate audio using cunes via compute shaders
 use cuneus::{Core, ShaderApp, ShaderManager, RenderKit, UniformProvider, UniformBinding, ShaderControls};
 use cuneus::audio::SynthesisManager;
-use cuneus::compute::{ComputeShaderConfig, COMPUTE_TEXTURE_FORMAT_RGBA16, create_bind_group_layout, BindGroupLayoutType};
+use cuneus::compute::{ComputeShaderConfig, COMPUTE_TEXTURE_FORMAT_RGBA16};
 use winit::event::*;
 use std::path::PathBuf;
 
@@ -102,11 +102,10 @@ impl ShaderManager for SynthManager {
             ],
         });
         
-        let params_bind_group_layout = create_bind_group_layout(
-            &core.device,
-            BindGroupLayoutType::CustomUniform,
-            "Synth Params"
-        );
+        let mut resource_layout = cuneus::compute::ResourceLayout::new();
+        resource_layout.add_custom_uniform("synth_params", std::mem::size_of::<SynthParams>() as u64);
+        let bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
+        let params_bind_group_layout = bind_group_layouts.get(&2).unwrap();
         
         let mut base = RenderKit::new(
             core,
@@ -165,7 +164,7 @@ impl ShaderManager for SynthManager {
                 key_states: [[0.0; 4]; 3],
                 key_decay: [[0.0; 4]; 3],
             },
-            &params_bind_group_layout,
+            params_bind_group_layout,
             0,
         );
 

@@ -54,6 +54,11 @@ impl ShaderManager for CNNDigitRecognizer {
             label: Some("texture_bind_group_layout"),
         });
         
+        let mut resource_layout = cuneus::compute::ResourceLayout::new();
+        resource_layout.add_custom_uniform("cnn_params", std::mem::size_of::<CNNParams>() as u64);
+        let bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
+        let custom_uniform_layout = bind_group_layouts.get(&2).unwrap();
+
         let params_uniform = UniformBinding::new(
             &core.device,
             "CNN Params",
@@ -81,7 +86,7 @@ impl ShaderManager for CNNDigitRecognizer {
                 mouse_buttons: 0,
                 _padding: [0.0; 3],
             },
-            &create_bind_group_layout(&core.device, BindGroupLayoutType::CustomUniform, "CNN Params"),
+            &custom_uniform_layout,
             0,
         );
         
@@ -106,11 +111,11 @@ impl ShaderManager for CNNDigitRecognizer {
             sampler_filter_mode: wgpu::FilterMode::Linear,
             label: "CNN".to_string(),
             mouse_bind_group_layout: None,
-            enable_fonts: true, // Enable fonts for CNN digit display
+            enable_fonts: true, 
             enable_audio_buffer: false,
             audio_buffer_size: 0,
             enable_custom_uniform: true,
-            enable_input_texture: false, // CNN doesn't actually use input texture
+            enable_input_texture: false,
             custom_storage_buffers: vec![
                 CustomStorageBuffer {
                     label: "Canvas Buffer".to_string(),
@@ -176,7 +181,6 @@ impl ShaderManager for CNNDigitRecognizer {
         let output = core.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
         
-        // Handle UI and controls like in jfa.rs
         let mut params = self.params_uniform.data;
         let mut changed = false;
         let mut should_start_export = false;
@@ -254,7 +258,7 @@ impl ShaderManager for CNNDigitRecognizer {
         self.compute_shader.dispatch_stage(&mut compute_encoder, 3, (10, 1, 1), Some(&self.params_uniform.bind_group)); // fully_connected
         self.compute_shader.dispatch_stage(&mut compute_encoder, 4, (core.size.width.div_ceil(16), core.size.height.div_ceil(16), 1), Some(&self.params_uniform.bind_group)); // main_image
         
-        // Handle control requests like in jfa.rs
+
         self.base.export_manager.apply_ui_request(export_request);
         self.base.apply_control_request(controls_request);
 

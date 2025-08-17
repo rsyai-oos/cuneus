@@ -131,6 +131,11 @@ impl ShaderManager for CliffordShader {
             label: Some("texture_bind_group_layout"),
         });
         
+        let mut resource_layout = cuneus::compute::ResourceLayout::new();
+        resource_layout.add_custom_uniform("clifford_params", std::mem::size_of::<CliffordParams>() as u64);
+        let bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
+        let clifford_params_layout = bind_group_layouts.get(&2).unwrap();
+
         let params_uniform = UniformBinding::new(
             &core.device,
             "Clifford Params",
@@ -154,7 +159,7 @@ impl ShaderManager for CliffordShader {
                 dof_amount: 1.0,
                 dof_focal_dist: 0.5,
             },
-            &create_bind_group_layout(&core.device, BindGroupLayoutType::CustomUniform, "Clifford Params"),
+            clifford_params_layout,
             0,
         );
         

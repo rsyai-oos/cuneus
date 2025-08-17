@@ -1,5 +1,5 @@
 use cuneus::{Core, ShaderApp, ShaderManager, RenderKit, ShaderControls};
-use cuneus::compute::{ComputeShaderConfig, COMPUTE_TEXTURE_FORMAT_RGBA16, create_bind_group_layout, BindGroupLayoutType};
+use cuneus::compute::{ComputeShaderConfig, COMPUTE_TEXTURE_FORMAT_RGBA16};
 use cuneus::audio::SynthesisManager;
 use winit::event::*;
 use std::path::PathBuf;
@@ -41,11 +41,12 @@ impl ShaderManager for DebugScreen {
             None,
         );
         
-        let mouse_bind_group_layout = create_bind_group_layout(
-            &core.device,
-            BindGroupLayoutType::MouseUniform,
-            "Debug Screen Mouse"
-        );
+        // Create mouse uniform bind group layout using ResourceLayout system  
+        let mut resource_layout = cuneus::compute::ResourceLayout::new();
+        resource_layout.add_custom_uniform("mouse", std::mem::size_of::<cuneus::MouseUniform>() as u64);
+        let bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
+         // Group 2 is standard for custom uniforms
+        let mouse_bind_group_layout = bind_group_layouts.get(&2).unwrap().clone();
         
         let mouse_uniform = cuneus::UniformBinding::new(
             &core.device,
@@ -60,16 +61,20 @@ impl ShaderManager for DebugScreen {
         
         let compute_config = ComputeShaderConfig {
             workgroup_size: [16, 16, 1],
-            workgroup_count: None,  // Auto-determine from texture size
-            dispatch_once: false,   // Run every frame
+            // Auto-determine from texture size
+            workgroup_count: None,
+            // Run every frame
+            dispatch_once: false,
             storage_texture_format: COMPUTE_TEXTURE_FORMAT_RGBA16,
-            enable_atomic_buffer: false,  // Not needed for this simple shader
+            enable_atomic_buffer: false,
             atomic_buffer_multiples: 4,
-            entry_points: vec!["main".to_string()],  // Single entry point
+            // Single entry point
+            entry_points: vec!["main".to_string()], 
             sampler_address_mode: wgpu::AddressMode::ClampToEdge,
             sampler_filter_mode: wgpu::FilterMode::Linear,
             label: "Basic Compute".to_string(),
-            mouse_bind_group_layout: None,  // Don't pass here, add separately
+            // Don't pass here, add separately
+            mouse_bind_group_layout: None,
             enable_fonts: true,
             enable_audio_buffer: true,
             audio_buffer_size: 1024,
@@ -131,13 +136,13 @@ impl ShaderManager for DebugScreen {
     fn update(&mut self, core: &Core) {
         // Update compute shader time
         let current_time = self.base.controls.get_time(&self.base.start_time);
-        let delta = 1.0/60.0; // Approximate delta time
+        let delta = 1.0/60.0;
         self.base.update_compute_shader_time(current_time, delta, &core.queue);
         self.base.update_mouse_uniform(&core.queue);
         self.base.fps_tracker.update();
         // Handle audio generation when note is requested
         if self.generate_note {
-            // Read GPU-generated audio parameters for CPU synthesis (check every few frames to reduce overhead)
+            // Read GPU-generated audio parameters for CPU synthesis
             if self.base.time_uniform.data.frame % 60 == 0 {
                 if let Some(compute_shader) = &self.base.compute_shader {
                     if let Ok(gpu_samples) = pollster::block_on(compute_shader.read_audio_samples(&core.device, &core.queue)) {
@@ -150,7 +155,7 @@ impl ShaderManager for DebugScreen {
                                 synth.update_waveform(waveform_type);
                                 
                                 // Use voice 0 for simple debug audio
-                                let frequency = gpu_samples[3]; // Use first shader-generated frequency
+                                let frequency = gpu_samples[3]; 
                                 let active = amplitude > 0.01;
                                 let amp = if active { amplitude * 0.3 } else { 0.0 };
                                 synth.set_voice(0, frequency, amp, active);

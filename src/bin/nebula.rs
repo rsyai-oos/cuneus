@@ -175,6 +175,11 @@ impl ShaderManager for NebulaShader {
             label: Some("texture_bind_group_layout"),
         });
         
+        let mut resource_layout = cuneus::compute::ResourceLayout::new();
+        resource_layout.add_custom_uniform("nebula_params", std::mem::size_of::<NebulaParams>() as u64);
+        let bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
+        let nebula_params_layout = bind_group_layouts.get(&2).unwrap();
+
         let params_uniform = UniformBinding::new(
             &core.device,
             "Nebula Params Uniform",
@@ -222,7 +227,7 @@ impl ShaderManager for NebulaShader {
                 _padding2: 0.0,
                 _padding3: 0.0,
             },
-            &create_bind_group_layout(&core.device, BindGroupLayoutType::CustomUniform, "Nebula Params"),
+            nebula_params_layout,
             0,
         );
 
@@ -245,7 +250,7 @@ impl ShaderManager for NebulaShader {
             sampler_address_mode: wgpu::AddressMode::ClampToEdge,
             sampler_filter_mode: wgpu::FilterMode::Linear,
             label: "Nebula".to_string(),
-            mouse_bind_group_layout: None, // Mouse data passed through custom uniform instead
+            mouse_bind_group_layout: None,
             enable_fonts: false,
             enable_audio_buffer: false,
             audio_buffer_size: 0,

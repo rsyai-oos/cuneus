@@ -134,6 +134,11 @@ impl ShaderManager for SpiralShader {
             label: Some("texture_bind_group_layout"),
         });
         
+        let mut resource_layout = cuneus::compute::ResourceLayout::new();
+        resource_layout.add_custom_uniform("spiral_params", std::mem::size_of::<SpiralParams>() as u64);
+        let bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
+        let spiral_params_layout = bind_group_layouts.get(&2).unwrap();
+
         let params_uniform = UniformBinding::new(
             &core.device,
             "Spiral Params",
@@ -155,7 +160,7 @@ impl ShaderManager for SpiralShader {
                 color2_b: 0.5,       
                 _padding: 0,
             },
-            &create_bind_group_layout(&core.device, BindGroupLayoutType::CustomUniform, "Spiral Params"),
+            spiral_params_layout,
             0,
         );
         

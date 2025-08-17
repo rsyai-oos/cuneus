@@ -77,7 +77,7 @@ impl ShaderManager for FluidShader {
     }
 
     fn update(&mut self, core: &Core) {
-        // Update current texture (video/webcam/static) and external texture in one clean call
+        // Update current texture (video/webcam/static) and external texture
         self.base.update_current_texture(core, &core.queue);
         if let Some(texture_manager) = self.base.get_current_texture_manager() {
             self.multi_buffer.update_input_texture(&texture_manager.view, &texture_manager.sampler);
@@ -86,8 +86,12 @@ impl ShaderManager for FluidShader {
         if let Some(new_shader) = self.multi_buffer.hot_reload.reload_compute_shader() {
             println!("Reloading Fluid shader at time: {:.2}s", self.base.start_time.elapsed().as_secs_f32());
             
-            let time_layout = create_bind_group_layout(&core.device, BindGroupLayoutType::TimeUniform, "Fluid Time");
-            let params_layout = create_bind_group_layout(&core.device, BindGroupLayoutType::CustomUniform, "Fluid Params");
+            let mut resource_layout = cuneus::compute::ResourceLayout::new();
+            resource_layout.add_time_uniform(); // Group 0
+            resource_layout.add_custom_uniform("fluid_params", std::mem::size_of::<FluidParams>() as u64); // Group 2
+            let bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
+            let time_layout = bind_group_layouts.get(&0).unwrap(); // Group 0 for time
+            let params_layout = bind_group_layouts.get(&2).unwrap(); // Group 2 for custom params
             
             let pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Updated Fluid Pipeline Layout"),

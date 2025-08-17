@@ -84,8 +84,12 @@ impl ShaderManager for LichShader {
         if let Some(new_shader) = self.multi_buffer.hot_reload.reload_compute_shader() {
             println!("Reloading Lich shader at time: {:.2}s", self.base.start_time.elapsed().as_secs_f32());
             
-            let time_layout = create_bind_group_layout(&core.device, BindGroupLayoutType::TimeUniform, "Lich Time");
-            let params_layout = create_bind_group_layout(&core.device, BindGroupLayoutType::CustomUniform, "Lich Params");
+            let mut resource_layout = cuneus::compute::ResourceLayout::new();
+            resource_layout.add_time_uniform();
+            resource_layout.add_custom_uniform("lich_params", std::mem::size_of::<LichParams>() as u64);
+            let bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
+            let time_layout = bind_group_layouts.get(&0).unwrap();
+            let params_layout = bind_group_layouts.get(&2).unwrap();
             
             let pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Updated Lich Pipeline Layout"),

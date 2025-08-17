@@ -4,6 +4,9 @@ use std::path::PathBuf;
 use std::collections::HashMap;
 use log::{info, warn};
 
+pub mod resource;
+pub use resource::*;
+
 pub const COMPUTE_TEXTURE_FORMAT_RGBA16: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 pub const COMPUTE_TEXTURE_FORMAT_RGBA8: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 
@@ -73,21 +76,6 @@ impl Default for ComputeShaderConfig {
     }
 }
 
-// Bind group layout types for different shader configurations
-pub enum BindGroupLayoutType {
-    StorageTexture,
-    StorageTextureWithInput,
-    StorageTextureWithFonts,
-    TextureWithInputAndFonts,
-    TimeUniform,
-    CustomUniform,
-    AtomicBuffer,
-    ExternalTexture,
-    MouseUniform,
-    FontTexture,
-    FontWithAudio,
-    AudioBuffer,
-}
 
 pub fn create_storage_texture(
     device: &wgpu::Device, 
@@ -158,330 +146,201 @@ pub fn create_output_texture(
     }
 }
 
-pub fn create_bind_group_layout(
-    device: &wgpu::Device,
-    layout_type: BindGroupLayoutType,
-    label: &str,
-) -> wgpu::BindGroupLayout {
-    match layout_type {
-        BindGroupLayoutType::StorageTexture => {
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some(&format!("{} Storage Texture Layout", label)),
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::StorageTexture {
-                            access: wgpu::StorageTextureAccess::WriteOnly,
-                            format: COMPUTE_TEXTURE_FORMAT_RGBA16,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                        },
-                        count: None,
-                    },
-                ],
-            })
-        },
-        BindGroupLayoutType::StorageTextureWithInput => {
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some(&format!("{} Storage Texture with Input Layout", label)),
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::StorageTexture {
-                            access: wgpu::StorageTextureAccess::WriteOnly,
-                            format: COMPUTE_TEXTURE_FORMAT_RGBA16,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Texture {
-                            multisampled: false,
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                ],
-            })
-        },
-        BindGroupLayoutType::StorageTextureWithFonts => {
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some(&format!("{} Storage Texture with Fonts Layout", label)),
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::StorageTexture {
-                            access: wgpu::StorageTextureAccess::WriteOnly,
-                            format: COMPUTE_TEXTURE_FORMAT_RGBA16,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Texture {
-                            multisampled: false,
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                ],
-            })
-        },
-        BindGroupLayoutType::TextureWithInputAndFonts => {
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some(&format!("{} Texture with Input and Fonts Layout", label)),
-                entries: &[
-                    // Input texture at binding 0
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Texture {
-                            multisampled: false,
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::StorageTexture {
-                            access: wgpu::StorageTextureAccess::WriteOnly,
-                            format: COMPUTE_TEXTURE_FORMAT_RGBA16,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 3,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Texture {
-                            multisampled: false,
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 4,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                ],
-            })
-        },
-        BindGroupLayoutType::TimeUniform => {
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-                label: Some(&format!("{} Time Uniform Layout", label)),
-            })
-        },
-        BindGroupLayoutType::MouseUniform => {
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-                label: Some(&format!("{} Mouse Uniform Layout", label)),
-            })
-        },
-        BindGroupLayoutType::AtomicBuffer => {
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-                label: Some(&format!("{} Atomic Buffer Layout", label)),
-            })
-        },
-        BindGroupLayoutType::ExternalTexture => {
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Texture {
-                            multisampled: false,
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::StorageTexture {
-                            access: wgpu::StorageTextureAccess::WriteOnly,
-                            format: COMPUTE_TEXTURE_FORMAT_RGBA16,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                        },
-                        count: None,
-                    },
-                ],
-                label: Some(&format!("{} External Texture Layout", label)),
-            })
-        },
-        BindGroupLayoutType::CustomUniform => {
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-                label: Some(&format!("{} Custom Uniform Layout", label)),
-            })
-        },
-        BindGroupLayoutType::FontTexture => {
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Texture {
-                            multisampled: false,
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                ],
-                label: Some(&format!("{} Font Layout", label)),
-            })
-        }
-        BindGroupLayoutType::FontWithAudio => {
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Texture {
-                            multisampled: false,
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 3,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: false },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                ],
-                label: Some(&format!("{} Font+Audio Layout", label)),
-            })
-        }
-        BindGroupLayoutType::AudioBuffer => {
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-                label: Some(&format!("{} Audio Buffer Layout", label)),
-            })
-        }
-    }
+// create_bind_group_layout function DELETED - replaced with dynamic resource system
+
+// Temporary helper functions to bridge old API until full migration
+fn create_time_uniform_layout(device: &wgpu::Device, label: &str) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        entries: &[wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::COMPUTE,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        }],
+        label: Some(&format!("{} Time Uniform Layout", label)),
+    })
+}
+
+fn create_custom_uniform_layout(device: &wgpu::Device, label: &str) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        entries: &[wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::COMPUTE,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        }],
+        label: Some(&format!("{} Custom Uniform Layout", label)),
+    })
+}
+
+fn create_atomic_buffer_layout(device: &wgpu::Device, label: &str) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        entries: &[wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::COMPUTE,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Storage { read_only: false },
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        }],
+        label: Some(&format!("{} Atomic Buffer Layout", label)),
+    })
+}
+
+fn create_storage_texture_layout(device: &wgpu::Device, label: &str) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some(&format!("{} Storage Texture Layout", label)),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::StorageTexture {
+                    access: wgpu::StorageTextureAccess::WriteOnly,
+                    format: COMPUTE_TEXTURE_FORMAT_RGBA16,
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                },
+                count: None,
+            },
+        ],
+    })
+}
+
+fn create_external_texture_layout(device: &wgpu::Device, label: &str) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Texture {
+                    multisampled: false,
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::StorageTexture {
+                    access: wgpu::StorageTextureAccess::WriteOnly,
+                    format: COMPUTE_TEXTURE_FORMAT_RGBA16,
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                },
+                count: None,
+            },
+        ],
+        label: Some(&format!("{} External Texture Layout", label)),
+    })
+}
+
+fn create_font_texture_layout(device: &wgpu::Device, label: &str) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Texture {
+                    multisampled: false,
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ],
+        label: Some(&format!("{} Font Layout", label)),
+    })
+}
+
+fn create_font_with_audio_layout(device: &wgpu::Device, label: &str) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Texture {
+                    multisampled: false,
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 3,
+                visibility: wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: false },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+        ],
+        label: Some(&format!("{} Font+Audio Layout", label)),
+    })
+}
+
+fn create_audio_buffer_layout(device: &wgpu::Device, label: &str) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        entries: &[wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::COMPUTE,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Storage { read_only: false },
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        }],
+        label: Some(&format!("{} Audio Buffer Layout", label)),
+    })
 }
 
 pub fn create_external_texture_bind_group(
@@ -567,17 +426,48 @@ impl ComputeShader {
         
         Self::new_with_config(core, shader_source, config)
     }
-    
+    // Create dynamic resource layout based on configuration
+    // Group 0: Time uniform (always present)
+    // Group 1: Storage and input textures
+    // Group 2: Custom uniforms (if enabled)
+    // Group 3: Storage buffers and auxiliary resources
+
     pub fn new_with_config(
         core: &Core,
         shader_source: &str,
         config: ComputeShaderConfig,
     ) -> Self {
-        let time_bind_group_layout = create_bind_group_layout(
-            &core.device, 
-            BindGroupLayoutType::TimeUniform,
-            &config.label
-        );
+        let mut resource_layout = ResourceLayout::new();
+        
+
+        resource_layout.add_time_uniform();
+        
+        resource_layout.add_output_texture(config.storage_texture_format);
+        if config.enable_input_texture {
+            resource_layout.add_input_texture();
+        }
+        if config.enable_fonts {
+            resource_layout.add_resource(1, "font_texture", ResourceType::InputTexture);
+            resource_layout.add_resource(1, "font_sampler", ResourceType::Sampler);
+        }
+        
+        if config.enable_custom_uniform {
+            resource_layout.add_custom_uniform("custom", 256);
+        }
+        
+        for (i, buffer) in config.custom_storage_buffers.iter().enumerate() {
+            resource_layout.add_resource(3, &format!("storage_{}", i), ResourceType::StorageBuffer {
+                size: buffer.size,
+                read_only: false,
+            });
+        }
+        
+        // Create bind group layouts dynamically
+        let mut bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
+        
+        // Get specific layouts we need
+        let time_bind_group_layout = bind_group_layouts.remove(&0).unwrap();
+        let storage_texture_layout = bind_group_layouts.remove(&1).unwrap();
         
         let time_uniform = UniformBinding::new(
             &core.device,
@@ -590,20 +480,6 @@ impl ComputeShader {
             },
             &time_bind_group_layout,
             0,
-        );
-        
-        let storage_texture_layout = create_bind_group_layout(
-            &core.device, 
-            if config.enable_input_texture && config.enable_fonts {
-                BindGroupLayoutType::TextureWithInputAndFonts
-            } else if config.enable_input_texture { 
-                BindGroupLayoutType::StorageTextureWithInput 
-            } else if config.enable_fonts {
-                BindGroupLayoutType::StorageTextureWithFonts
-            } else { 
-                BindGroupLayoutType::StorageTexture 
-            },
-            &config.label
         );
         let texture_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Texture Display Layout"),
@@ -640,21 +516,13 @@ impl ComputeShader {
         
         // Create external texture layout for multi-stage shaders
         let external_texture_bind_group_layout = if config.entry_points.len() > 1 && !config.enable_input_texture && !config.enable_atomic_buffer {
-            Some(create_bind_group_layout(
-                &core.device, 
-                BindGroupLayoutType::ExternalTexture,
-                &config.label
-            ))
+            Some(create_external_texture_layout(&core.device, &config.label))
         } else {
             None
         };
         
         let atomic_bind_group_layout = if config.enable_atomic_buffer {
-            Some(create_bind_group_layout(
-                &core.device, 
-                BindGroupLayoutType::AtomicBuffer,
-                &config.label
-            ))
+            Some(create_atomic_buffer_layout(&core.device, &config.label))
         } else {
             None
         };
@@ -663,26 +531,18 @@ impl ComputeShader {
         let (font_system, font_bind_group_layout) = if config.enable_fonts {
             let font_data = include_bytes!("../../assets/fonts/Courier Prime Bold.ttf");
             let font_system = FontSystem::new(core, font_data);
-            let layout = create_bind_group_layout(
-                &core.device,
-                if config.enable_audio_buffer {
-                    BindGroupLayoutType::FontWithAudio
-                } else {
-                    BindGroupLayoutType::FontTexture
-                },
-                &config.label
-            );
+            let layout = if config.enable_audio_buffer {
+                create_font_with_audio_layout(&core.device, &config.label)
+            } else {
+                create_font_texture_layout(&core.device, &config.label)
+            };
             (Some(font_system), Some(layout))
         } else {
             (None, None)
         };
         
         let audio_bind_group_layout = if config.enable_audio_buffer && !config.enable_fonts {
-            Some(create_bind_group_layout(
-                &core.device, 
-                BindGroupLayoutType::AudioBuffer,
-                &config.label
-            ))
+            Some(create_audio_buffer_layout(&core.device, &config.label))
         } else {
             None
         };
@@ -887,11 +747,7 @@ impl ComputeShader {
         
         // Create custom uniform layout if needed
         let custom_uniform_bind_group_layout = if config.enable_custom_uniform {
-            Some(create_bind_group_layout(
-                &core.device,
-                BindGroupLayoutType::CustomUniform,
-                &config.label,
-            ))
+            Some(create_custom_uniform_layout(&core.device, &config.label))
         } else {
             None
         };
@@ -900,11 +756,7 @@ impl ComputeShader {
         let dummy_group2_layout = if !config.enable_custom_uniform && config.mouse_bind_group_layout.is_none() &&
                                     (config.enable_fonts || config.enable_audio_buffer || 
                                      !config.custom_storage_buffers.is_empty() || config.enable_atomic_buffer) {
-            Some(create_bind_group_layout(
-                &core.device, 
-                BindGroupLayoutType::TimeUniform,  // Reuse time uniform layout as dummy
-                "Dummy Group 2"
-            ))
+            Some(create_time_uniform_layout(&core.device, "Dummy Group 2"))
         } else {
             None
         };
@@ -962,7 +814,7 @@ impl ComputeShader {
             // Use dummy layout to maintain contiguous bind group indices
             bind_group_layouts.push(dummy_layout);
         }
-        
+        // These lines probably will be removed: those are mostly for my current sanity checks, I need a good plan first
         if let Some(layout) = &custom_storage_bind_group_layout {
             // CNN-style shaders with custom storage buffers
             bind_group_layouts.push(layout);
@@ -1815,11 +1667,7 @@ impl MultiBufferManager {
         buffer_names: &[&str],
         texture_format: wgpu::TextureFormat,
     ) -> Self {
-        let storage_layout = create_bind_group_layout(
-            &core.device,
-            BindGroupLayoutType::StorageTexture,
-            "Multi-Buffer Storage",
-        );
+        let storage_layout = create_storage_texture_layout(&core.device, "Multi-Buffer Storage");
 
         let multi_texture_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
@@ -2096,8 +1944,8 @@ impl<P: UniformProvider> MultiBufferCompute<P> {
         let buffer_manager = MultiBufferManager::new(core, buffer_names, COMPUTE_TEXTURE_FORMAT_RGBA16);
 
         // Create uniforms
-        let time_layout = create_bind_group_layout(&core.device, BindGroupLayoutType::TimeUniform, "Multi-Buffer Time");
-        let params_layout = create_bind_group_layout(&core.device, BindGroupLayoutType::CustomUniform, "Multi-Buffer Params");
+        let time_layout = create_time_uniform_layout(&core.device, "Multi-Buffer Time");
+        let params_layout = create_custom_uniform_layout(&core.device, "Multi-Buffer Params");
 
         let params_uniform = UniformBinding::new(
             &core.device,
@@ -2254,8 +2102,8 @@ impl<P: UniformProvider> MultiBufferCompute<P> {
         let buffer_manager = MultiBufferManager::new(core, buffer_names, COMPUTE_TEXTURE_FORMAT_RGBA16);
 
         // Create uniforms
-        let time_layout = create_bind_group_layout(&core.device, BindGroupLayoutType::TimeUniform, "Custom Multi-Buffer Time");
-        let params_layout = create_bind_group_layout(&core.device, BindGroupLayoutType::CustomUniform, "Custom Multi-Buffer Params");
+        let time_layout = create_time_uniform_layout(&core.device, "Custom Multi-Buffer Time");
+        let params_layout = create_custom_uniform_layout(&core.device, "Custom Multi-Buffer Params");
 
         let params_uniform = UniformBinding::new(
             &core.device,
@@ -2291,7 +2139,7 @@ impl<P: UniformProvider> MultiBufferCompute<P> {
         }
 
         // Create atomic buffer for advanced compute operations
-        let atomic_layout = create_bind_group_layout(&core.device, BindGroupLayoutType::AtomicBuffer, "Custom Atomic");
+        let atomic_layout = create_atomic_buffer_layout(&core.device, "Custom Atomic");
         let buffer_size = core.size.width * core.size.height * 4;
         let atomic_buffer = AtomicBuffer::new(&core.device, buffer_size, &atomic_layout);
 
@@ -2376,8 +2224,8 @@ impl<P: UniformProvider> MultiBufferCompute<P> {
         let buffer_manager = MultiBufferManager::new(core, buffer_names, COMPUTE_TEXTURE_FORMAT_RGBA16);
 
         // Create uniforms
-        let time_layout = create_bind_group_layout(&core.device, BindGroupLayoutType::TimeUniform, "Multi-Buffer Time");
-        let params_layout = create_bind_group_layout(&core.device, BindGroupLayoutType::CustomUniform, "Multi-Buffer Params");
+        let time_layout = create_time_uniform_layout(&core.device, "Multi-Buffer Time");
+        let params_layout = create_custom_uniform_layout(&core.device, "Multi-Buffer Params");
 
         let params_uniform = UniformBinding::new(
             &core.device,
@@ -2401,7 +2249,7 @@ impl<P: UniformProvider> MultiBufferCompute<P> {
         );
 
         // Create atomic buffer for particle accumulation
-        let atomic_layout = create_bind_group_layout(&core.device, BindGroupLayoutType::AtomicBuffer, "Atomic Buffer");
+        let atomic_layout = create_atomic_buffer_layout(&core.device, "Atomic Buffer");
         let buffer_size = core.size.width * core.size.height * 4;
         let atomic_buffer = AtomicBuffer::new(&core.device, buffer_size, &atomic_layout);
 

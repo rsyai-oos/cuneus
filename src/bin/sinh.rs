@@ -188,27 +188,30 @@ impl ShaderManager for SinhShader {
             vignette_offset: 0.0,
         };
         
+        let mut resource_layout = cuneus::compute::ResourceLayout::new();
+        resource_layout.add_custom_uniform("sinh_params", std::mem::size_of::<SinhParams>() as u64);
+        let bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
+        let sinh_params_layout = bind_group_layouts.get(&2).unwrap();
+
         let params_uniform = UniformBinding::new(
             &core.device,
             "Sinh Params",
             initial_params,
-            &cuneus::compute::create_bind_group_layout(&core.device, cuneus::compute::BindGroupLayoutType::CustomUniform, "Sinh Params"),
+            sinh_params_layout,
             0,
         );
         
-        // Sinh doesn't need atomic buffers, it's a direct render-to-texture fractal
         let compute_config = ComputeShaderConfig {
             label: "Sinh".to_string(),
-            enable_input_texture: false, // Sinh is generative fractal, no input needed
+            enable_input_texture: false,
             enable_custom_uniform: true,
             entry_points: vec![
-                "main".to_string(), // Single entry point 
+                "main".to_string(),
             ],
-            custom_storage_buffers: vec![], // No atomic buffers needed
+            custom_storage_buffers: vec![],
             ..Default::default()
         };
         
-        // Create compute shader with RenderKit integration
         let mut base = base;
         base.compute_shader = Some(ComputeShader::new_with_config(
             core,
@@ -365,7 +368,6 @@ impl ShaderManager for SinhShader {
         self.base.export_manager.apply_ui_request(export_request);
         self.base.apply_control_request(controls_request);
         
-        // Apply parameter changes (clean pattern)
         if changed {
             self.params_uniform.data = params;
             self.params_uniform.update(&core.queue);

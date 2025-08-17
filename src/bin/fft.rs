@@ -73,19 +73,38 @@ impl ShaderManager for FFTShader {
             _padding2: 0,
         };
         
+        // Demonstrate GENERIC dynamic resource system
+        // Algorithm buffer size depends on resolution: resolution² × bytes_per_pixel
+        let resolution = initial_params.resolution;
+        
+        // Create params uniform using the ResourceLayout system  
+        let mut resource_layout = cuneus::compute::ResourceLayout::new();
+        resource_layout.add_custom_uniform("params", std::mem::size_of::<FFTParams>() as u64);
+        // Add dynamic storage buffer that automatically sizes for resolution
+        // FFT needs extra working memory: 32 bytes per pixel (complex data + working buffers + indices)
+         // 32 bytes per pixel for FFT working memory
+        resource_layout.add_dynamic_storage_buffer(
+            "algorithm_data", 
+            cuneus::compute::DynamicSize::ResolutionSquared(32),
+            resolution, 
+            resolution
+        );
+        let bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
+        let fft_params_layout = bind_group_layouts.get(&2).unwrap(); // Group 2 is standard for custom uniforms
+
         let params_uniform = UniformBinding::new(
             &core.device,
             "FFT Params",
             initial_params,
-            &cuneus::compute::create_bind_group_layout(&core.device, cuneus::compute::BindGroupLayoutType::CustomUniform, "FFT Params"),
+            fft_params_layout,
             0,
         );
         
-        // FFT requires custom storage buffer for complex algorithm data
-        let buffer_size = 1024 * 1024 * 4 * 8; // Complex numbers (2 floats) for FFT data
+        // Calculate correct buffer size dynamically (much better than hardcoded size!)
+        let dynamic_buffer_size = cuneus::compute::DynamicSize::ResolutionSquared(32).calculate(resolution, resolution);
         let compute_config = ComputeShaderConfig {
             label: "FFT".to_string(),
-            enable_input_texture: true, // Enable texture upload capability like user's manual implementation
+            enable_input_texture: true,
             enable_custom_uniform: true,
             entry_points: vec![
                 "initialize_data".to_string(),      // Stage 0
@@ -98,8 +117,8 @@ impl ShaderManager for FFTShader {
             ],
             custom_storage_buffers: vec![
                 CustomStorageBuffer {
-                    label: "FFT Storage".to_string(),
-                    size: buffer_size,
+                    label: "FFT Dynamic Storage".to_string(),
+                    size: dynamic_buffer_size, // Now correctly sized!
                     usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
                 },
             ],

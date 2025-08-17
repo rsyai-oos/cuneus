@@ -213,19 +213,24 @@ impl ShaderManager for RorschachShader {
             color2_b: 1.0,
         };
         
+        let mut resource_layout = cuneus::compute::ResourceLayout::new();
+        resource_layout.add_custom_uniform("rorschach_params", std::mem::size_of::<RorschachParams>() as u64);
+        let bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
+        let rorschach_params_layout = bind_group_layouts.get(&2).unwrap();
+
         let params_uniform = UniformBinding::new(
             &core.device,
             "Rorschach Params",
             initial_params,
-            &cuneus::compute::create_bind_group_layout(&core.device, cuneus::compute::BindGroupLayoutType::CustomUniform, "Rorschach Params"),
+            rorschach_params_layout,
             0,
         );
         
         // Rorschach requires atomic buffer for particle accumulation
-        let buffer_size = (core.size.width * core.size.height * 4 * 4) as u64; // RGBA atomic buffer
+        let buffer_size = (core.size.width * core.size.height * 4 * 4) as u64;
         let compute_config = ComputeShaderConfig {
             label: "Rorschach".to_string(),
-            enable_input_texture: false, // Rorschach is generative art, no input needed
+            enable_input_texture: false,
             enable_custom_uniform: true,
             entry_points: vec![
                 "Splat".to_string(),      // Stage 0
@@ -241,7 +246,6 @@ impl ShaderManager for RorschachShader {
             ..Default::default()
         };
         
-        // Create compute shader with RenderKit integration
         let mut base = base;
         base.compute_shader = Some(ComputeShader::new_with_config(
             core,
@@ -249,7 +253,7 @@ impl ShaderManager for RorschachShader {
             compute_config,
         ));
         
-        // Enable hot reload using direct ComputeShader approach (before adding bindings)
+
         if let Some(compute_shader) = &mut base.compute_shader {
             let shader_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Rorschach Compute Shader Hot Reload"),
