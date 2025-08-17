@@ -1,8 +1,6 @@
 use cuneus::{Core, ShaderManager, UniformProvider, UniformBinding, RenderKit, ShaderControls, ExportManager};
-use cuneus::compute::{create_bind_group_layout, BindGroupLayoutType};
+use cuneus::compute::*;
 use winit::event::WindowEvent;
-use std::path::PathBuf;
-use std::collections::HashMap;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -35,69 +33,15 @@ impl UniformProvider for NeuralParams {
 }
 
 struct Neural2Shader {
-    // Core components
     base: RenderKit,
     params_uniform: UniformBinding<NeuralParams>,
-    compute_time_uniform: UniformBinding<cuneus::compute::ComputeTimeUniform>,
-    
-    // Compute pipelines
-    pipelines: HashMap<String, wgpu::ComputePipeline>,
-    
-    // Output texture
-    output_texture: cuneus::TextureManager,
-    
-    // Bind group layouts
-    compute_bind_group_layout: wgpu::BindGroupLayout,
-    atomic_bind_group_layout: wgpu::BindGroupLayout,
-    time_bind_group_layout: wgpu::BindGroupLayout,
-    params_bind_group_layout: wgpu::BindGroupLayout,
-    
-    // Bind groups
-    compute_bind_group: wgpu::BindGroup,
-    
-    // Atomic buffer for point accumulation
-    atomic_buffer: cuneus::AtomicBuffer,
-    
-    // Frame counter
+    compute_shader: ComputeShader,
     frame_count: u32,
-    
-    // Hot reload for shader
-    hot_reload: cuneus::ShaderHotReload,
-    
     export_time: Option<f32>,
     export_frame: Option<u32>,
 }
 
 impl Neural2Shader {
-    fn recreate_compute_resources(&mut self, core: &Core) {
-        self.output_texture = cuneus::compute::create_output_texture(
-            &core.device,
-            core.size.width,
-            core.size.height,
-            wgpu::TextureFormat::Rgba16Float,
-            &self.base.texture_bind_group_layout,
-            wgpu::AddressMode::ClampToEdge,
-            wgpu::FilterMode::Linear,
-            "Neural Wave Output Texture",
-        );
-        let buffer_size = core.size.width * core.size.height * 2;
-        self.atomic_buffer = cuneus::AtomicBuffer::new(
-            &core.device,
-            buffer_size,
-            &self.atomic_bind_group_layout,
-        );
-        let view_output = self.output_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        self.compute_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Neural Wave Compute Bind Group"),
-            layout: &self.compute_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&view_output),
-                },
-            ],
-        });
-    }
     
     fn capture_frame(&mut self, core: &Core, time: f32, frame: u32) -> Result<Vec<u8>, wgpu::SurfaceError> {
         let settings = self.base.export_manager.settings();
@@ -120,22 +64,43 @@ impl Neural2Shader {
         self.base.time_uniform.data.frame = frame;
         self.base.time_uniform.update(&core.queue);
         
-        self.compute_time_uniform.data.time = time;
-        self.compute_time_uniform.data.frame = frame;
-        self.compute_time_uniform.update(&core.queue);
-        let width = settings_width.div_ceil(16);
-        let height = settings_height.div_ceil(16);
+        self.compute_shader.set_time(time, 1.0/60.0, &core.queue);
+        self.compute_shader.time_uniform.data.frame = frame;
+        self.compute_shader.time_uniform.update(&core.queue);
         
-        self.atomic_buffer = cuneus::AtomicBuffer::new(
-            &core.device,
-            settings_width * settings_height * 2,
-            &self.atomic_bind_group_layout,
-        );
-        // Pass 1: Generate and splat particles
-        self.dispatch_stage(&mut encoder, core, "Splat", (2048, 1, 1));
+        // Pass 1: Generate and splat particles (Splat entry point)
+        {
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("Neural Splat Pass"),
+                timestamp_writes: None,
+            });
+            compute_pass.set_pipeline(&self.compute_shader.pipelines[0]); // First pipeline is Splat
+            compute_pass.set_bind_group(0, &self.compute_shader.time_uniform.bind_group, &[]);
+            compute_pass.set_bind_group(1, &self.compute_shader.storage_bind_group, &[]);
+            compute_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
+            if let Some(atomic_buffer) = &self.compute_shader.atomic_buffer {
+                compute_pass.set_bind_group(3, &atomic_buffer.bind_group, &[]);
+            }
+            compute_pass.dispatch_workgroups(2048, 1, 1);
+        }
         
-        // Pass 2: Render to screen
-        self.dispatch_stage(&mut encoder, core, "main_image", (width, height, 1));
+        // Pass 2: Render to screen (main_image entry point)
+        {
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("Neural Render Pass"),
+                timestamp_writes: None,
+            });
+            compute_pass.set_pipeline(&self.compute_shader.pipelines[1]); // Second pipeline is main_image
+            compute_pass.set_bind_group(0, &self.compute_shader.time_uniform.bind_group, &[]);
+            compute_pass.set_bind_group(1, &self.compute_shader.storage_bind_group, &[]);
+            compute_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
+            if let Some(atomic_buffer) = &self.compute_shader.atomic_buffer {
+                compute_pass.set_bind_group(3, &atomic_buffer.bind_group, &[]);
+            }
+            let width = settings_width.div_ceil(16);
+            let height = settings_height.div_ceil(16);
+            compute_pass.dispatch_workgroups(width, height, 1);
+        }
         
         {
             let mut render_pass = cuneus::Renderer::begin_render_pass(
@@ -146,7 +111,7 @@ impl Neural2Shader {
             );
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-            render_pass.set_bind_group(0, &self.output_texture.bind_group, &[]);
+            render_pass.set_bind_group(0, &self.compute_shader.output_texture.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
         }
         
@@ -232,43 +197,11 @@ impl ShaderManager for Neural2Shader {
             ],
             label: Some("texture_bind_group_layout"),
         });
-        let time_bind_group_layout = create_bind_group_layout(
-            &core.device, 
-            BindGroupLayoutType::TimeUniform, 
-            "Neural2 Compute"
-        );
-        let params_bind_group_layout = create_bind_group_layout(
-            &core.device, 
-            BindGroupLayoutType::CustomUniform, 
-            "Neural2 Params"
-        );
-        let atomic_bind_group_layout = create_bind_group_layout(
-            &core.device, 
-            BindGroupLayoutType::AtomicBuffer, 
-            "Neural2 Compute"
-        );
-        let compute_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::StorageTexture {
-                        access: wgpu::StorageTextureAccess::WriteOnly,
-                        format: wgpu::TextureFormat::Rgba16Float,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-            ],
-            label: Some("neural2_compute_output_layout"),
-        });
+        let mut resource_layout = cuneus::compute::ResourceLayout::new();
+        resource_layout.add_custom_uniform("neural_params", std::mem::size_of::<NeuralParams>() as u64);
+        let bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
+        let params_bind_group_layout = bind_group_layouts.get(&2).unwrap();
         
-        let buffer_size = core.config.width * core.config.height * 2;
-        let atomic_buffer = cuneus::AtomicBuffer::new(
-            &core.device,
-            buffer_size,
-            &atomic_bind_group_layout,
-        );
         
         let params_uniform = UniformBinding::new(
             &core.device,
@@ -294,35 +227,9 @@ impl ShaderManager for Neural2Shader {
                 dof_amount: 0.95,         
                 dof_focal_dist: 2.0,
             },
-            &params_bind_group_layout,
+            params_bind_group_layout,
             0,
         );
-        
-        let compute_time_uniform = UniformBinding::new(
-            &core.device,
-            "Compute Time Uniform",
-            cuneus::compute::ComputeTimeUniform {
-                time: 0.0,
-                delta: 0.0,
-                frame: 0,
-                _padding: 0,
-            },
-            &time_bind_group_layout,
-            0,
-        );
-        
-        let shader_source = include_str!("../../shaders/plasma.wgsl");
-        let cs_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Neural Wave Compute Shader"),
-            source: wgpu::ShaderSource::Wgsl(shader_source.into()),
-        });
-        
-        let hot_reload = cuneus::ShaderHotReload::new_compute(
-            core.device.clone(),
-            PathBuf::from("shaders/plasma.wgsl"),
-            cs_module.clone(),
-            "Splat",
-        ).expect("Failed to initialize hot reload");
         
         let base = RenderKit::new(
             core,
@@ -331,108 +238,58 @@ impl ShaderManager for Neural2Shader {
             &[&texture_bind_group_layout],
             None,
         );
-        
-        let output_texture = cuneus::compute::create_output_texture(
-            &core.device,
-            core.config.width,
-            core.config.height,
-            wgpu::TextureFormat::Rgba16Float,
-            &texture_bind_group_layout,
-            wgpu::AddressMode::ClampToEdge,
-            wgpu::FilterMode::Linear,
-            "Neural2 Output Texture",
+
+        let compute_config = ComputeShaderConfig {
+            workgroup_size: [16, 16, 1],
+            workgroup_count: None,
+            dispatch_once: false,
+            storage_texture_format: COMPUTE_TEXTURE_FORMAT_RGBA16,
+            enable_atomic_buffer: true,
+            atomic_buffer_multiples: 2,
+            entry_points: vec!["Splat".to_string(), "main_image".to_string()],
+            sampler_address_mode: wgpu::AddressMode::ClampToEdge,
+            sampler_filter_mode: wgpu::FilterMode::Linear,
+            label: "Neural Wave".to_string(),
+            mouse_bind_group_layout: None,
+            enable_fonts: false,
+            enable_audio_buffer: false,
+            audio_buffer_size: 0,
+            enable_custom_uniform: true,
+            enable_input_texture: false,
+            custom_storage_buffers: Vec::new(),
+        };
+
+        let mut compute_shader = ComputeShader::new_with_config(
+            core,
+            include_str!("../../shaders/plasma.wgsl"),
+            compute_config,
         );
-        
-        let compute_pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Neural2 Compute Pipeline Layout"),
-            bind_group_layouts: &[
-                &time_bind_group_layout,
-                &params_bind_group_layout,
-                &compute_bind_group_layout,
-                &atomic_bind_group_layout,
-            ],
-            push_constant_ranges: &[],
+
+        compute_shader.add_custom_uniform_binding(&params_uniform.bind_group);
+
+        let shader_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Neural Wave Compute Shader Hot Reload"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/plasma.wgsl").into()),
         });
-        
-        let entry_points = [("Splat", "Splat"), ("main_image", "Main Image")];
-        let mut pipelines = HashMap::new();
-        
-        for &(entry_point, label) in &entry_points {
-            let pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some(&format!("Neural {} Pipeline", label)),
-                layout: Some(&compute_pipeline_layout),
-                module: &cs_module,
-                entry_point: Some(entry_point),
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-                cache: None,
-            });
-            pipelines.insert(entry_point.to_string(), pipeline);
+        if let Err(e) = compute_shader.enable_hot_reload(
+            core.device.clone(),
+            std::path::PathBuf::from("shaders/plasma.wgsl"),
+            shader_module,
+        ) {
+            eprintln!("Failed to enable compute shader hot reload: {}", e);
         }
-        
-        let view_output = output_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let compute_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &compute_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&view_output),
-                },
-            ],
-            label: Some("Neural2 Compute Bind Group"),
-        });
-        
-        let mut result = Self {
+
+        Self {
             base,
             params_uniform,
-            compute_time_uniform,
-            pipelines,
-            output_texture,
-            compute_bind_group_layout,
-            atomic_bind_group_layout,
-            time_bind_group_layout,
-            params_bind_group_layout,
-            compute_bind_group,
-            atomic_buffer,
+            compute_shader,
             frame_count: 0,
-            hot_reload,
             export_time: None,
             export_frame: None,
-        };
-        
-        result.recreate_compute_resources(core);
-        
-        result
+        }
     }
     
     fn update(&mut self, core: &Core) {
-        if let Some(new_shader) = self.hot_reload.reload_compute_shader() {
-            println!("Reloading Neural2 shader at time: {:.2}s", self.base.start_time.elapsed().as_secs_f32());
-            
-            let compute_pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Updated Neural2 Compute Pipeline Layout"),
-                bind_group_layouts: &[
-                    &self.time_bind_group_layout,
-                    &self.params_bind_group_layout,
-                    &self.compute_bind_group_layout,
-                    &self.atomic_bind_group_layout,
-                ],
-                push_constant_ranges: &[],
-            });
-            
-            let entry_points = [("Splat", "Splat"), ("main_image", "Main Image")];
-            for &(entry_point, label) in &entry_points {
-                let pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                    label: Some(&format!("Updated Neural {} Pipeline", label)),
-                    layout: Some(&compute_pipeline_layout),
-                    module: &new_shader,
-                    entry_point: Some(entry_point),
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                    cache: None,
-                });
-                self.pipelines.insert(entry_point.to_string(), pipeline);
-            }
-        }
-        
         if self.base.export_manager.is_exporting() {
             self.handle_export(core);
         }
@@ -441,7 +298,8 @@ impl ShaderManager for Neural2Shader {
     
     fn resize(&mut self, core: &Core) {
         println!("Resizing to {:?}", core.size);
-        self.recreate_compute_resources(core);
+        self.base.update_resolution(&core.queue, core.size);
+        self.compute_shader.resize(core, core.size.width, core.size.height);
     }
     
     fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {
@@ -545,7 +403,7 @@ impl ShaderManager for Neural2Shader {
         
         self.base.export_manager.apply_ui_request(export_request);
         if controls_request.should_clear_buffers {
-            self.recreate_compute_resources(core);
+            self.compute_shader.clear_atomic_buffer(core);
         }
         self.base.apply_control_request(controls_request);
         
@@ -560,10 +418,9 @@ impl ShaderManager for Neural2Shader {
         self.base.time_uniform.data.frame = current_frame;
         self.base.time_uniform.update(&core.queue);
         
-        self.compute_time_uniform.data.time = current_time;
-        self.compute_time_uniform.data.delta = 1.0/60.0;
-        self.compute_time_uniform.data.frame = current_frame;
-        self.compute_time_uniform.update(&core.queue);
+        self.compute_shader.set_time(current_time, 1.0/60.0, &core.queue);
+        self.compute_shader.time_uniform.data.frame = current_frame;
+        self.compute_shader.time_uniform.update(&core.queue);
         
         if changed {
             self.params_uniform.data = params;
@@ -575,13 +432,39 @@ impl ShaderManager for Neural2Shader {
         }
         
         if self.export_time.is_none() {
-            // Pass 1: Generate and splat particles
-            self.dispatch_stage(&mut encoder, core, "Splat", (2048, 1, 1));
+            // Pass 1: Generate and splat particles (Splat entry point)
+            {
+                let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("Neural Splat Pass"),
+                    timestamp_writes: None,
+                });
+                compute_pass.set_pipeline(&self.compute_shader.pipelines[0]); // First pipeline is Splat
+                compute_pass.set_bind_group(0, &self.compute_shader.time_uniform.bind_group, &[]);
+                compute_pass.set_bind_group(1, &self.compute_shader.storage_bind_group, &[]);
+                compute_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
+                if let Some(atomic_buffer) = &self.compute_shader.atomic_buffer {
+                    compute_pass.set_bind_group(3, &atomic_buffer.bind_group, &[]);
+                }
+                compute_pass.dispatch_workgroups(2048, 1, 1);
+            }
             
-            // Pass 2: Render to screen
-            let width = core.size.width.div_ceil(16);
-            let height = core.size.height.div_ceil(16);
-            self.dispatch_stage(&mut encoder, core, "main_image", (width, height, 1));
+            // Pass 2: Render to screen (main_image entry point)
+            {
+                let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("Neural Render Pass"),
+                    timestamp_writes: None,
+                });
+                compute_pass.set_pipeline(&self.compute_shader.pipelines[1]); // Second pipeline is main_image
+                compute_pass.set_bind_group(0, &self.compute_shader.time_uniform.bind_group, &[]);
+                compute_pass.set_bind_group(1, &self.compute_shader.storage_bind_group, &[]);
+                compute_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
+                if let Some(atomic_buffer) = &self.compute_shader.atomic_buffer {
+                    compute_pass.set_bind_group(3, &atomic_buffer.bind_group, &[]);
+                }
+                let width = core.size.width.div_ceil(16);
+                let height = core.size.height.div_ceil(16);
+                compute_pass.dispatch_workgroups(width, height, 1);
+            }
         }
         
         {
@@ -594,7 +477,7 @@ impl ShaderManager for Neural2Shader {
             
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-            render_pass.set_bind_group(0, &self.output_texture.bind_group, &[]);
+            render_pass.set_bind_group(0, &self.compute_shader.output_texture.bind_group, &[]);
             
             render_pass.draw(0..4, 0..1);
         }
@@ -622,22 +505,6 @@ impl ShaderManager for Neural2Shader {
     }
 }
 
-impl Neural2Shader {
-    fn dispatch_stage(&mut self, encoder: &mut wgpu::CommandEncoder, _core: &Core, stage: &str, workgroups: (u32, u32, u32)) {
-        if let Some(pipeline) = self.pipelines.get(stage) {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some(&format!("Neural {} Pass", stage)),
-                timestamp_writes: None,
-            });
-            compute_pass.set_pipeline(pipeline);
-            compute_pass.set_bind_group(0, &self.compute_time_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.params_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(2, &self.compute_bind_group, &[]);
-            compute_pass.set_bind_group(3, &self.atomic_buffer.bind_group, &[]);
-            compute_pass.dispatch_workgroups(workgroups.0, workgroups.1, workgroups.2);
-        }
-    }
-}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();

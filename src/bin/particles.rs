@@ -139,6 +139,11 @@ impl ShaderManager for ParticleShader {
             label: Some("texture_bind_group_layout"),
         });
 
+        let mut resource_layout = cuneus::compute::ResourceLayout::new();
+        resource_layout.add_custom_uniform("particle_params", std::mem::size_of::<ParticleParams>() as u64);
+        let bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
+        let particle_params_layout = bind_group_layouts.get(&2).unwrap();
+
         let params_uniform = UniformBinding::new(
             &core.device,
             "Particle Params",
@@ -160,7 +165,7 @@ impl ShaderManager for ParticleShader {
                 color_shift_speed: 0.1,
                 color_scale: 1.2,
             },
-            &create_bind_group_layout(&core.device, BindGroupLayoutType::CustomUniform, "Particle Params"),
+            particle_params_layout,
             0,
         );
 

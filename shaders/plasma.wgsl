@@ -28,9 +28,9 @@ struct NeuralParams {
     dof_amount: f32,         
     dof_focal_dist: f32,     
 }
-@group(1) @binding(0) var<uniform> params: NeuralParams;
+@group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
 
-@group(2) @binding(0) var output: texture_storage_2d<rgba16float, write>;
+@group(2) @binding(0) var<uniform> params: NeuralParams;
 @group(3) @binding(0) var<storage, read_write> atomic_buffer: array<atomic<u32>>;
 
 alias v4 = vec4<f32>;

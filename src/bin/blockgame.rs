@@ -1,7 +1,7 @@
 // Block Game, Enes Altun, 2025, MIT License
 
 use cuneus::{Core, ShaderApp, ShaderManager, RenderKit, UniformProvider};
-use cuneus::compute::{ComputeShaderConfig, COMPUTE_TEXTURE_FORMAT_RGBA16, create_bind_group_layout, BindGroupLayoutType};
+use cuneus::compute::{ComputeShaderConfig, COMPUTE_TEXTURE_FORMAT_RGBA16};
 use winit::event::*;
 
 #[repr(C)]
@@ -114,11 +114,10 @@ impl ShaderManager for BlockTowerGame {
         );
         
         // Create mouse uniform for game interactions
-        let mouse_bind_group_layout = create_bind_group_layout(
-            &core.device,
-            BindGroupLayoutType::MouseUniform,
-            "Block Game Mouse"
-        );
+        let mut resource_layout = cuneus::compute::ResourceLayout::new();
+        resource_layout.add_custom_uniform("mouse", std::mem::size_of::<cuneus::MouseUniform>() as u64);
+        let bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
+        let mouse_bind_group_layout = bind_group_layouts.get(&2).unwrap().clone();
         
         let mouse_uniform = cuneus::UniformBinding::new(
             &core.device,
@@ -139,7 +138,7 @@ impl ShaderManager for BlockTowerGame {
             enable_audio_buffer: true,
             // Storage for game state and blocks
             audio_buffer_size: 1024,
-            mouse_bind_group_layout: None,  // Don't pass here, add separately
+            mouse_bind_group_layout: None,
             entry_points: vec!["main".to_string()],
             label: "Block Tower Game".to_string(),
             enable_custom_uniform: false,
@@ -161,7 +160,6 @@ impl ShaderManager for BlockTowerGame {
             );
         }
         
-        // Enable hot reload
         if let Some(compute_shader) = &mut base.compute_shader {
             let shader_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Blockgame Compute Shader Hot Reload"),

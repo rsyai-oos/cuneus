@@ -71,19 +71,25 @@ impl ShaderManager for ColorProjection {
             _padding: 0,
         };
         
+
+        let mut resource_layout = cuneus::compute::ResourceLayout::new();
+        resource_layout.add_custom_uniform("color_params", std::mem::size_of::<ColorProjectionParams>() as u64);
+        let bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
+        let color_params_layout = bind_group_layouts.get(&2).unwrap();
+
         let params_uniform = UniformBinding::new(
             &core.device,
             "Color Projection Params",
             initial_params,
-            &cuneus::compute::create_bind_group_layout(&core.device, cuneus::compute::BindGroupLayoutType::CustomUniform, "Color Projection Params"),
+            color_params_layout,
             0,
         );
         
         // Color projection requires atomic buffer for 3D color space accumulation
-        let buffer_size = (core.size.width * core.size.height * 4 * 4) as u64; // RGBA atomic buffer
+        let buffer_size = (core.size.width * core.size.height * 4 * 4) as u64;
         let compute_config = ComputeShaderConfig {
             label: "Color Projection".to_string(),
-            enable_input_texture: true, // Enable texture upload capability
+            enable_input_texture: true,
             enable_custom_uniform: true,
             entry_points: vec![
                 "clear_buffer".to_string(),    // Stage 0
@@ -136,7 +142,6 @@ impl ShaderManager for ColorProjection {
         }
         
         if self.base.export_manager.is_exporting() {
-            // Handle export if needed
         }
         
         self.base.fps_tracker.update();
@@ -154,7 +159,7 @@ impl ShaderManager for ColorProjection {
             label: Some("Color Projection Render Encoder"),
         });
         
-        // Handle UI and controls - using original transparent UI design
+        // Handle UI and controls
         let mut params = self.params_uniform.data;
         let mut changed = false;
         let mut should_start_export = false;
@@ -185,7 +190,6 @@ impl ShaderManager for ColorProjection {
                     .resizable(true)
                     .default_width(250.0)
                     .show(ctx, |ui| {
-                        // Media controls
                         ShaderControls::render_media_panel(
                             ui,
                             &mut controls_request,
@@ -242,7 +246,6 @@ impl ShaderManager for ColorProjection {
             self.base.render_ui(core, |_ctx| {})
         };
 
-        // Apply parameter changes
         if changed {
             self.params_uniform.data = params;
         }
@@ -268,7 +271,6 @@ impl ShaderManager for ColorProjection {
             // Webcam started
         }
         
-        // Apply parameter changes (original clean approach)
         if changed {
             self.params_uniform.data = params;
         }
@@ -279,7 +281,6 @@ impl ShaderManager for ColorProjection {
         self.base.time_uniform.data.frame = self.frame_count;
         self.base.time_uniform.update(&core.queue);
         
-        // This is essential for the animation
         self.compute_shader.set_time(current_time, 1.0/60.0, &core.queue);
 
         // Check for hot reload updates
@@ -367,7 +368,6 @@ impl ShaderManager for ColorProjection {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize GStreamer for video support
     cuneus::gst::init()?;
     env_logger::init();
     let (app, event_loop) = cuneus::ShaderApp::new("Color Projection", 800, 600);

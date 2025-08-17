@@ -10,7 +10,6 @@ struct SceneColorParams {
     samples_x: i32,
     samples_y: i32,
     
-    // Extra padding to avoid buffer size issues
     _pad1: f32,
     _pad2: f32,
     _pad3: f32,
@@ -53,6 +52,11 @@ impl ShaderManager for SceneColorShader {
             label: Some("Texture Bind Group Layout"),
         });
         
+        let mut resource_layout = cuneus::compute::ResourceLayout::new();
+        resource_layout.add_custom_uniform("scene_params", std::mem::size_of::<SceneColorParams>() as u64);
+        let bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
+        let scene_params_layout = bind_group_layouts.get(&2).unwrap();
+
         let params_uniform = UniformBinding::new(
             &core.device,
             "Scene Color Params",
@@ -66,7 +70,7 @@ impl ShaderManager for SceneColorShader {
                 _pad3: 0.0,
                 _pad4: 0.0,
             },
-            &create_bind_group_layout(&core.device, BindGroupLayoutType::CustomUniform, "Scene Color Params"),
+            scene_params_layout,
             0,
         );
         
@@ -123,7 +127,7 @@ impl ShaderManager for SceneColorShader {
     }
 
     fn update(&mut self, core: &Core) {
-        // Update current texture (video/webcam/static) and ComputeShader input texture in one clean call
+        // Update current texture (video/webcam/static)
         self.base.update_current_texture(core, &core.queue);
         if let Some(texture_manager) = self.base.get_current_texture_manager() {
             self.compute_shader.update_input_texture(core, &texture_manager.view, &texture_manager.sampler);

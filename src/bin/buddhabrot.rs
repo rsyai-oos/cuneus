@@ -150,6 +150,11 @@ impl ShaderManager for BuddhabrotShader {
             label: Some("texture_bind_group_layout"),
         });
         
+        let mut resource_layout = cuneus::compute::ResourceLayout::new();
+        resource_layout.add_custom_uniform("buddhabrot_params", std::mem::size_of::<BuddhabrotParams>() as u64);
+        let bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
+        let buddhabrot_params_layout = bind_group_layouts.get(&2).unwrap();
+
         let params_uniform = UniformBinding::new(
             &core.device,
             "Buddhabrot Params",
@@ -173,7 +178,7 @@ impl ShaderManager for BuddhabrotShader {
                 sample_density: 0.5,
                 dithering: 0.2,
             },
-            &create_bind_group_layout(&core.device, BindGroupLayoutType::CustomUniform, "Buddhabrot Params"),
+            buddhabrot_params_layout,
             0,
         );
         
@@ -218,7 +223,6 @@ impl ShaderManager for BuddhabrotShader {
             eprintln!("Failed to enable compute shader hot reload: {}", e);
         }
 
-        // Add custom parameters uniform to the compute shader
         compute_shader.add_custom_uniform_binding(&params_uniform.bind_group);
 
         Self {
@@ -359,12 +363,10 @@ impl ShaderManager for BuddhabrotShader {
         self.base.time_uniform.data.frame = self.frame_count;
         self.base.time_uniform.update(&core.queue);
         
-        // Update compute shader with the same time data
         self.compute_shader.set_time(current_time, 1.0/60.0, &core.queue);
         self.compute_shader.time_uniform.data.frame = self.frame_count;
         self.compute_shader.time_uniform.update(&core.queue);
 
-        // Check for hot reload updates
         self.compute_shader.check_hot_reload(&core.device);
         
         if changed {
@@ -380,7 +382,7 @@ impl ShaderManager for BuddhabrotShader {
             self.base.export_manager.start_export();
         }
         
-        // Intelligent dispatch: Only generate new samples if we're not in accumulated mode
+        // Only generate new samples if we're not in accumulated mode
         // or if we're still accumulating (frame count < 500)  
         let should_generate_samples = !self.accumulated_rendering || self.frame_count < 500;
         

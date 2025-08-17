@@ -116,8 +116,12 @@ impl ShaderManager for JfaShader {
             println!("Reloading JFA shader at time: {:.2}s", self.base.start_time.elapsed().as_secs_f32());
             
             // Recreate all pipelines with updated shader
-            let time_layout = create_bind_group_layout(&core.device, BindGroupLayoutType::TimeUniform, "JFA Time");
-            let params_layout = create_bind_group_layout(&core.device, BindGroupLayoutType::CustomUniform, "JFA Params");
+            let mut resource_layout = cuneus::compute::ResourceLayout::new();
+            resource_layout.add_time_uniform();
+            resource_layout.add_custom_uniform("jfa_params", std::mem::size_of::<JfaParams>() as u64);
+            let bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
+            let time_layout = bind_group_layouts.get(&0).unwrap();
+            let params_layout = bind_group_layouts.get(&2).unwrap();
             
             let pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Updated JFA Pipeline Layout"),

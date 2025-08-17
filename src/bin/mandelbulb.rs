@@ -255,6 +255,11 @@ impl ShaderManager for MandelbulbShader {
             label: Some("texture_bind_group_layout"),
         });
 
+        let mut resource_layout = cuneus::compute::ResourceLayout::new();
+        resource_layout.add_custom_uniform("mandelbulb_params", std::mem::size_of::<MandelbulbParams>() as u64);
+        let bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
+        let mandelbulb_params_layout = bind_group_layouts.get(&2).unwrap();
+
         let params_uniform = UniformBinding::new(
             &core.device,
             "Mandelbulb Params",
@@ -292,7 +297,7 @@ impl ShaderManager for MandelbulbShader {
                 fog_color_r: 0.1, fog_color_g: 0.1, fog_color_b: 0.15,
                 glow_color_r: 0.5, glow_color_g: 0.7, glow_color_b: 1.0,
             },
-            &create_bind_group_layout(&core.device, BindGroupLayoutType::CustomUniform, "Mandelbulb Params"),
+            mandelbulb_params_layout,
             0,
         );
 

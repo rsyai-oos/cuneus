@@ -149,13 +149,15 @@ impl ShaderManager for CurrentsShader {
     }
 
     fn update(&mut self, core: &Core) {
-        // Check hot reload
         if let Some(new_shader) = self.multi_buffer.hot_reload.reload_compute_shader() {
             println!("Reloading Currents shader at time: {:.2}s", self.base.start_time.elapsed().as_secs_f32());
             
-            // Recreate all pipelines with updated shader
-            let time_layout = create_bind_group_layout(&core.device, BindGroupLayoutType::TimeUniform, "Currents Time");
-            let params_layout = create_bind_group_layout(&core.device, BindGroupLayoutType::CustomUniform, "Currents Params");
+            let mut resource_layout = cuneus::compute::ResourceLayout::new();
+            resource_layout.add_time_uniform(); // Group 0
+            resource_layout.add_custom_uniform("currents_params", std::mem::size_of::<CurrentsParams>() as u64); // Group 2
+            let bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
+            let time_layout = bind_group_layouts.get(&0).unwrap(); // Group 0 for time
+            let params_layout = bind_group_layouts.get(&2).unwrap(); // Group 2 for custom params
             
             let pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Updated Currents Pipeline Layout"),
@@ -295,7 +297,6 @@ impl ShaderManager for CurrentsShader {
                                 });
                             });
 
-                        // Show different UI sections based on mode
                         if params.pattern_mode < 0.5 {
                             // CURRENTS MODE UI
                             egui::CollapsingHeader::new("Sphere Settings")
@@ -414,7 +415,6 @@ impl ShaderManager for CurrentsShader {
             self.base.render_ui(core, |_ctx| {})
         };
 
-        // Handle control requests
         self.base.export_manager.apply_ui_request(export_request);
         if controls_request.should_clear_buffers {
             self.multi_buffer.buffer_manager.clear_all(core, COMPUTE_TEXTURE_FORMAT_RGBA16);
@@ -455,7 +455,7 @@ impl ShaderManager for CurrentsShader {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
-    let (app, event_loop) = cuneus::ShaderApp::new("Multi-Buffer Ping-Pong", 800, 600);
+    let (app, event_loop) = cuneus::ShaderApp::new("Ping-Pong", 800, 600);
     
     app.run(event_loop, |core| {
         CurrentsShader::init(core)
