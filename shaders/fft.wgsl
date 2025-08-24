@@ -27,12 +27,11 @@ struct FFTParams {
     _padding1: u32,
     _padding2: u32,
 };
-// Storage texture with input texture support for user texture uploads
+// Group 1: Primary Pass I/O & Parameters  
 @group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
-@group(1) @binding(1) var input_texture: texture_2d<f32>;
-@group(1) @binding(2) var input_sampler: sampler;
-
-@group(2) @binding(0) var<uniform> params: FFTParams;
+@group(1) @binding(1) var<uniform> params: FFTParams;
+@group(1) @binding(2) var input_texture: texture_2d<f32>;
+@group(1) @binding(3) var input_sampler: sampler;
 
 // Storage buffer for FFT data
 @group(3) @binding(0) var<storage, read_write> image_data: array<vec2f>;
