@@ -228,7 +228,7 @@ impl RenderKit {
         self.resolution_uniform.data.dimensions = [new_size.width as f32, new_size.height as f32];
         self.resolution_uniform.update(queue);
     }
-    fn create_default_texture_manager(
+    pub fn create_default_texture_manager(
         core: &Core,
         texture_bind_group_layout: &wgpu::BindGroupLayout,
     ) -> TextureManager {
@@ -712,19 +712,13 @@ impl RenderKit {
         &mut self,
         core: &Core,
         shader_source: &str,
-        entry_point: &str,
-        workgroup_size: [u32; 3],
-        workgroup_count: Option<[u32; 3]>,
-        dispatch_once: bool,
+        _entry_point: &str,
+        _workgroup_size: [u32; 3],
+        _workgroup_count: Option<[u32; 3]>,
+        _dispatch_once: bool,
     ) {
-        self.compute_shader = Some(ComputeShader::new(
-            core,
-            shader_source,
-            entry_point,
-            workgroup_size,
-            workgroup_count,
-            dispatch_once,
-        ));
+        // WIP untill I complete everything in compute folder
+        self.compute_shader = Some(ComputeShader::new(core, shader_source));
     }
     
     pub fn enable_compute_hot_reload(&mut self, core: &Core, shader_path: &Path) -> Result<(), notify::Error> {
