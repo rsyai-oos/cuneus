@@ -14,10 +14,8 @@ struct NeuronParams {
     col2: f32,
     decay: f32,
 };
-@group(1) @binding(0) var<uniform> params: NeuronParams;
-
-// Storage texture for output
-@group(2) @binding(0) var output: texture_storage_2d<rgba16float, write>;
+@group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
+@group(1) @binding(1) var<uniform> params: NeuronParams;
 
 // Multiple input textures for cross-buffer reading
 @group(3) @binding(0) var input_texture0: texture_2d<f32>;
