@@ -232,7 +232,7 @@ impl ShaderManager for SynthManager {
                 if self.current_params.beat_enabled > 0 {
                     let beat_freq = self.current_params.tempo * 2.0;
                     let beat_time = self.base.time_uniform.data.time * beat_freq / 60.0;
-                    let beat_amp = if (beat_time.fract() < 0.1) { 0.1 } else { 0.0 };
+                    let beat_amp = if beat_time.fract() < 0.1 { 0.1 } else { 0.0 };
                     synth.set_voice(8, beat_freq, beat_amp, beat_amp > 0.0);
                 }
             }

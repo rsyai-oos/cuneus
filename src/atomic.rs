@@ -1,6 +1,3 @@
-use wgpu;
-use bytemuck;
-
 pub struct AtomicBuffer {
     pub buffer: wgpu::Buffer,
     pub bind_group: wgpu::BindGroup,

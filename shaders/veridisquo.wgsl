@@ -13,17 +13,6 @@ struct TimeUniform {
 @group(0) @binding(0) var<uniform> u_time: TimeUniform;
 @group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
 
-struct FontUniforms {
-    atlas_size: vec2<f32>,
-    char_size: vec2<f32>,
-    screen_size: vec2<f32>,
-    _padding: vec2<f32>,
-};
-@group(3) @binding(0) var<uniform> u_font: FontUniforms;
-@group(3) @binding(1) var t_font_atlas: texture_2d<f32>;
-@group(3) @binding(2) var s_font_atlas: sampler;
-@group(3) @binding(3) var<storage, read_write> audio_buffer: array<f32>;
-
 struct SongParams {
     volume: f32,
     octave_shift: f32,
@@ -34,7 +23,18 @@ struct SongParams {
     chorus_rate: f32,
     _padding: f32,
 };
-@group(2) @binding(0) var<uniform> u_song: SongParams;
+@group(1) @binding(1) var<uniform> u_song: SongParams;
+
+struct FontUniforms {
+    atlas_size: vec2<f32>,
+    char_size: vec2<f32>,
+    screen_size: vec2<f32>,
+    _padding: vec2<f32>,
+};
+@group(2) @binding(0) var<uniform> u_font: FontUniforms;
+@group(2) @binding(1) var t_font_atlas: texture_2d<f32>;
+@group(2) @binding(2) var s_font_atlas: sampler;
+@group(2) @binding(3) var<storage, read_write> audio_buffer: array<f32>;
 
 const PI=3.14159265;
 const F5=698.46;
