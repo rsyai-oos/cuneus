@@ -29,7 +29,7 @@ struct VolumeParams {
 };
 @group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
 
-@group(2) @binding(0) var<uniform> params: VolumeParams;
+@group(1) @binding(1) var<uniform> params: VolumeParams;
 
 alias v3 = vec3<f32>;
 alias v2 = vec2<f32>;

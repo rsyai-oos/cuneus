@@ -31,12 +31,15 @@ impl UniformProvider for VolumeParams {
 
 struct VolumeShader {
     base: RenderKit,
-    params_uniform: UniformBinding<VolumeParams>,
     compute_shader: ComputeShader,
-    frame_count: u32,
+    current_params: VolumeParams,
 }
 
-impl VolumeShader {}
+impl VolumeShader {
+    fn clear_buffers(&mut self, core: &Core) {
+        self.compute_shader.clear_all_buffers(core);
+    }
+}
 
 impl ShaderManager for VolumeShader {
     fn init(core: &Core) -> Self {
@@ -48,85 +51,47 @@ impl ShaderManager for VolumeShader {
             label: Some("texture_bind_group_layout"),
         });
         
-        let mut resource_layout = cuneus::compute::ResourceLayout::new();
-        resource_layout.add_custom_uniform("volume_params", std::mem::size_of::<VolumeParams>() as u64);
-        let bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
-        let volume_params_layout = bind_group_layouts.get(&2).unwrap();
-
-        let params_uniform = UniformBinding::new(
-            &core.device,
-            "Volume Params",
-            VolumeParams {
-                speed: 1.0,
-                intensity: 0.001,
-                color1_r: 0.1,
-                color1_g: 0.3,
-                color1_b: 0.7,
-                color2_r: 0.8,
-                color2_g: 0.4,
-                color2_b: 0.2,
-                color3_r: 1.0,
-                color3_g: 1.0,
-                color3_b: 1.0,
-                gamma: 0.8,
-                zoom: 1.0,
-                _padding1: 0.0,
-                _padding2: 0.0,
-                _padding3: 0.0,
-            },
-            volume_params_layout,
-            0,
-        );
+        let initial_params = VolumeParams {
+            speed: 1.0,
+            intensity: 0.001,
+            color1_r: 0.1,
+            color1_g: 0.3,
+            color1_b: 0.7,
+            color2_r: 0.8,
+            color2_g: 0.4,
+            color2_b: 0.2,
+            color3_r: 1.0,
+            color3_g: 1.0,
+            color3_b: 1.0,
+            gamma: 0.8,
+            zoom: 1.0,
+            _padding1: 0.0,
+            _padding2: 0.0,
+            _padding3: 0.0,
+        };
         
         let base = RenderKit::new(core, include_str!("../../shaders/vertex.wgsl"), include_str!("../../shaders/blit.wgsl"), &[&texture_bind_group_layout], None);
 
-        let compute_config = ComputeShaderConfig {
-            workgroup_size: [8, 8, 1],
-            workgroup_count: None,
-            dispatch_once: false,
-            storage_texture_format: COMPUTE_TEXTURE_FORMAT_RGBA16,
-            enable_atomic_buffer: false,
-            atomic_buffer_multiples: 0,
-            entry_points: vec!["main".to_string()],
-            sampler_address_mode: wgpu::AddressMode::ClampToEdge,
-            sampler_filter_mode: wgpu::FilterMode::Linear,
-            label: "Volume Passage".to_string(),
-            mouse_bind_group_layout: None,
-            enable_fonts: false,
-            enable_audio_buffer: false,
-            audio_buffer_size: 0,
-            enable_custom_uniform: true,
-            enable_input_texture: false,
-            custom_storage_buffers: Vec::new(),
-        };
+        let config = ComputeShader::builder()
+            .with_entry_point("main")
+            .with_custom_uniforms::<VolumeParams>()
+            .with_workgroup_size([8, 8, 1])
+            .with_texture_format(COMPUTE_TEXTURE_FORMAT_RGBA16)
+            .with_label("Volume Passage Unified")
+            .build();
 
-        let mut compute_shader = ComputeShader::new_with_config(
+        let compute_shader = ComputeShader::from_builder(
             core,
             include_str!("../../shaders/volumepassage.wgsl"),
-            compute_config,
+            config,
         );
 
-        // Enable hot reload
-        let shader_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("VolumePassage Compute Shader Hot Reload"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/volumepassage.wgsl").into()),
-        });
-        if let Err(e) = compute_shader.enable_hot_reload(
-            core.device.clone(),
-            std::path::PathBuf::from("shaders/volumepassage.wgsl"),
-            shader_module,
-        ) {
-            eprintln!("Failed to enable compute shader hot reload: {}", e);
-        }
-
-        // Add custom parameters uniform to the compute shader
-        compute_shader.add_custom_uniform_binding(&params_uniform.bind_group);
+        compute_shader.set_custom_params(initial_params, &core.queue);
 
         Self {
             base,
-            params_uniform,
             compute_shader,
-            frame_count: 0,
+            current_params: initial_params,
         }
     }
     
@@ -135,7 +100,6 @@ impl ShaderManager for VolumeShader {
     }
     
     fn resize(&mut self, core: &Core) {
-        println!("Resizing to {:?}", core.size);
         self.base.update_resolution(&core.queue, core.size);
         self.compute_shader.resize(core, core.size.width, core.size.height);
     }
@@ -147,7 +111,7 @@ impl ShaderManager for VolumeShader {
             label: Some("Render Encoder"),
         });
         
-        let mut params = self.params_uniform.data;
+        let mut params = self.current_params;
         let mut changed = false;
         let mut should_start_export = false;
         let mut export_request = self.base.export_manager.get_ui_request();
@@ -232,29 +196,25 @@ impl ShaderManager for VolumeShader {
         };
         
         self.base.export_manager.apply_ui_request(export_request);
+        if controls_request.should_clear_buffers {
+            self.clear_buffers(core);
+        }
         self.base.apply_control_request(controls_request);
         
         let current_time = self.base.controls.get_time(&self.base.start_time);
         
-        self.base.time_uniform.data.time = current_time;
-        self.base.time_uniform.data.frame = self.frame_count;
-        self.base.time_uniform.update(&core.queue);
-        
-        // Update compute shader with the same time data
-        self.compute_shader.set_time(current_time, 1.0/60.0, &core.queue);
-        self.compute_shader.time_uniform.data.frame = self.frame_count;
-        self.compute_shader.time_uniform.update(&core.queue);
+        let delta = 1.0 / 60.0;
+        self.compute_shader.set_time(current_time, delta, &core.queue);
         
         if changed {
-            self.params_uniform.data = params;
-            self.params_uniform.update(&core.queue);
+            self.current_params = params;
+            self.compute_shader.set_custom_params(params, &core.queue);
         }
         
         if should_start_export {
             self.base.export_manager.start_export();
         }
         
-        // Use ComputeShader dispatch
         self.compute_shader.dispatch(&mut encoder, core);
         
         {
@@ -275,8 +235,6 @@ impl ShaderManager for VolumeShader {
         self.base.handle_render_output(core, &view, full_output, &mut encoder);
         core.queue.submit(Some(encoder.finish()));
         output.present();
-        
-        self.frame_count += 1;
         
         Ok(())
     }

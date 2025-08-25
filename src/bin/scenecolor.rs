@@ -24,8 +24,14 @@ impl UniformProvider for SceneColorParams {
 
 struct SceneColorShader {
     base: RenderKit,
-    params_uniform: UniformBinding<SceneColorParams>,
     compute_shader: ComputeShader,
+    current_params: SceneColorParams,
+}
+
+impl SceneColorShader {
+    fn clear_buffers(&mut self, core: &Core) {
+        self.compute_shader.clear_all_buffers(core);
+    }
 }
 
 impl ShaderManager for SceneColorShader {
@@ -52,27 +58,16 @@ impl ShaderManager for SceneColorShader {
             label: Some("Texture Bind Group Layout"),
         });
         
-        let mut resource_layout = cuneus::compute::ResourceLayout::new();
-        resource_layout.add_custom_uniform("scene_params", std::mem::size_of::<SceneColorParams>() as u64);
-        let bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
-        let scene_params_layout = bind_group_layouts.get(&2).unwrap();
-
-        let params_uniform = UniformBinding::new(
-            &core.device,
-            "Scene Color Params",
-            SceneColorParams {
-                num_segments: 16.0,
-                palette_height: 0.2,
-                samples_x: 8,
-                samples_y: 8,
-                _pad1: 0.0,
-                _pad2: 0.0,
-                _pad3: 0.0,
-                _pad4: 0.0,
-            },
-            scene_params_layout,
-            0,
-        );
+        let initial_params = SceneColorParams {
+            num_segments: 16.0,
+            palette_height: 0.2,
+            samples_x: 8,
+            samples_y: 8,
+            _pad1: 0.0,
+            _pad2: 0.0,
+            _pad3: 0.0,
+            _pad4: 0.0,
+        };
         
         let base = RenderKit::new(
             core,
@@ -82,61 +77,59 @@ impl ShaderManager for SceneColorShader {
             None,
         );
 
-        let compute_config = ComputeShaderConfig {
-            workgroup_size: [16, 16, 1],
-            workgroup_count: None,
-            dispatch_once: false,
-            storage_texture_format: COMPUTE_TEXTURE_FORMAT_RGBA16,
-            enable_atomic_buffer: false,
-            atomic_buffer_multiples: 0,
-            entry_points: vec!["main".to_string()],
-            sampler_address_mode: wgpu::AddressMode::ClampToEdge,
-            sampler_filter_mode: wgpu::FilterMode::Linear,
-            label: "Scene Color".to_string(),
-            mouse_bind_group_layout: None,
-            enable_fonts: false,
-            enable_audio_buffer: false,
-            audio_buffer_size: 0,
-            enable_custom_uniform: true,
-            enable_input_texture: true,
-            custom_storage_buffers: Vec::new(),
-        };
+        let config = ComputeShader::builder()
+            .with_entry_point("main")
+            .with_input_texture() // Enable input texture support
+            .with_custom_uniforms::<SceneColorParams>()
+            .with_workgroup_size([16, 16, 1])
+            .with_texture_format(COMPUTE_TEXTURE_FORMAT_RGBA16)
+            .with_label("Scene Color Unified")
+            .build();
 
-        let mut compute_shader = ComputeShader::new_with_config(
+        let mut compute_shader = ComputeShader::from_builder(
             core,
             include_str!("../../shaders/scenecolor.wgsl"),
-            compute_config,
+            config,
         );
 
         // Enable hot reload
-        let shader_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Scene Color Compute Shader Hot Reload"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/scenecolor.wgsl").into()),
-        });
         if let Err(e) = compute_shader.enable_hot_reload(
             core.device.clone(),
             std::path::PathBuf::from("shaders/scenecolor.wgsl"),
-            shader_module,
+            core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Scene Color Compute Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/scenecolor.wgsl").into()),
+            }),
         ) {
-            eprintln!("Failed to enable compute shader hot reload: {}", e);
+            eprintln!("Failed to enable Scene Color compute shader hot reload: {}", e);
         }
 
-        compute_shader.add_custom_uniform_binding(&params_uniform.bind_group);
+        compute_shader.set_custom_params(initial_params, &core.queue);
 
-        Self { base, params_uniform, compute_shader }
+        Self { 
+            base, 
+            compute_shader,
+            current_params: initial_params,
+        }
     }
 
     fn update(&mut self, core: &Core) {
-        // Update current texture (video/webcam/static)
+        // Update time
+        let current_time = self.base.controls.get_time(&self.base.start_time);
+        let delta = 1.0/60.0;
+        self.compute_shader.set_time(current_time, delta, &core.queue);
+        
+        // Update input textures for media processing
         self.base.update_current_texture(core, &core.queue);
         if let Some(texture_manager) = self.base.get_current_texture_manager() {
-            self.compute_shader.update_input_texture(core, &texture_manager.view, &texture_manager.sampler);
+            self.compute_shader.update_input_texture(&texture_manager.view, &texture_manager.sampler, &core.device);
         }
         
         self.base.fps_tracker.update();
     }
 
     fn resize(&mut self, core: &Core) {
+        self.base.update_resolution(&core.queue, core.size);
         self.compute_shader.resize(core, core.size.width, core.size.height);
     }
 
@@ -147,7 +140,7 @@ impl ShaderManager for SceneColorShader {
             label: Some("Scene Color Render Encoder"),
         });
 
-        let mut params = self.params_uniform.data;
+        let mut params = self.current_params;
         let mut changed = false;
         let mut should_start_export = false;
         let mut export_request = self.base.export_manager.get_ui_request();
@@ -212,17 +205,29 @@ impl ShaderManager for SceneColorShader {
             self.base.render_ui(core, |_ctx| {})
         };
 
-        let current_time = self.base.controls.get_time(&self.base.start_time);
-        self.compute_shader.set_time(current_time, 1.0/60.0, &core.queue);
+        // Apply controls
+        self.base.export_manager.apply_ui_request(export_request);
+        if controls_request.should_clear_buffers {
+            self.clear_buffers(core);
+        }
+        self.base.apply_control_request(controls_request.clone());
+        self.base.handle_video_requests(core, &controls_request);
+        self.base.handle_webcam_requests(core, &controls_request);
 
-        // Dispatch compute pass
+        if changed {
+            self.current_params = params;
+            self.compute_shader.set_custom_params(params, &core.queue);
+        }
+
+        if should_start_export {
+            self.base.export_manager.start_export();
+        }
+
+        // Check for hot reload updates
+        self.compute_shader.check_hot_reload(&core.device);
+
+        // Single stage dispatch
         self.compute_shader.dispatch(&mut encoder, core);
-
-        let display_bind_group = create_display_bind_group(
-            &core.device,
-            &self.base.renderer.render_pipeline.get_bind_group_layout(0),
-            &self.compute_shader.output_texture.texture,
-        );
 
         {
             let mut render_pass = Renderer::begin_render_pass(
@@ -234,30 +239,8 @@ impl ShaderManager for SceneColorShader {
 
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-            render_pass.set_bind_group(0, &display_bind_group, &[]);
+            render_pass.set_bind_group(0, &self.compute_shader.output_texture.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
-        }
-
-        self.base.export_manager.apply_ui_request(export_request);
-        
-        // Handle media requests
-        self.base.apply_control_request(controls_request.clone());
-        self.base.handle_video_requests(core, &controls_request);
-        self.base.handle_webcam_requests(core, &controls_request);
-
-        if changed {
-            self.params_uniform.data = params;
-            self.params_uniform.update(&core.queue);
-        }
-
-        if should_start_export {
-            self.base.export_manager.start_export();
-        }
-        
-        if controls_request.load_media_path.is_some() {
-            if let Some(ref texture_manager) = self.base.texture_manager {
-                self.compute_shader.update_input_texture(core, &texture_manager.view, &texture_manager.sampler);
-            }
         }
 
         self.base.handle_render_output(core, &view, full_output, &mut encoder);
@@ -271,9 +254,18 @@ impl ShaderManager for SceneColorShader {
         if self.base.egui_state.on_window_event(core.window(), event).consumed {
             return true;
         }
+        
         if let WindowEvent::KeyboardInput { event, .. } = event {
             return self.base.key_handler.handle_keyboard_input(core.window(), event);
         }
+        
+        if let WindowEvent::DroppedFile(path) = event {
+            if let Err(e) = self.base.load_media(core, path) {
+                eprintln!("Failed to load dropped file: {:?}", e);
+            }
+            return true;
+        }
+        
         false
     }
 }

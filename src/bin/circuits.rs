@@ -32,12 +32,15 @@ impl UniformProvider for CircuitParams {
 
 struct CircuitShader {
     base: RenderKit,
-    params_uniform: UniformBinding<CircuitParams>,
     compute_shader: ComputeShader,
-    frame_count: u32,
+    current_params: CircuitParams,
 }
 
-impl CircuitShader {}
+impl CircuitShader {
+    fn clear_buffers(&mut self, core: &Core) {
+        self.compute_shader.clear_all_buffers(core);
+    }
+}
 
 impl ShaderManager for CircuitShader {
     fn init(core: &Core) -> Self {
@@ -49,85 +52,48 @@ impl ShaderManager for CircuitShader {
             label: Some("texture_bind_group_layout"),
         });
         
-        let mut resource_layout = cuneus::compute::ResourceLayout::new();
-        resource_layout.add_custom_uniform("circuit_params", std::mem::size_of::<CircuitParams>() as u64);
-        let bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
-        let circuit_params_layout = bind_group_layouts.get(&2).unwrap();
-
-        let params_uniform = UniformBinding::new(
-            &core.device,
-            "Circuit Params",
-            CircuitParams {
-                rotation_speed: 0.3,
-                distance_offset: 0.01,
-                gamma: 0.4,
-                color1_r: 0.1,
-                color1_g: 0.5,
-                color1_b: 0.9,
-                color2_r: 0.9,
-                color2_g: 0.4,
-                color2_b: 0.1,
-                intensity: 0.00003,
-                _padding1: 0.0,
-                _padding2: 0.0,
-                _padding3: 0.0,
-                _padding4: 0.0,
-                _padding5: 0.0,
-                _padding6: 0.0,
-            },
-            circuit_params_layout,
-            0,
-        );
+        let initial_params = CircuitParams {
+            rotation_speed: 0.3,
+            distance_offset: 0.01,
+            gamma: 0.4,
+            color1_r: 0.1,
+            color1_g: 0.5,
+            color1_b: 0.9,
+            color2_r: 0.9,
+            color2_g: 0.4,
+            color2_b: 0.1,
+            intensity: 0.00003,
+            _padding1: 0.0,
+            _padding2: 0.0,
+            _padding3: 0.0,
+            _padding4: 0.0,
+            _padding5: 0.0,
+            _padding6: 0.0,
+        };
         
         let base = RenderKit::new(core, include_str!("../../shaders/vertex.wgsl"), include_str!("../../shaders/blit.wgsl"), &[&texture_bind_group_layout], None);
 
-        let compute_config = ComputeShaderConfig {
-            workgroup_size: [8, 8, 1],
-            workgroup_count: None,
-            dispatch_once: false,
-            storage_texture_format: COMPUTE_TEXTURE_FORMAT_RGBA16,
-            enable_atomic_buffer: false,
-            atomic_buffer_multiples: 0,
-            entry_points: vec!["main".to_string()],
-            sampler_address_mode: wgpu::AddressMode::ClampToEdge,
-            sampler_filter_mode: wgpu::FilterMode::Linear,
-            label: "Circuits".to_string(),
-            mouse_bind_group_layout: None,
-            enable_fonts: false,
-            enable_audio_buffer: false,
-            audio_buffer_size: 0,
-            enable_custom_uniform: true,
-            enable_input_texture: false,
-            custom_storage_buffers: Vec::new(),
-        };
+        let config = ComputeShader::builder()
+            .with_entry_point("main")
+            .with_custom_uniforms::<CircuitParams>()
+            .with_workgroup_size([8, 8, 1])
+            .with_texture_format(COMPUTE_TEXTURE_FORMAT_RGBA16)
+            .with_label("Circuits Unified")
+            .build();
 
-        let mut compute_shader = ComputeShader::new_with_config(
+        let compute_shader = ComputeShader::from_builder(
             core,
             include_str!("../../shaders/circuits.wgsl"),
-            compute_config,
+            config,
         );
 
-        // Enable hot reload
-        let shader_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Circuits Compute Shader Hot Reload"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/circuits.wgsl").into()),
-        });
-        if let Err(e) = compute_shader.enable_hot_reload(
-            core.device.clone(),
-            std::path::PathBuf::from("shaders/circuits.wgsl"),
-            shader_module,
-        ) {
-            eprintln!("Failed to enable compute shader hot reload: {}", e);
-        }
-
-        // Add custom parameters uniform to the compute shader
-        compute_shader.add_custom_uniform_binding(&params_uniform.bind_group);
+        //Set initial parameters on startup
+        compute_shader.set_custom_params(initial_params, &core.queue);
 
         Self {
             base,
-            params_uniform,
             compute_shader,
-            frame_count: 0,
+            current_params: initial_params,
         }
     }
     
@@ -136,7 +102,6 @@ impl ShaderManager for CircuitShader {
     }
     
     fn resize(&mut self, core: &Core) {
-        println!("Resizing to {:?}", core.size);
         self.base.update_resolution(&core.queue, core.size);
         self.compute_shader.resize(core, core.size.width, core.size.height);
     }
@@ -148,7 +113,7 @@ impl ShaderManager for CircuitShader {
             label: Some("Render Encoder"),
         });
         
-        let mut params = self.params_uniform.data;
+        let mut params = self.current_params;
         let mut changed = false;
         let mut should_start_export = false;
         let mut export_request = self.base.export_manager.get_ui_request();
@@ -217,46 +182,27 @@ impl ShaderManager for CircuitShader {
         };
         
         self.base.export_manager.apply_ui_request(export_request);
+        if controls_request.should_clear_buffers {
+            self.clear_buffers(core);
+        }
         self.base.apply_control_request(controls_request);
         
         let current_time = self.base.controls.get_time(&self.base.start_time);
         
-        self.base.time_uniform.data.time = current_time;
-        self.base.time_uniform.data.frame = self.frame_count;
-        self.base.time_uniform.update(&core.queue);
-        
-        // Update compute shader with the same time data
-        self.compute_shader.set_time(current_time, 1.0/60.0, &core.queue);
-        self.compute_shader.time_uniform.data.frame = self.frame_count;
-        self.compute_shader.time_uniform.update(&core.queue);
-
-        // Check for hot reload updates
-        self.compute_shader.check_hot_reload(&core.device);
+        let delta = 1.0 / 60.0;
+        self.compute_shader.set_time(current_time, delta, &core.queue);
         
         if changed {
-            self.params_uniform.data = params;
-            self.params_uniform.update(&core.queue);
+            self.current_params = params;
+            self.compute_shader.set_custom_params(params, &core.queue);
         }
         
         if should_start_export {
             self.base.export_manager.start_export();
         }
         
-        {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Circuit Compute Pass"),
-                timestamp_writes: None,
-            });
-            
-            compute_pass.set_pipeline(&self.compute_shader.pipelines[0]);
-            compute_pass.set_bind_group(0, &self.compute_shader.time_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.compute_shader.storage_bind_group, &[]);
-            compute_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
-            
-            let width = core.size.width.div_ceil(8);
-            let height = core.size.height.div_ceil(8);
-            compute_pass.dispatch_workgroups(width, height, 1);
-        }
+
+        self.compute_shader.dispatch(&mut encoder, core);
         
         {
             let mut render_pass = cuneus::Renderer::begin_render_pass(
@@ -276,8 +222,6 @@ impl ShaderManager for CircuitShader {
         self.base.handle_render_output(core, &view, full_output, &mut encoder);
         core.queue.submit(Some(encoder.finish()));
         output.present();
-        
-        self.frame_count += 1;
         
         Ok(())
     }

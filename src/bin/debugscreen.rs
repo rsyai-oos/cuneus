@@ -1,17 +1,19 @@
 use cuneus::{Core, ShaderApp, ShaderManager, RenderKit, ShaderControls};
-use cuneus::compute::{ComputeShaderConfig, COMPUTE_TEXTURE_FORMAT_RGBA16};
+use cuneus::compute::{ComputeShader, COMPUTE_TEXTURE_FORMAT_RGBA16};
 use cuneus::audio::SynthesisManager;
 use winit::event::*;
-use std::path::PathBuf;
+
 
 struct DebugScreen {
     base: RenderKit,
+    compute_shader: ComputeShader,
     audio_synthesis: Option<SynthesisManager>,
     generate_note: bool,
 }
 
 impl ShaderManager for DebugScreen {
     fn init(core: &Core) -> Self {
+        // Create texture display layout
         let texture_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Texture Bind Group Layout"),
             entries: &[
@@ -33,86 +35,33 @@ impl ShaderManager for DebugScreen {
                 },
             ],
         });
-        let mut base = RenderKit::new(
+
+        let base = RenderKit::new(
             core,
             include_str!("../../shaders/vertex.wgsl"),
             include_str!("../../shaders/blit.wgsl"),
             &[&texture_bind_group_layout],
             None,
         );
-        
-        // Create mouse uniform bind group layout using ResourceLayout system  
-        let mut resource_layout = cuneus::compute::ResourceLayout::new();
-        resource_layout.add_custom_uniform("mouse", std::mem::size_of::<cuneus::MouseUniform>() as u64);
-        let bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
-         // Group 2 is standard for custom uniforms
-        let mouse_bind_group_layout = bind_group_layouts.get(&2).unwrap().clone();
-        
-        let mouse_uniform = cuneus::UniformBinding::new(
-            &core.device,
-            "Mouse Uniform",
-            cuneus::MouseUniform::default(),
-            &mouse_bind_group_layout,
-            0,
-        );
-        
-        base.mouse_bind_group_layout = Some(mouse_bind_group_layout.clone());
-        base.mouse_uniform = Some(mouse_uniform);
-        
-        let compute_config = ComputeShaderConfig {
-            workgroup_size: [16, 16, 1],
-            // Auto-determine from texture size
-            workgroup_count: None,
-            // Run every frame
-            dispatch_once: false,
-            storage_texture_format: COMPUTE_TEXTURE_FORMAT_RGBA16,
-            enable_atomic_buffer: false,
-            atomic_buffer_multiples: 4,
-            // Single entry point
-            entry_points: vec!["main".to_string()], 
-            sampler_address_mode: wgpu::AddressMode::ClampToEdge,
-            sampler_filter_mode: wgpu::FilterMode::Linear,
-            label: "Basic Compute".to_string(),
-            // Don't pass here, add separately
-            mouse_bind_group_layout: None,
-            enable_fonts: true,
-            enable_audio_buffer: true,
-            audio_buffer_size: 1024,
-            enable_custom_uniform: false,
-            enable_input_texture: false,
-            custom_storage_buffers: Vec::new(),
-        };
-        
-        // Create compute shader with our backend
-        base.compute_shader = Some(cuneus::compute::ComputeShader::new_with_config(
+
+        // Entry point configuration
+        let config = ComputeShader::builder()
+            .with_entry_point("main")
+            .with_mouse()                                // Automatically goes to @group(2)
+            .with_fonts()                                // Automatically goes to @group(2)
+            .with_audio(1024)               // Automatically goes to @group(2)
+            .with_workgroup_size([16, 16, 1])
+            .with_texture_format(COMPUTE_TEXTURE_FORMAT_RGBA16)
+            .with_label("Debug Screen")
+            .build();
+
+        let compute_shader = ComputeShader::from_builder(
             core,
             include_str!("../../shaders/debugscreen.wgsl"),
-            compute_config,
-        ));
-        
-        if let (Some(compute_shader), Some(mouse_uniform)) = (&mut base.compute_shader, &base.mouse_uniform) {
-            compute_shader.add_mouse_uniform_binding(
-                &mouse_uniform.bind_group,
-                2
-            );
-        }
-        
-        // Enable hot reload if desired
-        if let Some(compute_shader) = &mut base.compute_shader {
-            // Create shader module for hot reload
-            let shader_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("Debug Screen Compute Shader"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/debugscreen.wgsl").into()),
-            });
-            if let Err(e) = compute_shader.enable_hot_reload(
-                core.device.clone(),
-                PathBuf::from("shaders/debugscreen.wgsl"),
-                shader_module,
-            ) {
-                eprintln!("Failed to enable compute shader hot reload: {}", e);
-            }
-        }
-        
+            config,
+        );
+
+        // init audio synthesis system
         let audio_synthesis = match SynthesisManager::new() {
             Ok(mut synth) => {
                 if let Err(_e) = synth.start_gpu_synthesis() {
@@ -121,87 +70,76 @@ impl ShaderManager for DebugScreen {
                     Some(synth)
                 }
             },
-            Err(_e) => {
-                None
-            }
+            Err(_e) => None,
         };
-        
+
         Self { 
             base,
+            compute_shader,
             audio_synthesis,
             generate_note: false,
         }
     }
 
     fn update(&mut self, core: &Core) {
-        // Update compute shader time
+        // Update time
         let current_time = self.base.controls.get_time(&self.base.start_time);
         let delta = 1.0/60.0;
-        self.base.update_compute_shader_time(current_time, delta, &core.queue);
-        self.base.update_mouse_uniform(&core.queue);
+        self.compute_shader.set_time(current_time, delta, &core.queue);
+        
+        // Update mouse data
+        if let Some(mouse_uniform) = &mut self.compute_shader.mouse_uniform {
+            mouse_uniform.data = self.base.mouse_tracker.uniform;
+            mouse_uniform.update(&core.queue);
+        }
+        
         self.base.fps_tracker.update();
-        // Handle audio generation when note is requested
+        
+        // Handle audio generation
         if self.generate_note {
-            // Read GPU-generated audio parameters for CPU synthesis
             if self.base.time_uniform.data.frame % 60 == 0 {
-                if let Some(compute_shader) = &self.base.compute_shader {
-                    if let Ok(gpu_samples) = pollster::block_on(compute_shader.read_audio_samples(&core.device, &core.queue)) {
-                        if gpu_samples.len() >= 12 { // Use full polyphonic system
-                            let amplitude = gpu_samples[1];
-                            let waveform_type = gpu_samples[2] as u32;
-                            
-                            if let Some(ref mut synth) = self.audio_synthesis {
-                                // Update global waveform
-                                synth.update_waveform(waveform_type);
-                                
-                                // Use voice 0 for simple debug audio
-                                let frequency = gpu_samples[3]; 
-                                let active = amplitude > 0.01;
-                                let amp = if active { amplitude * 0.3 } else { 0.0 };
-                                synth.set_voice(0, frequency, amp, active);
-                            }
-                        }
-                    }
+                if let Some(ref mut synth) = self.audio_synthesis {
+                    let frequency = 220.0 + self.base.mouse_tracker.uniform.position[1] * 440.0;
+                    let active = self.base.mouse_tracker.uniform.buttons[0] & 1 != 0;
+                    let amp = if active { 0.1 } else { 0.0 };
+                    synth.set_voice(0, frequency, amp, active);
                 }
             }
-        } else {
-            // Stop audio when not requested using unified API
-            if let Some(ref mut synth) = self.audio_synthesis {
-                synth.set_voice(0, 440.0, 0.0, false);
-            }
+        } else if let Some(ref mut synth) = self.audio_synthesis {
+            synth.set_voice(0, 440.0, 0.0, false);
         }
         
         if let Some(ref mut synth) = self.audio_synthesis {
             synth.update();
         }
     }
+
     fn resize(&mut self, core: &Core) {
-        // Update resolution uniform
         self.base.update_resolution(&core.queue, core.size);
-        // Resize compute shader resources
-        self.base.resize_compute_shader(core);
+        self.compute_shader.resize(core, core.size.width, core.size.height);
     }
+
     fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {
         let output = core.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let mut controls_request = self.base.controls.get_ui_request(
-            &self.base.start_time,
-            &core.size
-        );
+        
+        let mut controls_request = self.base.controls.get_ui_request(&self.base.start_time, &core.size);
         controls_request.current_fps = Some(self.base.fps_tracker.fps());
+        
         let mouse_pos = self.base.mouse_tracker.uniform.position;
         let raw_pos = self.base.mouse_tracker.raw_position;
         let mouse_buttons = self.base.mouse_tracker.uniform.buttons[0];
         let mouse_wheel = self.base.mouse_tracker.uniform.wheel;
+
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
                 ctx.style_mut(|style| {
                     style.visuals.window_fill = egui::Color32::from_rgba_premultiplied(0, 0, 0, 180);
                 });
                 
-                egui::Window::new("Debug Screen Controls")
+                egui::Window::new("Debug Screen")
                     .show(ctx, |ui| {
-                        // Time controls (play/pause/reset)
+                        
                         ui.heading("Controls");
                         ShaderControls::render_controls_widget(ui, &mut controls_request);
                         
@@ -218,7 +156,6 @@ impl ShaderManager for DebugScreen {
                             self.generate_note = !self.generate_note;
                         }
                         
-                        // Check for '5' key in egui context (this handles it properly)
                         if ui.input(|i| i.key_pressed(egui::Key::Num5)) {
                             self.generate_note = !self.generate_note;
                         }
@@ -242,29 +179,26 @@ impl ShaderManager for DebugScreen {
                         
                         ui.separator();
                         ui.label("Controls:");
-                        ui.label("• Left-click to invert colors");
-                        ui.label("• Scroll wheel to create pulse effect");
+                        ui.label("• Scroll wheel");
                         ui.label("• Press 'H' to toggle this UI");
                         ui.label("• Press 'F' to toggle fullscreen");
                         ui.label("• Press '5' to generate audio note");
                     });
             })
         } else {
-            // Empty UI if hidden
             self.base.render_ui(core, |_ctx| {})
         };
-        
-        // Apply control requests (play/pause/etc)
+
         self.base.apply_control_request(controls_request);
-        
+
         // Create command encoder
         let mut encoder = core.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Render Encoder"),
         });
-        
-        // Run compute shader
-        self.base.dispatch_compute_shader(&mut encoder, core);
-        
+
+
+        self.compute_shader.dispatch(&mut encoder, core);
+
         // Render compute output to screen
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -281,30 +215,30 @@ impl ShaderManager for DebugScreen {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-            // Draw the compute shader output
-            if let Some(compute_texture) = self.base.get_compute_output_texture() {
-                render_pass.set_pipeline(&self.base.renderer.render_pipeline);
-                render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-                render_pass.set_bind_group(0, &compute_texture.bind_group, &[]);
-                render_pass.draw(0..4, 0..1);
-            }
+
+            let compute_texture = self.compute_shader.get_output_texture();
+            render_pass.set_pipeline(&self.base.renderer.render_pipeline);
+            render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
+            render_pass.set_bind_group(0, &compute_texture.bind_group, &[]);
+            render_pass.draw(0..4, 0..1);
         }
+
         self.base.handle_render_output(core, &view, full_output, &mut encoder);
-        // Submit work and present
         core.queue.submit(Some(encoder.finish()));
         output.present();
+        
         Ok(())
     }
 
     fn handle_input(&mut self, core: &Core, event: &WindowEvent) -> bool {
-        // Handle egui events
-        let ui_handled = self.base.egui_state.on_window_event(core.window(), event).consumed;
-        
-        // Handle mouse input for shader if UI didn't consume it
-        if self.base.handle_mouse_input(core, event, ui_handled) {
+        if self.base.egui_state.on_window_event(core.window(), event).consumed {
             return true;
         }
-        // Handle keyboard input
+        
+        if self.base.handle_mouse_input(core, event, false) {
+            return true;
+        }
+        
         if let WindowEvent::KeyboardInput { event, .. } = event {
             return self.base.key_handler.handle_keyboard_input(core.window(), event);
         }
@@ -315,7 +249,6 @@ impl ShaderManager for DebugScreen {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
-    
     cuneus::gst::init()?;
     
     let (app, event_loop) = ShaderApp::new("Debug Screen", 800, 600);

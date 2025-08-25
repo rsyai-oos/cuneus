@@ -1,20 +1,28 @@
+// @group(0): Per-Frame Resources (TimeUniform)
+// @group(1): Primary Pass I/O & Parameters (output texture)
+// @group(2): Global Engine Resources (mouse, fonts, audio)
+// @group(3): User-Defined Data Buffers (not used in this example)
+// note that, WebGPU only supports a maximum of 4 groups (0-3). But you can use more bindings :) 
+
+// Group 0: Per-Frame Resources
 struct TimeUniform {
     time: f32,
     delta: f32,
     frame: u32,
     _padding: u32,
-};
+}
 @group(0) @binding(0) var<uniform> u_time: TimeUniform;
+
+// Group 1: Primary I/O - Output texture only for this simple shader
 @group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
- //simple usage: On this example I show how can we use them on debug scree
- //note that, WebGPU only supports a maximum of 4 bind groups (0-3). 
-//When adding this, you can also pass this to the “parameters” struct in other shaders. 
+
+// Group 2: Global Engine Resources - Mouse, Fonts, and Audio
 struct MouseUniform {           
     position: vec2<f32>,         // Normalized position (0.0 to 1.0)
     click_position: vec2<f32>,   // Position of last click
     wheel: vec2<f32>,            // Accumulated wheel delta
     buttons: vec2<u32>,          // Button state bitfield
-};
+}
 @group(2) @binding(0) var<uniform> u_mouse: MouseUniform;
 
 struct FontUniforms {
@@ -22,11 +30,13 @@ struct FontUniforms {
     char_size: vec2<f32>,
     screen_size: vec2<f32>,
     _padding: vec2<f32>,
-};
-@group(3) @binding(0) var<uniform> u_font: FontUniforms;
-@group(3) @binding(1) var t_font_atlas: texture_2d<f32>;
-@group(3) @binding(2) var s_font_atlas: sampler;
-@group(3) @binding(3) var<storage, read_write> audio_buffer: array<f32>;
+}
+@group(2) @binding(1) var<uniform> u_font: FontUniforms;
+@group(2) @binding(2) var t_font_atlas: texture_2d<f32>;
+@group(2) @binding(3) var s_font_atlas: sampler;
+@group(2) @binding(4) var<storage, read_write> audio_buffer: array<f32>;
+
+// Group 3: User-Defined Data Buffers (not used in this simple example)
 
 // Crisp SDF character rendering with minimal anti-aliasing
 fn render_char_sdf(pos: vec2<f32>, char_pos: vec2<f32>, ascii: u32, size: f32) -> f32 {

@@ -1,8 +1,8 @@
 // This example demonstrates a how to generate audio using cunes via compute shaders
 @group(0) @binding(0) var<uniform> u_time: ComputeTimeUniform;
 @group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
-@group(2) @binding(0) var<uniform> params: SynthParams;
-@group(3) @binding(0) var<storage, read_write> audio_buffer: array<f32>;
+@group(1) @binding(1) var<uniform> params: SynthParams;
+@group(2) @binding(0) var<storage, read_write> audio_buffer: array<f32>;
 
 struct ComputeTimeUniform {
     time: f32,
