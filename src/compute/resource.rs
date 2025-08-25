@@ -226,6 +226,13 @@ impl ResourceLayout {
         });
     }
     
+    pub fn add_audio_spectrum_buffer(&mut self, size: usize) {
+        self.add_resource(2, "audio_spectrum", ResourceType::StorageBuffer {
+            size: (size * std::mem::size_of::<f32>()) as u64,
+            read_only: true
+        });
+    }
+    
     pub fn add_atomic_buffer(&mut self, size: u64) {
         self.add_resource(2, "atomic_buffer", ResourceType::StorageBuffer { 
             size, 
