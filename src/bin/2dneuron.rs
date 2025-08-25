@@ -87,11 +87,23 @@ impl ShaderManager for NeuronShader {
             .with_label("2D Neuron Unified")
             .build();
 
-        let compute_shader = ComputeShader::from_builder(
+        let mut compute_shader = ComputeShader::from_builder(
             core,
             include_str!("../../shaders/2dneuron.wgsl"),
             config,
         );
+
+        // Enable hot reload
+        if let Err(e) = compute_shader.enable_hot_reload(
+            core.device.clone(),
+            std::path::PathBuf::from("shaders/2dneuron.wgsl"),
+            core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("2dneuron Hot Reload"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/2dneuron.wgsl").into()),
+            }),
+        ) {
+            eprintln!("Failed to enable hot reload for 2dneuron shader: {}", e);
+        }
 
         compute_shader.set_custom_params(initial_params, &core.queue);
 
@@ -103,6 +115,9 @@ impl ShaderManager for NeuronShader {
     }
 
     fn update(&mut self, core: &Core) {
+        // Check for hot reload updates
+        self.compute_shader.check_hot_reload(&core.device);
+        
         // Update time uniform - this is crucial for accumulation!
         let current_time = self.base.controls.get_time(&self.base.start_time);
         let delta = 1.0 / 60.0;

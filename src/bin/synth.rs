@@ -130,11 +130,23 @@ impl ShaderManager for SynthManager {
             .with_label("Synth Unified")
             .build();
 
-        let compute_shader = ComputeShader::from_builder(
+        let mut compute_shader = ComputeShader::from_builder(
             core,
             include_str!("../../shaders/synth.wgsl"),
             config,
         );
+
+        // Enable hot reload
+        if let Err(e) = compute_shader.enable_hot_reload(
+            core.device.clone(),
+            std::path::PathBuf::from("shaders/synth.wgsl"),
+            core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Synth Hot Reload"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/synth.wgsl").into()),
+            }),
+        ) {
+            eprintln!("Failed to enable hot reload for synth shader: {}", e);
+        }
 
         compute_shader.set_custom_params(initial_params, &core.queue);
 
@@ -161,6 +173,9 @@ impl ShaderManager for SynthManager {
     
     fn update(&mut self, core: &Core) {
         self.base.fps_tracker.update();
+        
+        // Check for hot reload updates
+        self.compute_shader.check_hot_reload(&core.device);
         
         let current_time = self.base.controls.get_time(&self.base.start_time);
         let delta = 1.0 / 60.0;

@@ -161,11 +161,23 @@ impl ShaderManager for CurrentsShader {
             .with_label("Currents Multi-Pass")
             .build();
 
-        let compute_shader = ComputeShader::from_builder(
+        let mut compute_shader = ComputeShader::from_builder(
             core,
             include_str!("../../shaders/currents.wgsl"),
             config,
         );
+
+        // Enable hot reload
+        if let Err(e) = compute_shader.enable_hot_reload(
+            core.device.clone(),
+            std::path::PathBuf::from("shaders/currents.wgsl"),
+            core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Currents Hot Reload"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/currents.wgsl").into()),
+            }),
+        ) {
+            eprintln!("Failed to enable hot reload for currents shader: {}", e);
+        }
 
         let shader = Self { 
             base,
@@ -185,6 +197,9 @@ impl ShaderManager for CurrentsShader {
         self.compute_shader.set_time(current_time, delta, &core.queue);
         
         self.base.fps_tracker.update();
+        
+        // Check for hot reload updates
+        self.compute_shader.check_hot_reload(&core.device);
     }
 
     fn resize(&mut self, core: &Core) {

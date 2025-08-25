@@ -117,11 +117,23 @@ impl ShaderManager for SinhShader {
             .with_label("Sinh Unified")
             .build();
 
-        let compute_shader = ComputeShader::from_builder(
+        let mut compute_shader = ComputeShader::from_builder(
             core,
             include_str!("../../shaders/sinh.wgsl"),
             config,
         );
+
+        // Enable hot reload
+        if let Err(e) = compute_shader.enable_hot_reload(
+            core.device.clone(),
+            std::path::PathBuf::from("shaders/sinh.wgsl"),
+            core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Sinh Hot Reload"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/sinh.wgsl").into()),
+            }),
+        ) {
+            eprintln!("Failed to enable hot reload for Sinh shader: {}", e);
+        }
 
         compute_shader.set_custom_params(initial_params, &core.queue);
         
@@ -132,7 +144,10 @@ impl ShaderManager for SinhShader {
         }
     }
     
-    fn update(&mut self, _core: &Core) {
+    fn update(&mut self, core: &Core) {
+        // Check for hot reload updates
+        self.compute_shader.check_hot_reload(&core.device);
+        
         self.base.fps_tracker.update();
     }
     fn resize(&mut self, core: &Core) {

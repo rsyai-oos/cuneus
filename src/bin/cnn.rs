@@ -101,11 +101,23 @@ impl ShaderManager for CNNDigitRecognizer {
             .with_storage_buffer(StorageBufferSpec::new("fc_data", (10 * 4) as u64)) // Fully connected layer: 10 classes
             .build();
             
-        let compute_shader = ComputeShader::from_builder(
+        let mut compute_shader = ComputeShader::from_builder(
             core,
             include_str!("../../shaders/cnn.wgsl"),
             compute_shader,
         );
+
+        // Enable hot reload
+        if let Err(e) = compute_shader.enable_hot_reload(
+            core.device.clone(),
+            std::path::PathBuf::from("shaders/cnn.wgsl"),
+            core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("CNN Hot Reload"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/cnn.wgsl").into()),
+            }),
+        ) {
+            eprintln!("Failed to enable hot reload for cnn shader: {}", e);
+        }
         
         let current_params = CNNParams {
             canvas_size: 0.6,
@@ -140,8 +152,11 @@ impl ShaderManager for CNNDigitRecognizer {
         }
     }
     
-    fn update(&mut self, _core: &Core) {
+    fn update(&mut self, core: &Core) {
         self.base.fps_tracker.update();
+        
+        // Check for hot reload updates
+        self.compute_shader.check_hot_reload(&core.device);
     }
     
     fn resize(&mut self, core: &Core) {

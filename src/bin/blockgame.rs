@@ -125,11 +125,23 @@ impl ShaderManager for BlockTowerGame {
             .with_label("Block Tower Game Unified")
             .build();
 
-        let compute_shader = ComputeShader::from_builder(
+        let mut compute_shader = ComputeShader::from_builder(
             core,
             include_str!("../../shaders/blockgame.wgsl"),
             config,
         );
+
+        // Enable hot reload
+        if let Err(e) = compute_shader.enable_hot_reload(
+            core.device.clone(),
+            std::path::PathBuf::from("shaders/blockgame.wgsl"),
+            core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Block Tower Game Hot Reload"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/blockgame.wgsl").into()),
+            }),
+        ) {
+            eprintln!("Failed to enable hot reload for blockgame shader: {}", e);
+        }
         
         Self {
             base,
@@ -145,6 +157,10 @@ impl ShaderManager for BlockTowerGame {
         self.compute_shader.set_time(current_time, delta, &core.queue);
         self.compute_shader.update_mouse_uniform(&self.base.mouse_tracker.uniform, &core.queue);
         self.base.fps_tracker.update();
+        
+        // Check for hot reload updates
+        self.compute_shader.check_hot_reload(&core.device);
+        
         self.update_camera_in_shader(&core.queue);
         let mouse_buttons = self.base.mouse_tracker.uniform.buttons[0];
         let mouse_pressed = mouse_buttons & 1 != 0;

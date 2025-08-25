@@ -83,11 +83,23 @@ impl ShaderManager for FluidShader {
             .with_label("Fluid Unified")
             .build();
 
-        let compute_shader = ComputeShader::from_builder(
+        let mut compute_shader = ComputeShader::from_builder(
             core,
             include_str!("../../shaders/fluid.wgsl"),
             config,
         );
+
+        // Enable hot reload
+        if let Err(e) = compute_shader.enable_hot_reload(
+            core.device.clone(),
+            std::path::PathBuf::from("shaders/fluid.wgsl"),
+            core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Fluid Hot Reload"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/fluid.wgsl").into()),
+            }),
+        ) {
+            eprintln!("Failed to enable hot reload for fluid shader: {}", e);
+        }
 
         compute_shader.set_custom_params(initial_params, &core.queue);
 
@@ -113,6 +125,9 @@ impl ShaderManager for FluidShader {
         self.compute_shader.set_time(current_time, delta, &core.queue);
         
         self.base.fps_tracker.update();
+        
+        // Check for hot reload updates
+        self.compute_shader.check_hot_reload(&core.device);
     }
 
     fn resize(&mut self, core: &Core) {

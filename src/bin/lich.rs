@@ -81,11 +81,23 @@ impl ShaderManager for LichShader {
             .with_label("Lich Lightning")
             .build();
             
-        let compute_shader = ComputeShader::from_builder(
+        let mut compute_shader = ComputeShader::from_builder(
             core,
             include_str!("../../shaders/lich.wgsl"),
             config,
         );
+
+        // Enable hot reload
+        if let Err(e) = compute_shader.enable_hot_reload(
+            core.device.clone(),
+            std::path::PathBuf::from("shaders/lich.wgsl"),
+            core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Lich Hot Reload"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/lich.wgsl").into()),
+            }),
+        ) {
+            eprintln!("Failed to enable hot reload for Lich shader: {}", e);
+        }
 
         let initial_params = LichParams {
             cloud_density: 3.0,
@@ -110,6 +122,9 @@ impl ShaderManager for LichShader {
     }
 
     fn update(&mut self, core: &Core) {
+        // Check for hot reload updates
+        self.compute_shader.check_hot_reload(&core.device);
+        
         // Update time
         let current_time = self.base.controls.get_time(&self.base.start_time);
         let delta = 1.0/60.0;
