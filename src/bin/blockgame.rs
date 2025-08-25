@@ -1,7 +1,7 @@
 // Block Game, Enes Altun, 2025, MIT License
 
-use cuneus::{Core, ShaderApp, ShaderManager, RenderKit, UniformProvider};
-use cuneus::compute::{ComputeShaderConfig, COMPUTE_TEXTURE_FORMAT_RGBA16};
+use cuneus::prelude::*;
+use cuneus::compute::*;
 use winit::event::*;
 
 #[repr(C)]
@@ -77,6 +77,7 @@ impl UniformProvider for BlockGameParams {
 
 struct BlockTowerGame {
     base: RenderKit,
+    compute_shader: ComputeShader,
     last_mouse_click: bool,
     game_params: BlockGameParams,
 }
@@ -105,77 +106,34 @@ impl ShaderManager for BlockTowerGame {
             ],
         });
         
-        let mut base = RenderKit::new(
+        let base = RenderKit::new(
             core,
             include_str!("../../shaders/vertex.wgsl"),
             include_str!("../../shaders/blit.wgsl"),
             &[&texture_bind_group_layout],
             None,
         );
-        
-        // Create mouse uniform for game interactions
-        let mut resource_layout = cuneus::compute::ResourceLayout::new();
-        resource_layout.add_custom_uniform("mouse", std::mem::size_of::<cuneus::MouseUniform>() as u64);
-        let bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
-        let mouse_bind_group_layout = bind_group_layouts.get(&2).unwrap().clone();
-        
-        let mouse_uniform = cuneus::UniformBinding::new(
-            &core.device,
-            "Mouse Uniform",
-            cuneus::MouseUniform::default(),
-            &mouse_bind_group_layout,
-            0,
-        );
-        
-        base.mouse_bind_group_layout = Some(mouse_bind_group_layout.clone());
-        base.mouse_uniform = Some(mouse_uniform);
-        
-        let compute_config = ComputeShaderConfig {
-            workgroup_size: [8, 8, 1],
-            storage_texture_format: COMPUTE_TEXTURE_FORMAT_RGBA16,
-            enable_fonts: true,
-            // Used for game state storage, not audio (sorry for being lazy)
-            enable_audio_buffer: true,
-            // Storage for game state and blocks
-            audio_buffer_size: 1024,
-            mouse_bind_group_layout: None,
-            entry_points: vec!["main".to_string()],
-            label: "Block Tower Game".to_string(),
-            enable_custom_uniform: false,
-            enable_input_texture: false,
-            custom_storage_buffers: Vec::new(),
-            ..Default::default()
-        };
-        
-        base.compute_shader = Some(cuneus::compute::ComputeShader::new_with_config(
+
+        // Create single-pass compute shader with mouse, fonts, and game storage
+        let config = ComputeShader::builder()
+            .with_entry_point("main")
+            .with_mouse()
+            .with_fonts()
+            .with_audio(1024) // Used for game state storage, not audio
+            .with_workgroup_size([8, 8, 1])
+            .with_texture_format(COMPUTE_TEXTURE_FORMAT_RGBA16)
+            .with_label("Block Tower Game Unified")
+            .build();
+
+        let compute_shader = ComputeShader::from_builder(
             core,
             include_str!("../../shaders/blockgame.wgsl"),
-            compute_config,
-        ));
-        
-        if let (Some(compute_shader), Some(mouse_uniform)) = (&mut base.compute_shader, &base.mouse_uniform) {
-            compute_shader.add_mouse_uniform_binding(
-                &mouse_uniform.bind_group,
-                2
-            );
-        }
-        
-        if let Some(compute_shader) = &mut base.compute_shader {
-            let shader_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("Blockgame Compute Shader Hot Reload"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/blockgame.wgsl").into()),
-            });
-            if let Err(e) = compute_shader.enable_hot_reload(
-                core.device.clone(),
-                std::path::PathBuf::from("shaders/blockgame.wgsl"),
-                shader_module,
-            ) {
-                eprintln!("Failed to enable compute shader hot reload: {}", e);
-            }
-        }
+            config,
+        );
         
         Self {
             base,
+            compute_shader,
             last_mouse_click: false,
             game_params: BlockGameParams::default(),
         }
@@ -184,8 +142,8 @@ impl ShaderManager for BlockTowerGame {
     fn update(&mut self, core: &Core) {
         let current_time = self.base.controls.get_time(&self.base.start_time);
         let delta = 1.0 / 60.0;
-        self.base.update_compute_shader_time(current_time, delta, &core.queue);
-        self.base.update_mouse_uniform(&core.queue);
+        self.compute_shader.set_time(current_time, delta, &core.queue);
+        self.compute_shader.update_mouse_uniform(&self.base.mouse_tracker.uniform, &core.queue);
         self.base.fps_tracker.update();
         self.update_camera_in_shader(&core.queue);
         let mouse_buttons = self.base.mouse_tracker.uniform.buttons[0];
@@ -195,7 +153,7 @@ impl ShaderManager for BlockTowerGame {
 
     fn resize(&mut self, core: &Core) {
         self.base.update_resolution(&core.queue, core.size);
-        self.base.resize_compute_shader(core);
+        self.compute_shader.resize(core, core.size.width, core.size.height);
     }
 
     fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {
@@ -261,7 +219,7 @@ impl ShaderManager for BlockTowerGame {
             label: Some("Block Game Render Encoder"),
         });
         
-        self.base.dispatch_compute_shader(&mut encoder, core);
+        self.compute_shader.dispatch(&mut encoder, core);
         
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -279,12 +237,11 @@ impl ShaderManager for BlockTowerGame {
                 occlusion_query_set: None,
             });
             
-            if let Some(compute_texture) = self.base.get_compute_output_texture() {
-                render_pass.set_pipeline(&self.base.renderer.render_pipeline);
-                render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-                render_pass.set_bind_group(0, &compute_texture.bind_group, &[]);
-                render_pass.draw(0..4, 0..1);
-            }
+            let compute_texture = self.compute_shader.get_output_texture();
+            render_pass.set_pipeline(&self.base.renderer.render_pipeline);
+            render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
+            render_pass.set_bind_group(0, &compute_texture.bind_group, &[]);
+            render_pass.draw(0..4, 0..1);
         }
         
         self.base.handle_render_output(core, &view, full_output, &mut encoder);
@@ -335,19 +292,17 @@ impl ShaderManager for BlockTowerGame {
 
 impl BlockTowerGame {
     fn update_camera_in_shader(&self, queue: &wgpu::Queue) {
-        if let Some(compute_shader) = &self.base.compute_shader {
-            if let Some(audio_buffer) = &compute_shader.audio_buffer {
-                let camera_data = [
-                    self.game_params.camera_height,
-                    self.game_params.camera_angle,
-                    self.game_params.camera_scale,
-                ];
-                
-                let camera_data_bytes = bytemuck::cast_slice(&camera_data);
-                let offset = 5 * std::mem::size_of::<f32>();
-                
-                queue.write_buffer(audio_buffer, offset as u64, camera_data_bytes);
-            }
+        if let Some(audio_buffer) = self.compute_shader.get_audio_buffer() {
+            let camera_data = [
+                self.game_params.camera_height,
+                self.game_params.camera_angle,
+                self.game_params.camera_scale,
+            ];
+            
+            let camera_data_bytes = bytemuck::cast_slice(&camera_data);
+            let offset = 5 * std::mem::size_of::<f32>();
+            
+            queue.write_buffer(audio_buffer, offset as u64, camera_data_bytes);
         }
     }
 }
