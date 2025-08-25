@@ -1,23 +1,23 @@
 // 3D RGB Colorspace Projection with Quaternion Rotations
-// Standard Cuneus bind group layout: Group 0=Time, Group 1=Storage, Group 2=Custom, Group 3=Resources
+// Unified Cuneus bind group layout: Group 0=Time, Group 1=I/O+Params, Group 2=Engine, Group 3=UserData
 
 struct TimeUniform { time: f32, delta: f32, frame: u32, _padding: u32 };
 @group(0) @binding(0) var<uniform> time_data: TimeUniform;
 
-// Group 1: Storage texture with input support
+// Group 1: Primary Pass I/O & Parameters
 @group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
-@group(1) @binding(1) var input_texture: texture_2d<f32>;
-@group(1) @binding(2) var tex_sampler: sampler;
+@group(1) @binding(1) var<uniform> params: ColorProjectionParams;
+@group(1) @binding(2) var input_texture: texture_2d<f32>;
+@group(1) @binding(3) var input_sampler: sampler;
 
-// Group 2: Custom uniform parameters
-struct Params {
+// Parameters structure
+struct ColorProjectionParams {
     rotation_speed: f32, intensity: f32,
     rot_x: f32, rot_y: f32, rot_z: f32, rot_w: f32,
     scale: f32, _padding: u32,
 }
-@group(2) @binding(0) var<uniform> params: Params;
 
-// Group 3: Custom storage buffer (atomic buffer)
+// Group 3: User-defined storage buffer (atomic buffer)
 @group(3) @binding(0) var<storage, read_write> atomic_buffer: array<atomic<i32>>;
 
 const PI = 3.14159;
@@ -116,7 +116,7 @@ fn project_colors(@builtin(global_invocation_id) id: vec3<u32>) {
     if (id.x >= dims.x || id.y >= dims.y) { return; }
     
     let uv = (vec2<f32>(id.xy) + .5) / vec2<f32>(dims);
-    let color = textureSampleLevel(input_texture, tex_sampler, uv, 0.).xyz;
+    let color = textureSampleLevel(input_texture, input_sampler, uv, 0.).xyz;
     
     if (length(color) < .05) { return; }
     
@@ -151,7 +151,7 @@ fn generate_image(@builtin(global_invocation_id) id: vec3<u32>) {
         textureStore(output, vec2<i32>(id.xy), vec4<f32>(vec3<f32>(r,g,b) * params.intensity, 1.));
     } else {
         let uv = (vec2<f32>(id.xy) + .5) / vec2<f32>(scr);
-        let bg_color = textureSampleLevel(input_texture, tex_sampler, uv, 0.).xyz * params.rot_w;
+        let bg_color = textureSampleLevel(input_texture, input_sampler, uv, 0.).xyz * params.rot_w;
         textureStore(output, vec2<i32>(id.xy), vec4<f32>(bg_color, 1.));    
     }
 }

@@ -1,5 +1,5 @@
-use cuneus::{Core, ShaderManager, UniformProvider, UniformBinding, RenderKit, ShaderControls, ExportManager};
-use cuneus::compute::{ComputeShader, ComputeShaderConfig, CustomStorageBuffer};
+use cuneus::prelude::*;
+use cuneus::compute::*;
 use winit::event::WindowEvent;
 
 #[repr(C)]
@@ -20,16 +20,21 @@ impl UniformProvider for ColorProjectionParams {
         bytemuck::bytes_of(self)
     }
 }
+
 struct ColorProjection {
     base: RenderKit,
-    params_uniform: UniformBinding<ColorProjectionParams>,
     compute_shader: ComputeShader,
-    frame_count: u32,
+    current_params: ColorProjectionParams,
+}
+
+impl ColorProjection {
+    fn clear_buffers(&mut self, core: &Core) {
+        self.compute_shader.clear_all_buffers(core);
+    }
 }
 
 impl ShaderManager for ColorProjection {
     fn init(core: &Core) -> Self {
-        // Create texture bind group layout for displaying compute shader output
         let texture_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -71,84 +76,68 @@ impl ShaderManager for ColorProjection {
             _padding: 0,
         };
         
+        // Define the multi-stage passes  
+        let passes = vec![
+            PassDescription::new("clear_buffer", &[]),       // Stage 0: Clear atomic buffer
+            PassDescription::new("project_colors", &[]),     // Stage 1: Project colors to 3D space
+            PassDescription::new("generate_image", &[]),     // Stage 2: Generate final image
+        ];
 
-        let mut resource_layout = cuneus::compute::ResourceLayout::new();
-        resource_layout.add_custom_uniform("color_params", std::mem::size_of::<ColorProjectionParams>() as u64);
-        let bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
-        let color_params_layout = bind_group_layouts.get(&2).unwrap();
+        let config = ComputeShader::builder()
+            .with_entry_point("clear_buffer") 
+            .with_multi_pass(&passes)
+            .with_input_texture() // Enable input texture support
+            .with_custom_uniforms::<ColorProjectionParams>()
+            .with_storage_buffer(StorageBufferSpec::new("atomic_buffer", (core.size.width * core.size.height * 4 * 4) as u64)) 
+            .with_workgroup_size([16, 16, 1])
+            .with_texture_format(COMPUTE_TEXTURE_FORMAT_RGBA16)
+            .with_label("Color Projection Multi-Pass")
+            .build();
 
-        let params_uniform = UniformBinding::new(
-            &core.device,
-            "Color Projection Params",
-            initial_params,
-            color_params_layout,
-            0,
-        );
-        
-        // Color projection requires atomic buffer for 3D color space accumulation
-        let buffer_size = (core.size.width * core.size.height * 4 * 4) as u64;
-        let compute_config = ComputeShaderConfig {
-            label: "Color Projection".to_string(),
-            enable_input_texture: true,
-            enable_custom_uniform: true,
-            entry_points: vec![
-                "clear_buffer".to_string(),    // Stage 0
-                "project_colors".to_string(),  // Stage 1 
-                "generate_image".to_string(),  // Stage 2
-            ],
-            custom_storage_buffers: vec![
-                CustomStorageBuffer {
-                    label: "Atomic Buffer".to_string(),
-                    size: buffer_size,
-                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-                },
-            ],
-            ..Default::default()
-        };
-        
-        let mut compute_shader = ComputeShader::new_with_config(
+        let mut compute_shader = ComputeShader::from_builder(
             core,
             include_str!("../../shaders/computecolors.wgsl"),
-            compute_config,
+            config,
         );
 
         // Enable hot reload
-        let shader_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("ComputeColors Compute Shader Hot Reload"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/computecolors.wgsl").into()),
-        });
         if let Err(e) = compute_shader.enable_hot_reload(
             core.device.clone(),
             std::path::PathBuf::from("shaders/computecolors.wgsl"),
-            shader_module,
+            core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("ComputeColors Compute Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/computecolors.wgsl").into()),
+            }),
         ) {
-            eprintln!("Failed to enable compute shader hot reload: {}", e);
+            eprintln!("Failed to enable ComputeColors hot reload: {}", e);
         }
-        
-        compute_shader.add_custom_uniform_binding(&params_uniform.bind_group);
+
+        compute_shader.set_custom_params(initial_params, &core.queue);
         
         Self {
             base,
-            params_uniform,
             compute_shader,
-            frame_count: 0,
+            current_params: initial_params,
         }
     }
     
     fn update(&mut self, core: &Core) {
+        // Update time
+        let current_time = self.base.controls.get_time(&self.base.start_time);
+        let delta = 1.0/60.0;
+        self.compute_shader.set_time(current_time, delta, &core.queue);
+        
+        // Update input textures for media processing
         self.base.update_current_texture(core, &core.queue);
         if let Some(texture_manager) = self.base.get_current_texture_manager() {
-            self.compute_shader.update_input_texture(core, &texture_manager.view, &texture_manager.sampler);
-        }
-        
-        if self.base.export_manager.is_exporting() {
+            self.compute_shader.update_input_texture(&texture_manager.view, &texture_manager.sampler, &core.device);
         }
         
         self.base.fps_tracker.update();
     }
-
     
     fn resize(&mut self, core: &Core) {
+        self.base.update_resolution(&core.queue, core.size);
         self.compute_shader.resize(core, core.size.width, core.size.height);
     }
     
@@ -160,7 +149,7 @@ impl ShaderManager for ColorProjection {
         });
         
         // Handle UI and controls
-        let mut params = self.params_uniform.data;
+        let mut params = self.current_params;
         let mut changed = false;
         let mut should_start_export = false;
         let mut export_request = self.base.export_manager.get_ui_request();
@@ -245,80 +234,50 @@ impl ShaderManager for ColorProjection {
         } else {
             self.base.render_ui(core, |_ctx| {})
         };
-
-        if changed {
-            self.params_uniform.data = params;
-        }
         
         // Apply controls
+        self.base.export_manager.apply_ui_request(export_request);
+        if controls_request.should_clear_buffers {
+            self.clear_buffers(core);
+        }
         self.base.apply_control_request(controls_request.clone());
         self.base.handle_video_requests(core, &controls_request);
         self.base.handle_webcam_requests(core, &controls_request);
         
-        // Handle export requests
-        self.base.export_manager.apply_ui_request(export_request);
         if should_start_export {
             self.base.export_manager.start_export();
         }
         
-        if controls_request.load_media_path.is_some() {
-            // For first texture upload, ensure input texture is updated immediately
-            if let Some(ref texture_manager) = self.base.texture_manager {
-                self.compute_shader.update_input_texture(core, &texture_manager.view, &texture_manager.sampler);
-            }
-        }
-        if controls_request.start_webcam {
-            // Webcam started
-        }
-        
         if changed {
-            self.params_uniform.data = params;
+            self.current_params = params;
+            self.compute_shader.set_custom_params(params, &core.queue);
         }
         
-        // Update time and params
-        let current_time = self.base.controls.get_time(&self.base.start_time);
-        self.base.time_uniform.data.time = current_time;
-        self.base.time_uniform.data.frame = self.frame_count;
-        self.base.time_uniform.update(&core.queue);
-        
-        self.compute_shader.set_time(current_time, 1.0/60.0, &core.queue);
-
         // Check for hot reload updates
         self.compute_shader.check_hot_reload(&core.device);
         
-        // Update color projection parameters
-        self.params_uniform.update(&core.queue);
+        // Color projection multi-stage dispatch - run all stages every frame for animation
         
-        // Color projection must run ALL stages EVERY frame for animation
-        // Stage 0: Clear atomic buffer
-        self.compute_shader.dispatch_stage(&mut encoder, 0, (
-            core.size.width.div_ceil(16),
-            core.size.height.div_ceil(16), 
-            1
-        ), Some(&self.params_uniform.bind_group));
+        // Stage 0: Clear atomic buffer (16x16 workgroups)
+        self.compute_shader.dispatch_stage(&mut encoder, core, 0);
         
-        // Get input texture dimensions for proper workgroup dispatch
-        let input_dimensions = if let Some(ref texture_manager) = self.base.texture_manager {
-            (texture_manager.texture.width().div_ceil(16), texture_manager.texture.height().div_ceil(16))
+        // Stage 1: Project colors to 3D space (uses input texture dimensions)
+        if let Some(texture_manager) = self.base.get_current_texture_manager() {
+            let input_workgroups = [
+                texture_manager.texture.width().div_ceil(16),
+                texture_manager.texture.height().div_ceil(16),
+                1
+            ];
+            self.compute_shader.dispatch_stage_with_workgroups(&mut encoder, 1, input_workgroups);
         } else {
-            (core.size.width.div_ceil(16), core.size.height.div_ceil(16))
-        };
+            // Fallback to screen size if no input texture
+            self.compute_shader.dispatch_stage(&mut encoder, core, 1);
+        }
         
-        // Stage 1: Project colors to 3D space
-        self.compute_shader.dispatch_stage(&mut encoder, 1, (
-            input_dimensions.0,
-            input_dimensions.1, 
-            1
-        ), Some(&self.params_uniform.bind_group));
+        // Stage 2: Generate final image (16x16 workgroups, screen size)
+        self.compute_shader.dispatch_stage(&mut encoder, core, 2);
         
-        // Stage 2: Generate final image
-        self.compute_shader.dispatch_stage(&mut encoder, 2, (
-            core.size.width.div_ceil(16),
-            core.size.height.div_ceil(16), 
-            1
-        ), Some(&self.params_uniform.bind_group));
-        
-        // Display result using ComputeShader
+        // Display result
         {
             let mut render_pass = cuneus::Renderer::begin_render_pass(
                 &mut encoder,
@@ -329,16 +288,14 @@ impl ShaderManager for ColorProjection {
             
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-            render_pass.set_bind_group(0, &self.compute_shader.get_output_texture().bind_group, &[]);
+            render_pass.set_bind_group(0, &self.compute_shader.output_texture.bind_group, &[]);
             
             render_pass.draw(0..4, 0..1);
         }
         
         self.base.handle_render_output(core, &view, full_output, &mut encoder);
-        
         core.queue.submit(Some(encoder.finish()));
         output.present();
-        self.frame_count = self.frame_count.wrapping_add(1);
         
         Ok(())
     }
@@ -355,10 +312,6 @@ impl ShaderManager for ColorProjection {
         if let WindowEvent::DroppedFile(path) = event {
             if let Err(e) = self.base.load_media(core, path) {
                 eprintln!("Failed to load dropped file: {:?}", e);
-            } else {
-                if let Some(ref texture_manager) = self.base.texture_manager {
-                    self.compute_shader.update_input_texture(core, &texture_manager.view, &texture_manager.sampler);
-                }
             }
             return true;
         }
