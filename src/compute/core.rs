@@ -316,7 +316,7 @@ impl ComputeShader {
             pass_dependencies,
             pass_descriptions: config.passes.clone(),
             font_system,
-            atomic_buffer_raw: atomic_buffer_raw,
+            atomic_buffer_raw,
             audio_buffer,
             audio_staging_buffer,
             mouse_uniform,
@@ -1372,5 +1372,60 @@ impl ComputeShader {
     }
         pub fn get_audio_buffer(&self) -> Option<&wgpu::Buffer> {
         self.audio_buffer.as_ref()
+    }
+    
+    /// Reads audio data from the GPU's audio buffer back to CPU.
+    /// 
+    /// This method copies audio data from the GPU compute shader's audio buffer 
+    /// to CPU memory for processing or playback. The GPU shader writes audio 
+    /// parameters (frequencies, amplitudes, waveforms, etc.) to the buffer, 
+    /// and this method retrieves them asynchronously.
+    ///
+    /// Returns a Vec<f32> containing the audio buffer data, or an empty vector if no audio buffer exists.
+    pub async fn read_audio_buffer(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
+        if let (Some(audio_buffer), Some(staging_buffer)) = (&self.audio_buffer, &self.audio_staging_buffer) {
+            // Get buffer size directly from the wgpu buffer itself
+            let buffer_size = audio_buffer.size();
+            
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Audio Buffer Copy"),
+            });
+            
+            encoder.copy_buffer_to_buffer(
+                audio_buffer,
+                0,
+                staging_buffer,
+                0,
+                buffer_size as u64,
+            );
+            
+            queue.submit(std::iter::once(encoder.finish()));
+            
+            let buffer_slice = staging_buffer.slice(..);
+            let (tx, rx) = std::sync::mpsc::channel();
+            buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+                let _ = tx.send(result);
+            });
+            
+            let _ = device.poll(wgpu::PollType::Wait);
+            
+            match rx.recv() {
+                Ok(Ok(())) => {},
+                Ok(Err(e)) => return Err(e.into()),
+                Err(_) => return Err("Buffer mapping failed".into()),
+            }
+            
+            let samples = {
+                let data = buffer_slice.get_mapped_range();
+                let samples: Vec<f32> = bytemuck::cast_slice(&data).to_vec();
+                samples
+            };
+            
+            staging_buffer.unmap();
+            
+            Ok(samples)
+        } else {
+            Ok(Vec::new())
+        }
     }
 }
