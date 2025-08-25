@@ -1,11 +1,13 @@
 # Cuneus Usage Guide
 
-Cuneus is a Rust-based creative coding framework designed for the rapid development of GPU compute shaders. It provides a unified backend that handles single-pass, multi-pass, and GPGPU compute tasks with built-in UI controls, hot-reloading, and media integration.
+Cuneus is a Rust-based GPU shader engine with a unified backend that handles single-pass, multi-pass, and atomic compute shaders with built-in UI controls, hot-reloading, and media integration.
+
+In Cuneus, almost everything is a compute shader. Instead of writing traditional vertex/fragment shaders, you write compute kernels that write directly to an output texture. The framework provides a simple renderer to blit this texture to the screen. This approach gives you maximum control and performance for GPU tasks.
 
 ## Core Concepts
 
 ### 1. The Unified Compute Pipeline
-In Cuneus, almost everything is a compute shader. Instead of writing traditional vertex/fragment shaders, you write compute kernels that write directly to an output texture. The framework provides a simple renderer to blit this texture to the screen. This approach gives you maximum control and performance for GPGPU tasks.
+In Cuneus, almost everything is a compute shader. Instead of writing traditional vertex/fragment shaders, you write compute kernels that write directly to an output texture. The framework provides a simple renderer to blit this texture to the screen. This approach gives you maximum control and performance for GPU tasks.
 
 ### 2. The Builder Pattern (`ComputeShaderBuilder`)
 The `ComputeShader::builder()` is the single entry point for configuring your shader. API allows you to specify exactly what resources your shader needs, and Cuneus handles all the complex WGPU boilerplate for you.
@@ -38,7 +40,7 @@ The framework elegantly handles two types of multi-pass computation:
 
 1.  **Texture-Based (Ping-Pong):** Ideal for image processing and feedback effects. Intermediate results are stored in textures that are automatically swapped between passes. This is enabled with `.with_multi_pass()` and does not require manual storage buffers.
     *   *Examples: `lich.rs`, `jfa.rs`, `currents.rs`*
-2.  **Storage-Buffer-Based (Shared Memory):** Ideal for GPGPU algorithms like FFT or simulations like CNNs. All passes read from and write to the same large, user-defined storage buffers. This is enabled by using `.with_multi_pass()` *and* `.with_storage_buffer()`.
+2.  **Storage-Buffer-Based (Shared Memory):** Ideal for GPU algorithms like FFT or simulations like CNNs. All passes read from and write to the same large, user-defined storage buffers. This is enabled by using `.with_multi_pass()` *and* `.with_storage_buffer()`.
     *   *Examples: `fft.rs`, `cnn.rs`*
 
 ## Getting Started: Shader Structure
