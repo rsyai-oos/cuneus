@@ -1,8 +1,21 @@
 // Inspired by https://www.shadertoy.com/view/3sl3WH
 // Function "wavelength_to_rgb" based on Michael Friendly (2015)
 
+// Group 0: Time uniform
 struct TimeUniform { time: f32, delta: f32, frame: u32, _padding: u32 };
 @group(0) @binding(0) var<uniform> time_data: TimeUniform;
+
+// Group 1: Primary I/O & Parameters
+@group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
+@group(1) @binding(1) var<uniform> params: LichParams;
+
+// Group 2: Engine Resources (unused for Lich)
+
+// Group 3: Multi-pass Input Textures
+@group(3) @binding(0) var input_texture0: texture_2d<f32>;
+@group(3) @binding(1) var input_sampler0: sampler;
+@group(3) @binding(2) var input_texture1: texture_2d<f32>;
+@group(3) @binding(3) var input_sampler1: sampler;
 
 struct LichParams {
     cloud_density: f32,
@@ -15,16 +28,6 @@ struct LichParams {
     spectrum_mix: f32,
     _pad2: vec2<f32>,
 };
-@group(1) @binding(0) var<uniform> params: LichParams;
-
-// Storage texture for output
-@group(2) @binding(0) var output: texture_storage_2d<rgba16float, write>;
-
-// Multiple input textures for cross-buffer reading
-@group(3) @binding(0) var input_texture0: texture_2d<f32>;
-@group(3) @binding(1) var input_sampler0: sampler;
-@group(3) @binding(2) var input_texture1: texture_2d<f32>;
-@group(3) @binding(3) var input_sampler1: sampler;
 
 const ATOMIC_SCALE: f32 = 2048.0;
 

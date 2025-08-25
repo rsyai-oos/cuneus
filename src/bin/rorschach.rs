@@ -1,7 +1,6 @@
-use cuneus::{Core, ShaderManager, UniformProvider, UniformBinding, RenderKit, ShaderControls, ExportManager};
-use cuneus::compute::{ComputeShader, ComputeShaderConfig, CustomStorageBuffer};
+use cuneus::prelude::*;
+use cuneus::compute::*;
 use winit::event::WindowEvent;
-use std::path::PathBuf;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -52,96 +51,13 @@ impl UniformProvider for RorschachParams {
 
 struct RorschachShader {
     base: RenderKit,
-    params_uniform: UniformBinding<RorschachParams>,
-    frame_count: u32,
+    compute_shader: ComputeShader,
+    current_params: RorschachParams,
 }
 
 impl RorschachShader {
-    fn capture_frame(&mut self, core: &Core, time: f32) -> Result<Vec<u8>, wgpu::SurfaceError> {
-        let settings = self.base.export_manager.settings();
-        let (capture_texture, output_buffer) = self.base.create_capture_texture(
-            &core.device,
-            settings.width,
-            settings.height
-        );
-        
-        let align = 256;
-        let unpadded_bytes_per_row = settings.width * 4;
-        let padding = (align - unpadded_bytes_per_row % align) % align;
-        let padded_bytes_per_row = unpadded_bytes_per_row + padding;
-        let capture_view = capture_texture.create_view(&wgpu::TextureViewDescriptor::default());
-        
-        let mut encoder = core.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Capture Encoder"),
-        });
-        
-        self.base.time_uniform.data.time = time;
-        self.base.time_uniform.update(&core.queue);
-        
-        {
-            let mut render_pass = cuneus::Renderer::begin_render_pass(
-                &mut encoder,
-                &capture_view,
-                wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                Some("Capture Pass"),
-            );
-            render_pass.set_pipeline(&self.base.renderer.render_pipeline);
-            render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-            if let Some(compute_shader) = &self.base.compute_shader {
-                render_pass.set_bind_group(0, &compute_shader.get_output_texture().bind_group, &[]);
-            }
-            render_pass.draw(0..4, 0..1);
-        }
-        
-        encoder.copy_texture_to_buffer(
-            wgpu::TexelCopyTextureInfo {
-                texture: &capture_texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::TexelCopyBufferInfo {
-                buffer: &output_buffer,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(padded_bytes_per_row),
-                    rows_per_image: Some(settings.height),
-                },
-            },
-            wgpu::Extent3d {
-                width: settings.width,
-                height: settings.height,
-                depth_or_array_layers: 1,
-            },
-        );
-        
-        core.queue.submit(Some(encoder.finish()));
-        let buffer_slice = output_buffer.slice(..);
-        let (tx, rx) = std::sync::mpsc::channel();
-        buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
-            tx.send(result).unwrap();
-        });
-        let _ = core.device.poll(wgpu::PollType::Wait).unwrap();
-        rx.recv().unwrap().unwrap();
-        let padded_data = buffer_slice.get_mapped_range().to_vec();
-        let mut unpadded_data = Vec::with_capacity((settings.width * settings.height * 4) as usize);
-        for chunk in padded_data.chunks(padded_bytes_per_row as usize) {
-            unpadded_data.extend_from_slice(&chunk[..unpadded_bytes_per_row as usize]);
-        }
-        Ok(unpadded_data)
-    }
-
-    fn handle_export(&mut self, core: &Core) {
-        if let Some((frame, time)) = self.base.export_manager.try_get_next_frame() {
-            if let Ok(data) = self.capture_frame(core, time) {
-                let settings = self.base.export_manager.settings();
-                if let Err(e) = cuneus::save_frame(data, frame, settings) {
-                    eprintln!("Error saving frame: {:?}", e);
-                }
-            }
-        } else {
-            self.base.export_manager.complete_export();
-        }
+    fn clear_buffers(&mut self, core: &Core) {
+        self.compute_shader.clear_all_buffers(core);
     }
 }
 
@@ -213,77 +129,48 @@ impl ShaderManager for RorschachShader {
             color2_b: 1.0,
         };
         
-        let mut resource_layout = cuneus::compute::ResourceLayout::new();
-        resource_layout.add_custom_uniform("rorschach_params", std::mem::size_of::<RorschachParams>() as u64);
-        let bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
-        let rorschach_params_layout = bind_group_layouts.get(&2).unwrap();
+        let mut config = ComputeShader::builder()
+            .with_entry_point("Splat")
+            .with_custom_uniforms::<RorschachParams>()
+            .with_atomic_buffer()
+            .with_workgroup_size([16, 16, 1])
+            .with_texture_format(COMPUTE_TEXTURE_FORMAT_RGBA16)
+            .with_label("Rorschach IFS Unified")
+            .build();
+            
+        // Add second entry point manually (no ping-pong needed)
+        config.entry_points.push("main_image".to_string());
 
-        let params_uniform = UniformBinding::new(
-            &core.device,
-            "Rorschach Params",
-            initial_params,
-            rorschach_params_layout,
-            0,
-        );
-        
-        // Rorschach requires atomic buffer for particle accumulation
-        let buffer_size = (core.size.width * core.size.height * 4 * 4) as u64;
-        let compute_config = ComputeShaderConfig {
-            label: "Rorschach".to_string(),
-            enable_input_texture: false,
-            enable_custom_uniform: true,
-            entry_points: vec![
-                "Splat".to_string(),      // Stage 0
-                "main_image".to_string(), // Stage 1 
-            ],
-            custom_storage_buffers: vec![
-                CustomStorageBuffer {
-                    label: "Atomic Buffer".to_string(),
-                    size: buffer_size,
-                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-                },
-            ],
-            ..Default::default()
-        };
-        
-        let mut base = base;
-        base.compute_shader = Some(ComputeShader::new_with_config(
+        let mut compute_shader = ComputeShader::from_builder(
             core,
             include_str!("../../shaders/rorschach.wgsl"),
-            compute_config,
-        ));
-        
+            config,
+        );
 
-        if let Some(compute_shader) = &mut base.compute_shader {
-            let shader_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("Rorschach Compute Shader Hot Reload"),
+        // Enable hot reload
+        if let Err(e) = compute_shader.enable_hot_reload(
+            core.device.clone(),
+            std::path::PathBuf::from("shaders/rorschach.wgsl"),
+            core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Rorschach Hot Reload"),
                 source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/rorschach.wgsl").into()),
-            });
-            if let Err(e) = compute_shader.enable_hot_reload(
-                core.device.clone(),
-                PathBuf::from("shaders/rorschach.wgsl"),
-                shader_module,
-            ) {
-                eprintln!("Failed to enable compute shader hot reload: {}", e);
-            }
+            }),
+        ) {
+            eprintln!("Failed to enable hot reload for Rorschach shader: {}", e);
         }
-        
-        // Add custom uniform binding
-        if let Some(compute_shader) = &mut base.compute_shader {
-            compute_shader.add_custom_uniform_binding(&params_uniform.bind_group);
-        }
+
+        compute_shader.set_custom_params(initial_params, &core.queue);
         
         Self {
             base,
-            params_uniform,
-            frame_count: 0,
+            compute_shader,
+            current_params: initial_params,
         }
     }
 
     fn update(&mut self, core: &Core) {
-        if self.base.export_manager.is_exporting() {
-            self.handle_export(core);
-        }
+        // Check for hot reload updates
+        self.compute_shader.check_hot_reload(&core.device);
         
         self.base.update_mouse_uniform(&core.queue);
         self.base.fps_tracker.update();
@@ -291,7 +178,7 @@ impl ShaderManager for RorschachShader {
     fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {
         let output = core.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let mut params = self.params_uniform.data;
+        let mut params = self.current_params;
         let mut changed = false;
         let mut should_start_export = false;
         let mut export_request = self.base.export_manager.get_ui_request();
@@ -411,47 +298,35 @@ impl ShaderManager for RorschachShader {
         };
 
         self.base.export_manager.apply_ui_request(export_request);
+        if controls_request.should_clear_buffers {
+            self.clear_buffers(core);
+        }
         self.base.apply_control_request(controls_request);
         
-        if changed {
-            self.params_uniform.data = params;
-            self.params_uniform.update(&core.queue);
-        }
-
-        if should_start_export {
-            self.base.export_manager.start_export();
-        }
-
         let current_time = self.base.controls.get_time(&self.base.start_time);
         
         let mut encoder = core.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Render Encoder"),
         });
 
-        // Update time and dispatch compute shader stages
-        if let Some(compute_shader) = &mut self.base.compute_shader {
-            let delta = 1.0/60.0;
-            compute_shader.set_time(current_time, delta, &core.queue);
-            
-            // Check for hot reload updates
-            compute_shader.check_hot_reload(&core.device);
-            
-            // Clear atomic buffer for new frame
-            if !compute_shader.custom_storage_buffers.is_empty() {
-                let buffer = &compute_shader.custom_storage_buffers[0];
-                let buffer_size = (core.size.width * core.size.height * 4 * 4) as u64;
-                core.queue.write_buffer(buffer, 0, &vec![0u8; buffer_size as usize]);
-            }
-
-            // Stage 0: Generate and splat particles
-            let workgroups = (self.params_uniform.data.particle_count as u32 / 256).max(1);
-            compute_shader.dispatch_stage(&mut encoder, 0, (workgroups, 1, 1), Some(&self.params_uniform.bind_group));
-
-            // Stage 1: Render to screen
-            let workgroups_x = (core.size.width as f32 / 16.0).ceil() as u32;
-            let workgroups_y = (core.size.height as f32 / 16.0).ceil() as u32;
-            compute_shader.dispatch_stage(&mut encoder, 1, (workgroups_x, workgroups_y, 1), Some(&self.params_uniform.bind_group));
+        let delta = 1.0 / 60.0;
+        self.compute_shader.set_time(current_time, delta, &core.queue);
+        
+        if changed {
+            self.current_params = params;
+            self.compute_shader.set_custom_params(params, &core.queue);
         }
+
+        if should_start_export {
+            self.base.export_manager.start_export();
+        }
+
+        // Stage 0: Generate and splat particles (workgroup size [256, 1, 1])
+        let workgroups = (self.current_params.particle_count as u32 / 256).max(1);
+        self.compute_shader.dispatch_stage_with_workgroups(&mut encoder, 0, [workgroups, 1, 1]);
+
+        // Stage 1: Render to screen (workgroup size [16, 16, 1])  
+        self.compute_shader.dispatch_stage(&mut encoder, core, 1);
 
         {
             let mut render_pass = cuneus::Renderer::begin_render_pass(
@@ -463,14 +338,10 @@ impl ShaderManager for RorschachShader {
             
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-            if let Some(compute_shader) = &self.base.compute_shader {
-                render_pass.set_bind_group(0, &compute_shader.get_output_texture().bind_group, &[]);
-            }
+            render_pass.set_bind_group(0, &self.compute_shader.output_texture.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
         }
         
-        self.frame_count = self.frame_count.wrapping_add(1);
-
         self.base.handle_render_output(core, &view, full_output, &mut encoder);
         core.queue.submit(Some(encoder.finish()));
         output.present();
@@ -498,9 +369,7 @@ impl ShaderManager for RorschachShader {
 
     fn resize(&mut self, core: &Core) {
         self.base.update_resolution(&core.queue, core.size);
-        if let Some(compute_shader) = &mut self.base.compute_shader {
-            compute_shader.resize(core, core.size.width, core.size.height);
-        }
+        self.compute_shader.resize(core, core.size.width, core.size.height);
     }
 }
 

@@ -65,7 +65,7 @@ pub mod prelude {
         TextureManager, Renderer, AtomicBuffer,
         KeyInputHandler, ControlsRequest, FontSystem, FontUniforms,
         save_frame,
-        compute::MultiBufferManager, compute::MultiBufferCompute, compute::create_display_bind_group
+        compute::MultiPassManager, compute::ComputeShader, compute::ComputeShaderBuilder
     };
     
     #[cfg(feature = "media")]

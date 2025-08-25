@@ -8,8 +8,10 @@ struct TimeUniform {
 };
 @group(0) @binding(0) var<uniform> u_time: TimeUniform;
 
+// Group 1: Output texture only 
 @group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
 
+// Group 2: Engine Resources (mouse, fonts, storage)
 struct MouseUniform {
     position: vec2<f32>,         
     click_position: vec2<f32>,   
@@ -18,17 +20,17 @@ struct MouseUniform {
 };
 @group(2) @binding(0) var<uniform> u_mouse: MouseUniform;
 
-// Group 3: Font system + storage buffer for game state
+// Group 2: Engine Resources continued (fonts + game storage)
 struct FontUniforms {
     atlas_size: vec2<f32>,
     char_size: vec2<f32>,
     screen_size: vec2<f32>,
     _padding: vec2<f32>,
 };
-@group(3) @binding(0) var<uniform> u_font: FontUniforms;
-@group(3) @binding(1) var t_font_atlas: texture_2d<f32>;
-@group(3) @binding(2) var s_font_atlas: sampler;
-@group(3) @binding(3) var<storage, read_write> game_data: array<f32>;
+@group(2) @binding(1) var<uniform> u_font: FontUniforms;
+@group(2) @binding(2) var t_font_atlas: texture_2d<f32>;
+@group(2) @binding(3) var s_font_atlas: sampler;
+@group(2) @binding(4) var<storage, read_write> game_data: array<f32>;
 
 // game indices
 const O = array<u32,9>(0,1,2,3,4,5,6,7,8); // state,score,block,click,cam_y,cam_h,cam_a,cam_s,perf_time

@@ -4,10 +4,11 @@
 struct TimeUniform { time: f32, delta: f32, frame: u32, _padding: u32 };
 @group(0) @binding(0) var<uniform> time_data: TimeUniform;
 
-// Group 1: Storage texture for output + input texture
+// Group 1: Primary Pass I/O & Parameters
 @group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
-@group(1) @binding(1) var input_texture: texture_2d<f32>;
-@group(1) @binding(2) var input_sampler: sampler;
+@group(1) @binding(1) var<uniform> params: SceneColorParams;
+@group(1) @binding(2) var input_texture: texture_2d<f32>;
+@group(1) @binding(3) var input_sampler: sampler;
 
 struct SceneColorParams {
     num_segments: f32,
@@ -20,7 +21,6 @@ struct SceneColorParams {
     _pad3: f32,
     _pad4: f32,
 };
-@group(2) @binding(0) var<uniform> params: SceneColorParams;
 
 fn mix_f32(a: f32, b: f32, t: f32) -> f32 {
     return a * (1.0 - t) + b * t;

@@ -37,94 +37,14 @@ impl UniformProvider for LorenzParams {
 
 struct LorenzShader {
     base: RenderKit,
-    params_uniform: UniformBinding<LorenzParams>,
     compute_shader: ComputeShader,
-    frame_count: u32,
+    current_params: LorenzParams,
     mouse_look_enabled: bool,
 }
 
 impl LorenzShader {
-    fn clear_atomic_buffer(&mut self, core: &Core) {
-        self.compute_shader.clear_atomic_buffer(core);
-        self.frame_count = 0;
-    }
-    fn capture_frame(&mut self, core: &Core, time: f32) -> Result<Vec<u8>, wgpu::SurfaceError> {
-        let settings = self.base.export_manager.settings();
-        let (capture_texture, output_buffer) = self.base.create_capture_texture(
-            &core.device,
-            settings.width,
-            settings.height
-        );
-        let align = 256;
-        let unpadded_bytes_per_row = settings.width * 4;
-        let padding = (align - unpadded_bytes_per_row % align) % align;
-        let padded_bytes_per_row = unpadded_bytes_per_row + padding;
-        let capture_view = capture_texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder = core.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Capture Encoder"),
-        });
-        self.base.time_uniform.data.time = time;
-        self.base.time_uniform.update(&core.queue);
-        {
-            let mut render_pass = cuneus::Renderer::begin_render_pass(
-                &mut encoder,
-                &capture_view,
-                wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                Some("Capture Pass"),
-            );
-            render_pass.set_pipeline(&self.base.renderer.render_pipeline);
-            render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-            render_pass.set_bind_group(0, &self.compute_shader.output_texture.bind_group, &[]);
-            render_pass.draw(0..4, 0..1);
-        }
-        encoder.copy_texture_to_buffer(
-            wgpu::TexelCopyTextureInfo {
-                texture: &capture_texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::TexelCopyBufferInfo {
-                buffer: &output_buffer,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(padded_bytes_per_row),
-                    rows_per_image: Some(settings.height),
-                },
-            },
-            wgpu::Extent3d {
-                width: settings.width,
-                height: settings.height,
-                depth_or_array_layers: 1,
-            },
-        );
-        
-        core.queue.submit(Some(encoder.finish()));
-        let buffer_slice = output_buffer.slice(..);
-        let (tx, rx) = std::sync::mpsc::channel();
-        buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
-            tx.send(result).unwrap();
-        });
-        let _ = core.device.poll(wgpu::PollType::Wait).unwrap();
-        rx.recv().unwrap().unwrap();
-        let padded_data = buffer_slice.get_mapped_range().to_vec();
-        let mut unpadded_data = Vec::with_capacity((settings.width * settings.height * 4) as usize);
-        for chunk in padded_data.chunks(padded_bytes_per_row as usize) {
-            unpadded_data.extend_from_slice(&chunk[..unpadded_bytes_per_row as usize]);
-        }
-        Ok(unpadded_data)
-    }
-    fn handle_export(&mut self, core: &Core) {
-        if let Some((frame, time)) = self.base.export_manager.try_get_next_frame() {
-            if let Ok(data) = self.capture_frame(core, time) {
-                let settings = self.base.export_manager.settings();
-                if let Err(e) = cuneus::save_frame(data, frame, settings) {
-                    eprintln!("Error saving frame: {:?}", e);
-                }
-            }
-        } else {
-            self.base.export_manager.complete_export();
-        }
+    fn clear_buffers(&mut self, core: &Core) {
+        self.compute_shader.clear_all_buffers(core);
     }
 }
 
@@ -151,41 +71,30 @@ impl ShaderManager for LorenzShader {
             ],
             label: Some("texture_bind_group_layout"),
         });
-        let mut resource_layout = cuneus::compute::ResourceLayout::new();
-        resource_layout.add_custom_uniform("lorenz_params", std::mem::size_of::<LorenzParams>() as u64);
-        let bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
-        let lorenz_params_layout = bind_group_layouts.get(&2).unwrap();
-
-        let params_uniform = UniformBinding::new(
-            &core.device,
-            "Lorenz Params",
-            LorenzParams {
-                sigma: 40.0,
-                rho: 33.0,
-                beta: 30.0 / 3.0,
-                step_size: 0.02,
-                motion_speed: 2.2,
-                rotation_x: 0.0,
-                rotation_y: 0.0,
-                click_state: 0,
-                brightness: 0.0005,
-                color1_r: 1.0,
-                color1_g: 0.5,
-                color1_b: 0.0,
-                color2_r: 0.0,
-                color2_g: 0.5,
-                color2_b: 1.0,
-                scale: 0.013,
-                dof_amount: 0.1,
-                dof_focal_dist: 0.5,
-                gamma: 2.2,
-                exposure: 1.0,
-                particle_count: 1000.0,
-                decay_speed: 8.0,
-            },
-            lorenz_params_layout,
-            0,
-        );
+        let initial_params = LorenzParams {
+            sigma: 40.0,
+            rho: 33.0,
+            beta: 30.0 / 3.0,
+            step_size: 0.02,
+            motion_speed: 2.2,
+            rotation_x: 0.0,
+            rotation_y: 0.0,
+            click_state: 0,
+            brightness: 0.0005,
+            color1_r: 1.0,
+            color1_g: 0.5,
+            color1_b: 0.0,
+            color2_r: 0.0,
+            color2_g: 0.5,
+            color2_b: 1.0,
+            scale: 0.013,
+            dof_amount: 0.1,
+            dof_focal_dist: 0.5,
+            gamma: 2.2,
+            exposure: 1.0,
+            particle_count: 1000.0,
+            decay_speed: 8.0,
+        };
 
         let base = RenderKit::new(
             core,
@@ -194,70 +103,54 @@ impl ShaderManager for LorenzShader {
             &[&texture_bind_group_layout],
             None,
         );
-        // Mouse data is passed through custom uniform instead of separate mouse uniform bind group
-        // base.setup_mouse_uniform(core);
 
-        let compute_config = ComputeShaderConfig {
-            workgroup_size: [16, 16, 1],
-            workgroup_count: None,
-            dispatch_once: false,
-            storage_texture_format: COMPUTE_TEXTURE_FORMAT_RGBA16,
-            enable_atomic_buffer: true,
-            atomic_buffer_multiples: 3,
-            entry_points: vec!["Splat".to_string(), "main_image".to_string()],
-            sampler_address_mode: wgpu::AddressMode::ClampToEdge,
-            sampler_filter_mode: wgpu::FilterMode::Linear,
-            label: "Lorenz".to_string(),
-            // Mouse data passed through custom uniform instead
-            mouse_bind_group_layout: None,
-            enable_fonts: false,
-            enable_audio_buffer: false,
-            audio_buffer_size: 0,
-            enable_custom_uniform: true,
-            enable_input_texture: false,
-            custom_storage_buffers: Vec::new(),
-        };
+        let mut config = ComputeShader::builder()
+            .with_entry_point("Splat")
+            .with_custom_uniforms::<LorenzParams>()
+            .with_atomic_buffer()
+            .with_workgroup_size([16, 16, 1])
+            .with_texture_format(COMPUTE_TEXTURE_FORMAT_RGBA16)
+            .with_label("Lorenz Unified")
+            .build();
+            
+        config.entry_points.push("main_image".to_string());
 
-        let mut compute_shader = ComputeShader::new_with_config(
+        let mut compute_shader = ComputeShader::from_builder(
             core,
             include_str!("../../shaders/lorenz.wgsl"),
-            compute_config,
+            config,
         );
 
-        let shader_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Lorenz Compute Shader Hot Reload"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/lorenz.wgsl").into()),
-        });
+        // Enable hot reload
         if let Err(e) = compute_shader.enable_hot_reload(
             core.device.clone(),
             std::path::PathBuf::from("shaders/lorenz.wgsl"),
-            shader_module,
+            core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Lorenz Hot Reload"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/lorenz.wgsl").into()),
+            }),
         ) {
-            eprintln!("Failed to enable compute shader hot reload: {}", e);
+            eprintln!("Failed to enable hot reload for Lorenz shader: {}", e);
         }
 
-        // Add custom parameters uniform to the compute shader
-        compute_shader.add_custom_uniform_binding(&params_uniform.bind_group);
+        compute_shader.set_custom_params(initial_params, &core.queue);
 
         Self {
             base,
-            params_uniform,
             compute_shader,
-            frame_count: 0,
+            current_params: initial_params,
             mouse_look_enabled: false,
         }
     }
     
     fn update(&mut self, core: &Core) {
-        if self.base.export_manager.is_exporting() {
-            self.handle_export(core);
-        }
+        // Check for hot reload updates
+        self.compute_shader.check_hot_reload(&core.device);
         
         self.base.fps_tracker.update();
     }
     
     fn resize(&mut self, core: &Core) {
-        println!("Resizing to {:?}", core.size);
         self.base.update_resolution(&core.queue, core.size);
         self.compute_shader.resize(core, core.size.width, core.size.height);
     }
@@ -269,7 +162,7 @@ impl ShaderManager for LorenzShader {
             label: Some("Render Encoder"),
         });
         
-        let mut params = self.params_uniform.data;
+        let mut params = self.current_params;
         let mut changed = false;
         let mut should_start_export = false;
         let mut export_request = self.base.export_manager.get_ui_request();
@@ -408,23 +301,16 @@ impl ShaderManager for LorenzShader {
         
         self.base.export_manager.apply_ui_request(export_request);
         if controls_request.should_clear_buffers {
-            self.clear_atomic_buffer(core);
+            self.clear_buffers(core);
         }
         self.base.apply_control_request(controls_request);
         
         let current_time = self.base.controls.get_time(&self.base.start_time);
         
-        self.base.time_uniform.data.time = current_time;
-        self.base.time_uniform.data.frame = self.frame_count;
-        self.base.time_uniform.update(&core.queue);
-        
-        // Update compute shader with the same time data
-        self.compute_shader.set_time(current_time, 1.0/60.0, &core.queue);
-        self.compute_shader.time_uniform.data.frame = self.frame_count;
-        self.compute_shader.time_uniform.update(&core.queue);
+        let delta = 1.0 / 60.0;
+        self.compute_shader.set_time(current_time, delta, &core.queue);
         
         // Mouse data is read from tracker and passed through custom uniform parameters
-        // self.base.update_mouse_uniform(&core.queue);
         if self.mouse_look_enabled {
             params.rotation_x = self.base.mouse_tracker.uniform.position[0];
             params.rotation_y = self.base.mouse_tracker.uniform.position[1];
@@ -433,16 +319,20 @@ impl ShaderManager for LorenzShader {
         changed = true;
         
         if changed {
-            self.params_uniform.data = params;
-            self.params_uniform.update(&core.queue);
+            self.current_params = params;
+            self.compute_shader.set_custom_params(params, &core.queue);
         }
         
         if should_start_export {
             self.base.export_manager.start_export();
         }
         
-        // Use ComputeShader dispatch
-        self.compute_shader.dispatch(&mut encoder, core);
+        // Stage 0: Generate and splat particles (workgroup size [256, 1, 1])
+        let particle_workgroups = (self.current_params.particle_count as u32 / 256).max(1);
+        self.compute_shader.dispatch_stage_with_workgroups(&mut encoder, 0, [particle_workgroups, 1, 1]);
+
+        // Stage 1: Render to screen (workgroup size [16, 16, 1])  
+        self.compute_shader.dispatch_stage(&mut encoder, core, 1);
         
         {
             let mut render_pass = cuneus::Renderer::begin_render_pass(
@@ -462,8 +352,6 @@ impl ShaderManager for LorenzShader {
         self.base.handle_render_output(core, &view, full_output, &mut encoder);
         core.queue.submit(Some(encoder.finish()));
         output.present();
-        self.frame_count = self.frame_count.wrapping_add(1);
-        
         Ok(())
     }
     

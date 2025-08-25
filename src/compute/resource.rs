@@ -15,6 +15,7 @@ pub enum ResourceType {
         access: wgpu::StorageTextureAccess 
     },
     InputTexture,
+    ChannelTexture,  // External texture channels (channel0, channel1, etc.)
     Sampler,
 }
 
@@ -104,6 +105,11 @@ impl ResourceLayout {
                     sample_type: wgpu::TextureSampleType::Float { filterable: true },
                     view_dimension: wgpu::TextureViewDimension::D2,
                 },
+                ResourceType::ChannelTexture => wgpu::BindingType::Texture {
+                    multisampled: false,
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                },
                 ResourceType::Sampler => wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
             },
             count: None,
@@ -146,20 +152,21 @@ impl DynamicSize {
     }
 }
 
-/// Helper functions to create common resource layouts
-/// time uniform to group 0 (standard)
-/// output texture to group 1 (standard)
-/// input texture + sampler pair to group 1
-/// custom uniform to group 2 (standard for user parameters)
-/// storage buffer to group 3 (standard for custom data)
-/// dynamic storage buffer that resizes based on resolution
+/// 4-Group Convention Implementation:
+/// @group(0): Per-Frame Resources (TimeUniform)
+/// @group(1): Primary Pass I/O & Parameters (output texture, shader params, input textures)
+/// @group(2): Global Engine Resources (fonts, audio, atomics, mouse)
+/// @group(3): User-Defined Data Buffers (custom storage buffers)
 impl ResourceLayout {
+    // GROUP 0: Per-Frame Resources
     pub fn add_time_uniform(&mut self) {
         self.add_resource(0, "time", ResourceType::UniformBuffer { 
             size: std::mem::size_of::<super::ComputeTimeUniform>() as u64 
         });
     }
     
+    
+    // GROUP 1: Primary Pass I/O & Parameters
     pub fn add_output_texture(&mut self, format: wgpu::TextureFormat) {
         self.add_resource(1, "output", ResourceType::StorageTexture { 
             format,
@@ -172,14 +179,72 @@ impl ResourceLayout {
         self.add_resource(1, "input_sampler", ResourceType::Sampler);
     }
     
-    pub fn add_custom_uniform(&mut self, name: &str, size: u64) {
-        self.add_resource(2, name, ResourceType::UniformBuffer { size });
+    /// Add multi-pass input textures to Group 3 (up to 3 input textures with samplers)
+    // GROUP 2: Engine Resources including Channels
+    /// Add channel textures (channel0-channel3) for external media accessible from all passes
+    pub fn add_channel_textures(&mut self, num_channels: u32) {
+        for i in 0..num_channels {
+            let channel_name = format!("channel{}", i);
+            let sampler_name = format!("channel{}_sampler", i);
+            
+            self.add_resource(2, &channel_name, ResourceType::ChannelTexture);
+            self.add_resource(2, &sampler_name, ResourceType::Sampler);
+        }
+    }
+
+    pub fn add_multipass_input_textures(&mut self) {
+        // Add 3 input texture pairs for multi-pass dependencies
+        for i in 0..3 {
+            self.add_resource(3, &format!("input_texture{}", i), ResourceType::InputTexture);
+            self.add_resource(3, &format!("input_sampler{}", i), ResourceType::Sampler);
+        }
     }
     
+    pub fn add_custom_uniform(&mut self, name: &str, size: u64) {
+        self.add_resource(1, name, ResourceType::UniformBuffer { size });
+    }
+    
+    // GROUP 2: Global Engine Resources
+    pub fn add_mouse_uniform(&mut self) {
+        self.add_resource(2, "mouse", ResourceType::UniformBuffer { 
+            size: std::mem::size_of::<crate::MouseUniform>() as u64 
+        });
+    }
+    
+    pub fn add_font_resources(&mut self) {
+        self.add_resource(2, "font_uniform", ResourceType::UniformBuffer { 
+            size: std::mem::size_of::<crate::FontUniforms>() as u64 
+        });
+        self.add_resource(2, "font_texture", ResourceType::InputTexture);
+        self.add_resource(2, "font_sampler", ResourceType::Sampler);
+    }
+    
+    pub fn add_audio_buffer(&mut self, size: usize) {
+        self.add_resource(2, "audio_buffer", ResourceType::StorageBuffer { 
+            size: (size * std::mem::size_of::<f32>()) as u64, 
+            read_only: false 
+        });
+    }
+    
+    pub fn add_atomic_buffer(&mut self, size: u64) {
+        self.add_resource(2, "atomic_buffer", ResourceType::StorageBuffer { 
+            size, 
+            read_only: false 
+        });
+    }
+    
+    // GROUP 3: User-Defined Data Buffers
     pub fn add_storage_buffer(&mut self, name: &str, size: u64) {
         self.add_resource(3, name, ResourceType::StorageBuffer { 
             size, 
             read_only: false 
+        });
+    }
+    
+    pub fn add_readonly_storage_buffer(&mut self, name: &str, size: u64) {
+        self.add_resource(3, name, ResourceType::StorageBuffer { 
+            size, 
+            read_only: true 
         });
     }
     
@@ -212,7 +277,7 @@ pub fn create_layout_with_input() -> ResourceLayout {
 
 pub fn create_layout_with_uniform(uniform_size: u64) -> ResourceLayout {
     let mut layout = create_basic_layout();
-    layout.add_custom_uniform("params", uniform_size);  // Group 2
+    layout.add_custom_uniform("params", uniform_size);  // Group 1
     layout
 }
 
@@ -221,7 +286,7 @@ pub fn create_layout_with_uniform(uniform_size: u64) -> ResourceLayout {
 pub fn create_algorithm_layout(uniform_size: u64, resolution: u32, bytes_per_pixel: u32) -> ResourceLayout {
     let mut layout = create_basic_layout();
     layout.add_input_texture();  // Group 1 (for media input)
-    layout.add_custom_uniform("params", uniform_size);  // Group 2
+    layout.add_custom_uniform("params", uniform_size);  // Group 1
     // Algorithm needs resolution² × bytes_per_pixel storage
     layout.add_dynamic_storage_buffer("algorithm_data", DynamicSize::ResolutionSquared(bytes_per_pixel), resolution, resolution);
     layout
@@ -230,7 +295,7 @@ pub fn create_algorithm_layout(uniform_size: u64, resolution: u32, bytes_per_pix
 /// for particle systems
 pub fn create_particle_layout(uniform_size: u64, particle_count: u32) -> ResourceLayout {
     let mut layout = create_basic_layout();
-    layout.add_custom_uniform("params", uniform_size);  // Group 2
+    layout.add_custom_uniform("params", uniform_size);  // Group 1
     // Particles need fixed count × bytes per particle
     let bytes_per_particle = 64; // Position + velocity + color + life
     layout.add_dynamic_storage_buffer("particles", DynamicSize::Fixed((particle_count * bytes_per_particle) as u64), 0, 0);
@@ -240,7 +305,7 @@ pub fn create_particle_layout(uniform_size: u64, particle_count: u32) -> Resourc
 /// Create layout for grid-based simulations (resolution-dependent)
 pub fn create_grid_layout(uniform_size: u64, width: u32, height: u32, bytes_per_cell: u32) -> ResourceLayout {
     let mut layout = create_basic_layout();
-    layout.add_custom_uniform("params", uniform_size);  // Group 2
+    layout.add_custom_uniform("params", uniform_size);  // Group 1
     // Grid needs width × height × bytes per cell
     layout.add_dynamic_storage_buffer("grid_data", DynamicSize::ResolutionLinear(bytes_per_cell), width, height);
     layout

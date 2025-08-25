@@ -548,7 +548,7 @@ impl VideoTextureManager {
             appsink,
             has_audio: false,
             volume: volume_val,
-            is_muted: is_muted,
+            is_muted,
             dimensions: (1, 1),
             duration: None,
             position,

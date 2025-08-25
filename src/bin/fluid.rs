@@ -21,13 +21,21 @@ impl UniformProvider for FluidParams {
 
 struct FluidShader {
     base: RenderKit,
-    multi_buffer: MultiBufferCompute<FluidParams>,
+    compute_shader: ComputeShader,
+    current_params: FluidParams,
 }
-
-impl FluidShader {}
 
 impl ShaderManager for FluidShader {
     fn init(core: &Core) -> Self {
+        let initial_params = FluidParams {
+            rotation_speed: 2.0,
+            motor_strength: 0.01,
+            distortion: 10.0,
+            feedback: 0.95,
+            particle_size: 1.0,
+            _padding: [0.0; 7],
+        };
+
         let texture_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -58,71 +66,73 @@ impl ShaderManager for FluidShader {
             None,
         );
 
-        let multi_buffer = MultiBufferCompute::new(
+        // Create multipass system: buffer_a (simulation) -> main_image (display)
+        let passes = vec![
+            PassDescription::new("buffer_a", &[]),
+            PassDescription::new("main_image", &["buffer_a"]),
+        ];
+
+        // Use input texture in Group 1 for external input
+        let config = ComputeShader::builder()
+            .with_entry_point("buffer_a")
+            .with_multi_pass(&passes)
+            .with_channels(1)  // Enable channel0 in Group 2 - accessible from all passes!
+            .with_custom_uniforms::<FluidParams>()
+            .with_workgroup_size([16, 16, 1])
+            .with_texture_format(COMPUTE_TEXTURE_FORMAT_RGBA16)
+            .with_label("Fluid Unified")
+            .build();
+
+        let mut compute_shader = ComputeShader::from_builder(
             core,
-            &["buffer_a"],
-            "shaders/fluid.wgsl",
-            &["buffer_a", "main_image"],
-            FluidParams {
-                rotation_speed: 2.0,
-                motor_strength: 0.01,
-                distortion: 10.0,
-                feedback: 0.95,
-                particle_size: 1.0,
-                _padding: [0.0; 7],
-            },
+            include_str!("../../shaders/fluid.wgsl"),
+            config,
         );
 
-        Self { base, multi_buffer }
+        // Enable hot reload
+        if let Err(e) = compute_shader.enable_hot_reload(
+            core.device.clone(),
+            std::path::PathBuf::from("shaders/fluid.wgsl"),
+            core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Fluid Hot Reload"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/fluid.wgsl").into()),
+            }),
+        ) {
+            eprintln!("Failed to enable hot reload for fluid shader: {}", e);
+        }
+
+        compute_shader.set_custom_params(initial_params, &core.queue);
+
+        Self {
+            base,
+            compute_shader,
+            current_params: initial_params,
+        }
     }
 
     fn update(&mut self, core: &Core) {
-        // Update current texture (video/webcam/static) and external texture
+        // Update current texture (video/webcam/static) 
         self.base.update_current_texture(core, &core.queue);
+        
+        // Update channel0 with external texture (accessible from all passes!)
         if let Some(texture_manager) = self.base.get_current_texture_manager() {
-            self.multi_buffer.update_input_texture(&texture_manager.view, &texture_manager.sampler);
+            self.compute_shader.update_channel_texture(0, &texture_manager.view, &texture_manager.sampler, &core.device, &core.queue);
         }
+        
 
-        if let Some(new_shader) = self.multi_buffer.hot_reload.reload_compute_shader() {
-            println!("Reloading Fluid shader at time: {:.2}s", self.base.start_time.elapsed().as_secs_f32());
-            
-            let mut resource_layout = cuneus::compute::ResourceLayout::new();
-            resource_layout.add_time_uniform(); // Group 0
-            resource_layout.add_custom_uniform("fluid_params", std::mem::size_of::<FluidParams>() as u64); // Group 2
-            let bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
-            let time_layout = bind_group_layouts.get(&0).unwrap(); // Group 0 for time
-            let params_layout = bind_group_layouts.get(&2).unwrap(); // Group 2 for custom params
-            
-            let pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Updated Fluid Pipeline Layout"),
-                bind_group_layouts: &[
-                    &time_layout,
-                    &params_layout,
-                    self.multi_buffer.buffer_manager.get_storage_layout(),
-                    self.multi_buffer.buffer_manager.get_multi_texture_layout(),
-                ],
-                push_constant_ranges: &[],
-            });
-
-            for entry_point in &["buffer_a", "main_image"] {
-                let pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                    label: Some(&format!("Updated Fluid Pipeline - {}", entry_point)),
-                    layout: Some(&pipeline_layout),
-                    module: &new_shader,
-                    entry_point: Some(entry_point),
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                    cache: None,
-                });
-                self.multi_buffer.pipelines.insert(entry_point.to_string(), pipeline);
-            }
-        }
-
+        let current_time = self.base.controls.get_time(&self.base.start_time);
+        let delta = 1.0 / 60.0;
+        self.compute_shader.set_time(current_time, delta, &core.queue);
+        
         self.base.fps_tracker.update();
+        
+        // Check for hot reload updates
+        self.compute_shader.check_hot_reload(&core.device);
     }
 
     fn resize(&mut self, core: &Core) {
-        self.multi_buffer.buffer_manager.resize(core, core.size.width, core.size.height, COMPUTE_TEXTURE_FORMAT_RGBA16);
-        self.multi_buffer.frame_count = 0;
+        self.base.update_resolution(&core.queue, core.size);
+        self.compute_shader.resize(core, core.size.width, core.size.height);
     }
 
     fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {
@@ -132,7 +142,7 @@ impl ShaderManager for FluidShader {
             label: Some("Fluid Render Encoder"),
         });
 
-        let mut params = self.multi_buffer.params_uniform.data;
+        let mut params = self.current_params;
         let mut changed = false;
         let mut should_start_export = false;
         let mut export_request = self.base.export_manager.get_ui_request();
@@ -190,65 +200,42 @@ impl ShaderManager for FluidShader {
                         
                         ui.separator();
                         should_start_export = ExportManager::render_export_ui_widget(ui, &mut export_request);
-                        
-                        ui.separator();
-                        ui.label(format!("Frame: {}", self.multi_buffer.frame_count));
                     });
             })
         } else {
             self.base.render_ui(core, |_ctx| {})
         };
 
-        let current_time = self.base.controls.get_time(&self.base.start_time);
-        self.multi_buffer.update_time(&core.queue, current_time);
-
+        // Handle controls and clear buffers if requested  
         if controls_request.should_clear_buffers {
-            self.multi_buffer.buffer_manager.clear_all(core, COMPUTE_TEXTURE_FORMAT_RGBA16);
-            self.multi_buffer.frame_count = 0;
+            // Reset frame count to restart simulation 
+            self.compute_shader.current_frame = 0;
         }
-        // Buffer A: Fluid simulation with self-feedback and media input
-        self.multi_buffer.dispatch_buffer(&mut encoder, core, "buffer_a", &["buffer_a"]);
-        
-        // Main : display
-        let sampler = core.device.create_sampler(&wgpu::SamplerDescriptor::default());
-        let main_input_bind_group = self.multi_buffer.buffer_manager.create_input_bind_group(&core.device, &sampler, &["buffer_a"]);
-        
+
+        // Execute multi-pass compute shader: buffer_a -> main_image
+        self.compute_shader.dispatch(&mut encoder, core);
+
+        // Render compute output to screen
         {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Fluid Main Image Pass"),
+            let compute_texture = self.compute_shader.get_output_texture();
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Fluid Display Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
                 timestamp_writes: None,
+                occlusion_query_set: None,
             });
-
-            if let Some(pipeline) = self.multi_buffer.pipelines.get("main_image") {
-                compute_pass.set_pipeline(pipeline);
-                compute_pass.set_bind_group(0, &self.multi_buffer.time_uniform.bind_group, &[]);
-                compute_pass.set_bind_group(1, &self.multi_buffer.params_uniform.bind_group, &[]);
-                compute_pass.set_bind_group(2, self.multi_buffer.buffer_manager.get_output_bind_group(), &[]);
-                compute_pass.set_bind_group(3, &main_input_bind_group, &[]);
-
-                let width = core.size.width.div_ceil(16);
-                let height = core.size.height.div_ceil(16);
-                compute_pass.dispatch_workgroups(width, height, 1);
-            }
-        }
-
-        let display_bind_group = create_display_bind_group(
-            &core.device,
-            &self.base.renderer.render_pipeline.get_bind_group_layout(0),
-            self.multi_buffer.buffer_manager.get_output_texture(),
-        );
-
-        {
-            let mut render_pass = Renderer::begin_render_pass(
-                &mut encoder,
-                &view,
-                wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                Some("Fluid Display Pass"),
-            );
 
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-            render_pass.set_bind_group(0, &display_bind_group, &[]);
+            render_pass.set_bind_group(0, &compute_texture.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
         }
 
@@ -262,22 +249,14 @@ impl ShaderManager for FluidShader {
             self.base.export_manager.start_export();
         }
 
-        if controls_request.should_clear_buffers {
-            self.multi_buffer.buffer_manager.clear_all(core, COMPUTE_TEXTURE_FORMAT_RGBA16);
-            self.multi_buffer.frame_count = 0;
-        }
-
         if changed {
-            self.multi_buffer.params_uniform.data = params;
-            self.multi_buffer.params_uniform.update(&core.queue);
+            self.current_params = params;
+            self.compute_shader.set_custom_params(params, &core.queue);
         }
 
         self.base.handle_render_output(core, &view, full_output, &mut encoder);
         core.queue.submit(std::iter::once(encoder.finish()));
         output.present();
-
-        self.multi_buffer.frame_count += 1;
-        self.multi_buffer.buffer_manager.flip_buffers();
 
         Ok(())
     }

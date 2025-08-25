@@ -34,10 +34,10 @@ impl UniformProvider for BuddhabrotParams {
 
 struct BuddhabrotShader {
     base: RenderKit,
-    params_uniform: UniformBinding<BuddhabrotParams>,
     compute_shader: ComputeShader,
     frame_count: u32,
     accumulated_rendering: bool,
+    current_params: BuddhabrotParams,
 }
 
 impl BuddhabrotShader {
@@ -73,7 +73,8 @@ impl BuddhabrotShader {
             
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-            render_pass.set_bind_group(0, &self.compute_shader.output_texture.bind_group, &[]);
+            let compute_texture = self.compute_shader.get_output_texture();
+            render_pass.set_bind_group(0, &compute_texture.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
         }
         
@@ -133,9 +134,11 @@ impl BuddhabrotShader {
     }
     
     fn clear_buffers(&mut self, core: &Core) {
-        if !self.accumulated_rendering {
-            self.compute_shader.clear_atomic_buffer(core);
-        }
+        // Clear atomic buffer (by recreating it)
+        self.compute_shader.clear_atomic_buffer(core);
+        
+        self.compute_shader.current_frame = 0;
+        self.frame_count = 0;
         self.accumulated_rendering = false;
     }
 }
@@ -150,87 +153,67 @@ impl ShaderManager for BuddhabrotShader {
             label: Some("texture_bind_group_layout"),
         });
         
-        let mut resource_layout = cuneus::compute::ResourceLayout::new();
-        resource_layout.add_custom_uniform("buddhabrot_params", std::mem::size_of::<BuddhabrotParams>() as u64);
-        let bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
-        let buddhabrot_params_layout = bind_group_layouts.get(&2).unwrap();
-
-        let params_uniform = UniformBinding::new(
-            &core.device,
-            "Buddhabrot Params",
-            BuddhabrotParams {
-                max_iterations: 500,
-                escape_radius: 4.0,
-                zoom: 0.5,
-                offset_x: -0.5,
-                offset_y: 0.0,
-                rotation: 1.5,
-                exposure: 0.0005,
-                low_iterations: 20,
-                high_iterations: 100,
-                motion_speed: 0.0,
-                color1_r: 1.0,
-                color1_g: 0.5,
-                color1_b: 0.2,
-                color2_r: 0.2,
-                color2_g: 0.5,
-                color2_b: 1.0,
-                sample_density: 0.5,
-                dithering: 0.2,
-            },
-            buddhabrot_params_layout,
-            0,
-        );
+        let initial_params = BuddhabrotParams {
+            max_iterations: 500,
+            escape_radius: 4.0,
+            zoom: 0.5,
+            offset_x: -0.5,
+            offset_y: 0.0,
+            rotation: 1.5,
+            exposure: 0.0005,
+            low_iterations: 20,
+            high_iterations: 100,
+            motion_speed: 0.0,
+            color1_r: 1.0,
+            color1_g: 0.5,
+            color1_b: 0.2,
+            color2_r: 0.2,
+            color2_g: 0.5,
+            color2_b: 1.0,
+            sample_density: 0.5,
+            dithering: 0.2,
+        };
         
         let base = RenderKit::new(core, include_str!("../../shaders/vertex.wgsl"), include_str!("../../shaders/blit.wgsl"), &[&texture_bind_group_layout], None);
 
-        let compute_config = ComputeShaderConfig {
-            workgroup_size: [16, 16, 1],
-            workgroup_count: None,
-            dispatch_once: false,
-            storage_texture_format: COMPUTE_TEXTURE_FORMAT_RGBA16,
-            enable_atomic_buffer: true,
-            atomic_buffer_multiples: 3,
-            entry_points: vec!["Splat".to_string(), "main_image".to_string()],
-            sampler_address_mode: wgpu::AddressMode::ClampToEdge,
-            sampler_filter_mode: wgpu::FilterMode::Linear,
-            label: "Buddhabrot".to_string(),
-            mouse_bind_group_layout: None,
-            enable_fonts: false,
-            enable_audio_buffer: false,
-            audio_buffer_size: 0,
-            enable_custom_uniform: true,
-            enable_input_texture: false,
-            custom_storage_buffers: Vec::new(),
-        };
-
-        let mut compute_shader = ComputeShader::new_with_config(
+        let mut config = ComputeShader::builder()
+            .with_entry_point("Splat")
+            .with_custom_uniforms::<BuddhabrotParams>()
+            .with_atomic_buffer()
+            .with_workgroup_size([16, 16, 1])
+            .with_texture_format(COMPUTE_TEXTURE_FORMAT_RGBA16)
+            .with_label("Buddhabrot Unified")
+            .build();
+            
+        // Add second entry point 
+        config.entry_points.push("main_image".to_string());
+            
+        let mut compute_shader = ComputeShader::from_builder(
             core,
             include_str!("../../shaders/buddhabrot.wgsl"),
-            compute_config,
+            config,
         );
 
         // Enable hot reload
-        let shader_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Buddhabrot Compute Shader Hot Reload"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/buddhabrot.wgsl").into()),
-        });
         if let Err(e) = compute_shader.enable_hot_reload(
             core.device.clone(),
             std::path::PathBuf::from("shaders/buddhabrot.wgsl"),
-            shader_module,
+            core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Buddhabrot Hot Reload"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/buddhabrot.wgsl").into()),
+            }),
         ) {
-            eprintln!("Failed to enable compute shader hot reload: {}", e);
+            eprintln!("Failed to enable hot reload for buddhabrot shader: {}", e);
         }
-
-        compute_shader.add_custom_uniform_binding(&params_uniform.bind_group);
+        
+        compute_shader.set_custom_params(initial_params, &core.queue);
 
         Self {
             base,
-            params_uniform,
             compute_shader,
             frame_count: 0,
             accumulated_rendering: false,
+            current_params: initial_params,
         }
     }
     
@@ -239,10 +222,12 @@ impl ShaderManager for BuddhabrotShader {
             self.handle_export(core);
         }
         self.base.fps_tracker.update();
+        
+        // Check for hot reload updates
+        self.compute_shader.check_hot_reload(&core.device);
     }
     
     fn resize(&mut self, core: &Core) {
-        println!("Resizing to {:?}", core.size);
         self.base.update_resolution(&core.queue, core.size);
         self.compute_shader.resize(core, core.size.width, core.size.height);
     }
@@ -254,7 +239,7 @@ impl ShaderManager for BuddhabrotShader {
             label: Some("Render Encoder"),
         });
         
-        let mut params = self.params_uniform.data;
+        let mut params = self.current_params;
         let mut changed = false;
         let mut should_start_export = false;
         let mut export_request = self.base.export_manager.get_ui_request();
@@ -359,23 +344,17 @@ impl ShaderManager for BuddhabrotShader {
         
         let current_time = self.base.controls.get_time(&self.base.start_time);
         
-        self.base.time_uniform.data.time = current_time;
-        self.base.time_uniform.data.frame = self.frame_count;
-        self.base.time_uniform.update(&core.queue);
-        
-        self.compute_shader.set_time(current_time, 1.0/60.0, &core.queue);
-        self.compute_shader.time_uniform.data.frame = self.frame_count;
-        self.compute_shader.time_uniform.update(&core.queue);
-
-        self.compute_shader.check_hot_reload(&core.device);
+        let delta = 1.0 / 60.0;
+        self.compute_shader.set_time(current_time, delta, &core.queue);
         
         if changed {
+            self.current_params = params;
+            self.compute_shader.set_custom_params(params, &core.queue);
+            
+            // Clear buffers when parameters change (unless in accumulated mode)
             if !self.accumulated_rendering {
                 self.clear_buffers(core);
             }
-            
-            self.params_uniform.data = params;
-            self.params_uniform.update(&core.queue);
         }
         
         if should_start_export {
@@ -383,43 +362,20 @@ impl ShaderManager for BuddhabrotShader {
         }
         
         // Only generate new samples if we're not in accumulated mode
-        // or if we're still accumulating (frame count < 500)  
-        let should_generate_samples = !self.accumulated_rendering || self.frame_count < 500;
+        // or if we're still accumulating (frame count < 500) - use frame counter
+        let should_generate_samples = !self.accumulated_rendering || self.compute_shader.current_frame < 500;
         
-        // Manual dispatch for selective pass execution
         if should_generate_samples {
-            // Pass 1: Generate and splat particles (Splat entry point)
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Buddhabrot Splat Pass"),
-                timestamp_writes: None,
-            });
-            compute_pass.set_pipeline(&self.compute_shader.pipelines[0]); // First pipeline is Splat
-            compute_pass.set_bind_group(0, &self.compute_shader.time_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.compute_shader.storage_bind_group, &[]);
-            compute_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
-            if let Some(atomic_buffer) = &self.compute_shader.atomic_buffer {
-                compute_pass.set_bind_group(3, &atomic_buffer.bind_group, &[]);
-            }
-            compute_pass.dispatch_workgroups(2048, 1, 1);
+            self.compute_shader.dispatch_stage_with_workgroups(&mut encoder, 0, [2048, 1, 1]);
         }
         
-        // Pass 2: Render the accumulated data (main_image entry point)  
-        {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Buddhabrot Render Pass"),
-                timestamp_writes: None,
-            });
-            compute_pass.set_pipeline(&self.compute_shader.pipelines[1]); // Second pipeline is main_image
-            compute_pass.set_bind_group(0, &self.compute_shader.time_uniform.bind_group, &[]);
-            compute_pass.set_bind_group(1, &self.compute_shader.storage_bind_group, &[]);
-            compute_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
-            if let Some(atomic_buffer) = &self.compute_shader.atomic_buffer {
-                compute_pass.set_bind_group(3, &atomic_buffer.bind_group, &[]);
-            }
-            let width = core.size.width.div_ceil(16);
-            let height = core.size.height.div_ceil(16);
-            compute_pass.dispatch_workgroups(width, height, 1);
-        }
+        // Always dispatch stage 1 (main_image) for rendering with screen-based workgroups
+        // Note: in cuneus, individual stage dispatch methods need manual frame management (if you need of course!)
+
+        self.compute_shader.dispatch_stage(&mut encoder, core, 1);
+        
+        //Manual frame increment since dispatch_stage() doesn't auto-increment
+        self.compute_shader.current_frame += 1;
         
         {
             let mut render_pass = cuneus::Renderer::begin_render_pass(
@@ -431,7 +387,8 @@ impl ShaderManager for BuddhabrotShader {
             
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-            render_pass.set_bind_group(0, &self.compute_shader.output_texture.bind_group, &[]);
+            let compute_texture = self.compute_shader.get_output_texture();
+            render_pass.set_bind_group(0, &compute_texture.bind_group, &[]);
             
             render_pass.draw(0..4, 0..1);
         }

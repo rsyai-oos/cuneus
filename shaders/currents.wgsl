@@ -52,12 +52,12 @@ struct CurrentsParams {
     mandel_trap2_y: f32,
     gamma: f32,
 }
-@group(1) @binding(0) var<uniform> params: CurrentsParams;
 
-// Storage texture for output
-@group(2) @binding(0) var output: texture_storage_2d<rgba16float, write>;
+// Group 1: Primary Pass I/O & Parameters
+@group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
+@group(1) @binding(1) var<uniform> params: CurrentsParams;
 
-// Multiple input textures for cross-buffer reading
+// Group 3: User-Defined Data Buffers (multi-pass input textures)
 @group(3) @binding(0) var input_texture0: texture_2d<f32>; // Primary input (self or main)
 @group(3) @binding(1) var input_sampler0: sampler;
 @group(3) @binding(2) var input_texture1: texture_2d<f32>; // Secondary input

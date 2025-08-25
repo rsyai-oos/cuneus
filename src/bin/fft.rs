@@ -1,5 +1,5 @@
-use cuneus::{Core, ShaderManager, UniformProvider, UniformBinding, RenderKit, ShaderControls, ExportManager};
-use cuneus::compute::{ComputeShader, ComputeShaderConfig, CustomStorageBuffer};
+use cuneus::{Core, ShaderManager, RenderKit, ShaderControls, ExportManager, UniformProvider};
+use cuneus::compute::{ComputeShader, COMPUTE_TEXTURE_FORMAT_RGBA16, PassDescription, StorageBufferSpec};
 use winit::event::WindowEvent;
 
 #[repr(C)]
@@ -15,6 +15,7 @@ struct FFTParams {
     _padding2: u32,
 }
 
+
 impl UniformProvider for FFTParams {
     fn as_bytes(&self) -> &[u8] {
         bytemuck::bytes_of(self)
@@ -23,14 +24,24 @@ impl UniformProvider for FFTParams {
 
 struct FFTShader {
     base: RenderKit,
-    params_uniform: UniformBinding<FFTParams>,
     compute_shader: ComputeShader,
-    frame_count: u32,
     should_initialize: bool,
+    current_params: FFTParams, // Store current parameters
 }
 
 impl ShaderManager for FFTShader {
     fn init(core: &Core) -> Self {
+        let initial_params = FFTParams {
+            filter_type: 1,
+            filter_strength: 0.3,
+            filter_direction: 0.0,
+            filter_radius: 3.0,
+            show_freqs: 0,
+            resolution: 1024,
+            _padding1: 0,
+            _padding2: 0,
+        };
+        
         // Create texture bind group layout for displaying compute shader output
         let texture_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
@@ -62,107 +73,68 @@ impl ShaderManager for FFTShader {
             None,
         );
         
-        let initial_params = FFTParams {
-            filter_type: 1,
-            filter_strength: 0.3,
-            filter_direction: 0.0,
-            filter_radius: 3.0,
-            show_freqs: 0,
-            resolution: 1024,
-            _padding1: 0,
-            _padding2: 0,
-        };
-        
-        // Demonstrate GENERIC dynamic resource system
-        // Algorithm buffer size depends on resolution: resolution² × bytes_per_pixel
-        let resolution = initial_params.resolution;
-        
-        // Create params uniform using the ResourceLayout system  
-        let mut resource_layout = cuneus::compute::ResourceLayout::new();
-        resource_layout.add_custom_uniform("params", std::mem::size_of::<FFTParams>() as u64);
-        // Add dynamic storage buffer that automatically sizes for resolution
-        // FFT needs extra working memory: 32 bytes per pixel (complex data + working buffers + indices)
-         // 32 bytes per pixel for FFT working memory
-        resource_layout.add_dynamic_storage_buffer(
-            "algorithm_data", 
-            cuneus::compute::DynamicSize::ResolutionSquared(32),
-            resolution, 
-            resolution
-        );
-        let bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
-        let fft_params_layout = bind_group_layouts.get(&2).unwrap(); // Group 2 is standard for custom uniforms
+        // Define the FFT multi-pass pipeline
+        let passes = vec![
+            PassDescription::new("initialize_data", &[]),                           // Stage 0: Initialize from input texture
+            PassDescription::new("fft_horizontal", &["initialize_data"]),           // Stage 1: FFT horizontal pass
+            PassDescription::new("fft_vertical", &["fft_horizontal"]),              // Stage 2: FFT vertical pass
+            PassDescription::new("modify_frequencies", &["fft_vertical"]),          // Stage 3: Apply frequency domain filters
+            PassDescription::new("ifft_horizontal", &["modify_frequencies"]),       // Stage 4: Inverse FFT horizontal
+            PassDescription::new("ifft_vertical", &["ifft_horizontal"]),            // Stage 5: Inverse FFT vertical
+            PassDescription::new("main_image", &["ifft_vertical"]),                 // Stage 6: Final display
+        ];
 
-        let params_uniform = UniformBinding::new(
-            &core.device,
-            "FFT Params",
-            initial_params,
-            fft_params_layout,
-            0,
-        );
-        
-        // Calculate correct buffer size dynamically (much better than hardcoded size!)
-        let dynamic_buffer_size = cuneus::compute::DynamicSize::ResolutionSquared(32).calculate(resolution, resolution);
-        let compute_config = ComputeShaderConfig {
-            label: "FFT".to_string(),
-            enable_input_texture: true,
-            enable_custom_uniform: true,
-            entry_points: vec![
-                "initialize_data".to_string(),      // Stage 0
-                "fft_horizontal".to_string(),       // Stage 1 
-                "fft_vertical".to_string(),         // Stage 2
-                "modify_frequencies".to_string(),   // Stage 3
-                "ifft_horizontal".to_string(),      // Stage 4
-                "ifft_vertical".to_string(),        // Stage 5
-                "main_image".to_string(),           // Stage 6 - main rendering
-            ],
-            custom_storage_buffers: vec![
-                CustomStorageBuffer {
-                    label: "FFT Dynamic Storage".to_string(),
-                    size: dynamic_buffer_size, // Now correctly sized!
-                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-                },
-            ],
-            ..Default::default()
-        };
-        
-        let mut compute_shader = ComputeShader::new_with_config(
+        let config = ComputeShader::builder()
+            .with_entry_point("initialize_data") // Start with data initialization
+            .with_multi_pass(&passes)
+            .with_input_texture() // Re-enable input texture support
+            .with_custom_uniforms::<FFTParams>()
+            .with_storage_buffer(StorageBufferSpec::new("image_data", 1024 * 1024 * 3 * 8)) // FFT working memory: 3 channels × 8 bytes per complex number (vec2f)
+            .with_workgroup_size([16, 16, 1])
+            .with_texture_format(COMPUTE_TEXTURE_FORMAT_RGBA16)
+            .with_label("FFT Multi-Pass")
+            .build();
+
+        let mut compute_shader = ComputeShader::from_builder(
             core,
             include_str!("../../shaders/fft.wgsl"),
-            compute_config,
+            config,
         );
 
         // Enable hot reload
-        let shader_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("FFT Compute Shader Hot Reload"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/fft.wgsl").into()),
-        });
         if let Err(e) = compute_shader.enable_hot_reload(
             core.device.clone(),
             std::path::PathBuf::from("shaders/fft.wgsl"),
-            shader_module,
+            core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("FFT Compute Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/fft.wgsl").into()),
+            }),
         ) {
-            eprintln!("Failed to enable compute shader hot reload: {}", e);
+            eprintln!("Failed to enable FFT compute shader hot reload: {}", e);
         }
-        
-        compute_shader.add_custom_uniform_binding(&params_uniform.bind_group);
+
+        // Initialize custom uniform with initial parameters
+        compute_shader.set_custom_params(initial_params, &core.queue);
         
         Self {
             base,
-            params_uniform,
             compute_shader,
-            frame_count: 0,
             should_initialize: true,
+            current_params: initial_params,
         }
     }
     
     fn update(&mut self, core: &Core) {
+        // Update time
+        let current_time = self.base.controls.get_time(&self.base.start_time);
+        let delta = 1.0/60.0;
+        self.compute_shader.set_time(current_time, delta, &core.queue);
+        
+        // Update input textures for image proc.
         self.base.update_current_texture(core, &core.queue);
         if let Some(texture_manager) = self.base.get_current_texture_manager() {
-            self.compute_shader.update_input_texture(core, &texture_manager.view, &texture_manager.sampler);
-        }
-        
-        if self.base.export_manager.is_exporting() {
-            // Handle export if needed
+            // Update input texture in unified ComputeShader
+            self.compute_shader.update_input_texture(&texture_manager.view, &texture_manager.sampler, &core.device);
         }
         
         self.base.fps_tracker.update();
@@ -180,7 +152,7 @@ impl ShaderManager for FFTShader {
         });
         
         // Handle UI and controls - using original transparent UI design
-        let mut params = self.params_uniform.data;
+        let mut params = self.current_params;
         let mut changed = false;
         let mut should_start_export = false;
         let mut export_request = self.base.export_manager.get_ui_request();
@@ -301,10 +273,8 @@ impl ShaderManager for FFTShader {
             self.base.render_ui(core, |_ctx| {})
         };
 
-        // Apply parameter changes
-        if changed {
-            self.params_uniform.data = params;
-        }
+        // Keep current parameters - don't reset to defaults
+        // The UI will modify 'params' directly, and we'll apply changes at the end
         
         // Apply controls
         self.base.apply_control_request(controls_request.clone());
@@ -324,88 +294,89 @@ impl ShaderManager for FFTShader {
             self.should_initialize = true;
         }
         
-        // Update time and params
-        let current_time = self.base.controls.get_time(&self.base.start_time);
-        self.base.time_uniform.data.time = current_time;
-        self.base.time_uniform.data.frame = self.frame_count;
-        self.base.time_uniform.update(&core.queue);
-        
-        // Apply parameter changes (original clean approach)
+        // Apply parameter changes
         if changed {
-            self.params_uniform.data = params;
+            self.current_params = params;
+            self.compute_shader.set_custom_params(params, &core.queue);
             self.should_initialize = true;  // Trigger FFT reprocessing
         }
-        
-        // Update FFT parameters
-        self.params_uniform.update(&core.queue);
-        
-        // Check for hot reload updates
-        self.compute_shader.check_hot_reload(&core.device);
 
-        // FFT compute stages - run full pipeline when needed
-        let n = self.params_uniform.data.resolution;
-        let should_run_fft = self.should_initialize || 
-                            self.base.using_video_texture || 
-                            self.base.using_webcam_texture;
+        // FFT dispatch - only run full pipeline when needed, otherwise just display
+        let mut should_run_full_fft = self.should_initialize || 
+                                 self.base.using_video_texture || 
+                                 self.base.using_webcam_texture ||
+                                 changed; // Also run when parameters change
         
-        if should_run_fft {
-            // Stage 0: Initialize data from input texture
-            self.compute_shader.dispatch_stage(&mut encoder, 0, (
+        // FORCE run FFT if there's any texture to debug the issue
+        let has_any_texture = self.base.get_current_texture_manager().is_some();
+        if has_any_texture && !should_run_full_fft {
+            should_run_full_fft = true;
+        }
+        // Get FFT resolution for proper workgroup calculation  
+        let n = params.resolution;
+        if should_run_full_fft {
+            // Stage 0: Initialize data from input texture (16x16 workgroups)
+            self.compute_shader.dispatch_stage_with_workgroups(&mut encoder, 0, [
                 n.div_ceil(16), 
                 n.div_ceil(16), 
                 1
-            ), Some(&self.params_uniform.bind_group));
+            ]);
             
-            // Stage 1: FFT horizontal
-            self.compute_shader.dispatch_stage(&mut encoder, 1, (n, 1, 1), Some(&self.params_uniform.bind_group));
+            // Stage 1: FFT horizontal (Nx1 workgroups)
+            self.compute_shader.dispatch_stage_with_workgroups(&mut encoder, 1, [n, 1, 1]);
             
-            // Stage 2: FFT vertical  
-            self.compute_shader.dispatch_stage(&mut encoder, 2, (n, 1, 1), Some(&self.params_uniform.bind_group));
+            // Stage 2: FFT vertical (Nx1 workgroups)  
+            self.compute_shader.dispatch_stage_with_workgroups(&mut encoder, 2, [n, 1, 1]);
             
-            // Stage 3: Modify frequencies (apply filter)
-            self.compute_shader.dispatch_stage(&mut encoder, 3, (
+            // Stage 3: Modify frequencies - apply filter (16x16 workgroups)
+            self.compute_shader.dispatch_stage_with_workgroups(&mut encoder, 3, [
                 n.div_ceil(16), 
                 n.div_ceil(16), 
                 1
-            ), Some(&self.params_uniform.bind_group));
+            ]);
             
-            // Stage 4: Inverse FFT horizontal
-            self.compute_shader.dispatch_stage(&mut encoder, 4, (n, 1, 1), Some(&self.params_uniform.bind_group));
+            // Stage 4: Inverse FFT horizontal (Nx1 workgroups)
+            self.compute_shader.dispatch_stage_with_workgroups(&mut encoder, 4, [n, 1, 1]);
             
-            // Stage 5: Inverse FFT vertical
-            self.compute_shader.dispatch_stage(&mut encoder, 5, (n, 1, 1), Some(&self.params_uniform.bind_group));
+            // Stage 5: Inverse FFT vertical (Nx1 workgroups)
+            self.compute_shader.dispatch_stage_with_workgroups(&mut encoder, 5, [n, 1, 1]);
             
             self.should_initialize = false;
+            log::info!("Completed full FFT pipeline");
+        } else {
+            log::debug!("Skipping full FFT pipeline - using cached result");
         }
         
-        // Stage 6: Main rendering (always run for display)
-        self.compute_shader.dispatch_stage(&mut encoder, 6, (
-            core.size.width.div_ceil(16),
-            core.size.height.div_ceil(16), 
-            1
-        ), Some(&self.params_uniform.bind_group));
+        // Stage 6: Main rendering - always run for display (uses screen size)
+        self.compute_shader.dispatch_stage(&mut encoder, core, 6);
         
-        // Display result using ComputeShader
+        // Display result using unified ComputeShader
         {
-            let mut render_pass = cuneus::Renderer::begin_render_pass(
-                &mut encoder,
-                &view,
-                wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                Some("Display Pass"),
-            );
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("FFT Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
             
+            let compute_texture = self.compute_shader.get_output_texture();
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-            render_pass.set_bind_group(0, &self.compute_shader.get_output_texture().bind_group, &[]);
-            
+            render_pass.set_bind_group(0, &compute_texture.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
         }
         
         self.base.handle_render_output(core, &view, full_output, &mut encoder);
-        
         core.queue.submit(Some(encoder.finish()));
         output.present();
-        self.frame_count = self.frame_count.wrapping_add(1);
         
         Ok(())
     }

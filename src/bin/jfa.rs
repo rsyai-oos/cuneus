@@ -39,11 +39,38 @@ impl UniformProvider for JfaParams {
 
 struct JfaShader {
     base: RenderKit,
-    multi_buffer: MultiBufferCompute<JfaParams>,
+    compute_shader: ComputeShader,
+    current_params: JfaParams,
 }
 
 impl ShaderManager for JfaShader {
     fn init(core: &Core) -> Self {
+        let initial_params = JfaParams {
+            a: -2.7,
+            b: 0.7,
+            c: 0.2,
+            d: 0.2,
+            scale: 0.3,
+            n: 10.0,
+            gamma: 2.1,
+            color_intensity: 1.0,
+            color_r: 1.0,
+            color_g: 2.0,
+            color_b: 3.0,
+            color_w: 4.0,
+            accumulation_speed: 0.1,
+            fade_speed: 0.99,
+            freeze_accumulation: 0.0,
+            pattern_floor_add: 1.0,
+            pattern_temp_add: 0.1,
+            pattern_v_offset: 0.7,
+            pattern_temp_mul1: 0.7,
+            pattern_temp_mul2_3: 3.0,
+            _padding0: 0.0,
+            _padding1: 0.0,
+            _padding2: 0.0,
+        };
+
         let texture_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -74,86 +101,64 @@ impl ShaderManager for JfaShader {
             None,
         );
 
-        // Create multi-buffer compute system
-        let multi_buffer = MultiBufferCompute::new(
+        // Create multipass system: buffer_a -> buffer_b -> buffer_c -> main_image
+        let passes = vec![
+            PassDescription::new("buffer_a", &["buffer_a"]),  // self-feedback
+            PassDescription::new("buffer_b", &["buffer_a", "buffer_b"]),  // reads buffer_a + self-feedback
+            PassDescription::new("buffer_c", &["buffer_a", "buffer_b", "buffer_c"]),  // reads ALL 3 buffers
+            PassDescription::new("main_image", &["buffer_c"]),
+        ];
+
+        let config = ComputeShader::builder()
+            .with_entry_point("buffer_a")
+            .with_multi_pass(&passes)
+            .with_custom_uniforms::<JfaParams>()
+            .with_workgroup_size([16, 16, 1])
+            .with_texture_format(COMPUTE_TEXTURE_FORMAT_RGBA16)
+            .with_label("JFA Unified")
+            .build();
+
+        let mut compute_shader = ComputeShader::from_builder(
             core,
-            &["buffer_a", "buffer_b", "buffer_c"],
-            "shaders/jfa.wgsl",
-            &["buffer_a", "buffer_b", "buffer_c", "main_image"],
-            JfaParams {
-                a: -2.7,
-                b: 0.7,
-                c: 0.2,
-                d: 0.2,
-                scale: 0.3,
-                n: 10.0,
-                gamma: 2.1,
-                color_intensity: 1.0,
-                color_r: 1.0,
-                color_g: 2.0,
-                color_b: 3.0,
-                color_w: 4.0,
-                accumulation_speed: 0.1,
-                fade_speed: 0.99,
-                freeze_accumulation: 0.0,
-                pattern_floor_add: 1.0,
-                pattern_temp_add: 0.1,
-                pattern_v_offset: 0.7,
-                pattern_temp_mul1: 0.7,
-                pattern_temp_mul2_3: 3.0,
-                _padding0: 0.0,
-                _padding1: 0.0,
-                _padding2: 0.0,
-            },
+            include_str!("../../shaders/jfa.wgsl"),
+            config,
         );
 
-        Self { base, multi_buffer }
+        // Enable hot reload
+        if let Err(e) = compute_shader.enable_hot_reload(
+            core.device.clone(),
+            std::path::PathBuf::from("shaders/jfa.wgsl"),
+            core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("JFA Hot Reload"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/jfa.wgsl").into()),
+            }),
+        ) {
+            eprintln!("Failed to enable hot reload for JFA shader: {}", e);
+        }
+
+        compute_shader.set_custom_params(initial_params, &core.queue);
+
+        Self {
+            base,
+            compute_shader,
+            current_params: initial_params,
+        }
     }
 
     fn update(&mut self, core: &Core) {
-        // Check hot reload
-        if let Some(new_shader) = self.multi_buffer.hot_reload.reload_compute_shader() {
-            println!("Reloading JFA shader at time: {:.2}s", self.base.start_time.elapsed().as_secs_f32());
-            
-            // Recreate all pipelines with updated shader
-            let mut resource_layout = cuneus::compute::ResourceLayout::new();
-            resource_layout.add_time_uniform();
-            resource_layout.add_custom_uniform("jfa_params", std::mem::size_of::<JfaParams>() as u64);
-            let bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
-            let time_layout = bind_group_layouts.get(&0).unwrap();
-            let params_layout = bind_group_layouts.get(&2).unwrap();
-            
-            let pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Updated JFA Pipeline Layout"),
-                bind_group_layouts: &[
-                    &time_layout,
-                    &params_layout,
-                    self.multi_buffer.buffer_manager.get_storage_layout(),
-                    self.multi_buffer.buffer_manager.get_multi_texture_layout(),
-                ],
-                push_constant_ranges: &[],
-            });
-
-            // Update pipelines
-            for entry_point in &["buffer_a", "buffer_b", "buffer_c", "main_image"] {
-                let pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                    label: Some(&format!("Updated JFA Pipeline - {}", entry_point)),
-                    layout: Some(&pipeline_layout),
-                    module: &new_shader,
-                    entry_point: Some(entry_point),
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                    cache: None,
-                });
-                self.multi_buffer.pipelines.insert(entry_point.to_string(), pipeline);
-            }
-        }
-
+        // Check for hot reload updates
+        self.compute_shader.check_hot_reload(&core.device);
+        
+        let current_time = self.base.controls.get_time(&self.base.start_time);
+        let delta = 1.0 / 60.0;
+        self.compute_shader.set_time(current_time, delta, &core.queue);
+        
         self.base.fps_tracker.update();
     }
 
     fn resize(&mut self, core: &Core) {
-        self.multi_buffer.buffer_manager.resize(core, core.size.width, core.size.height, COMPUTE_TEXTURE_FORMAT_RGBA16);
-        self.multi_buffer.frame_count = 0;
+        self.base.update_resolution(&core.queue, core.size);
+        self.compute_shader.resize(core, core.size.width, core.size.height);
     }
 
     fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {
@@ -163,61 +168,36 @@ impl ShaderManager for JfaShader {
             label: Some("JFA Render Encoder"),
         });
 
-        // Update time
-        let current_time = self.base.controls.get_time(&self.base.start_time);
-        self.multi_buffer.update_time(&core.queue, current_time);
 
-        // Execute multi-buffer compute passes in dependency order
-        self.multi_buffer.dispatch_buffer(&mut encoder, core, "buffer_a", &["buffer_a"]);
-        self.multi_buffer.dispatch_buffer(&mut encoder, core, "buffer_b", &["buffer_a", "buffer_b"]);
-        self.multi_buffer.dispatch_buffer(&mut encoder, core, "buffer_c", &["buffer_a", "buffer_b", "buffer_c"]);
+        // Execute multi-pass compute shader: buffer_a -> buffer_b -> buffer_c -> main_image 
+        self.compute_shader.dispatch(&mut encoder, core);
         
-        // Main image uses buffer_c output
-        let sampler = core.device.create_sampler(&wgpu::SamplerDescriptor::default());
-        let main_input_bind_group = self.multi_buffer.buffer_manager.create_input_bind_group(&core.device, &sampler, &["buffer_c"]);
-        
+        // Render compute output to screen
         {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("JFA Main Image Pass"),
+            let compute_texture = self.compute_shader.get_output_texture();
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("JFA Display Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
                 timestamp_writes: None,
+                occlusion_query_set: None,
             });
-
-            if let Some(pipeline) = self.multi_buffer.pipelines.get("main_image") {
-                compute_pass.set_pipeline(pipeline);
-                compute_pass.set_bind_group(0, &self.multi_buffer.time_uniform.bind_group, &[]);
-                compute_pass.set_bind_group(1, &self.multi_buffer.params_uniform.bind_group, &[]);
-                compute_pass.set_bind_group(2, self.multi_buffer.buffer_manager.get_output_bind_group(), &[]);
-                compute_pass.set_bind_group(3, &main_input_bind_group, &[]);
-
-                let width = core.size.width.div_ceil(16);
-                let height = core.size.height.div_ceil(16);
-                compute_pass.dispatch_workgroups(width, height, 1);
-            }
-        }
-
-        // Render to screen
-        let display_bind_group = create_display_bind_group(
-            &core.device,
-            &self.base.renderer.render_pipeline.get_bind_group_layout(0),
-            self.multi_buffer.buffer_manager.get_output_texture(),
-        );
-
-        {
-            let mut render_pass = Renderer::begin_render_pass(
-                &mut encoder,
-                &view,
-                wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                Some("JFA Display Pass"),
-            );
 
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-            render_pass.set_bind_group(0, &display_bind_group, &[]);
+            render_pass.set_bind_group(0, &compute_texture.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
         }
 
         // Handle UI and controls
-        let mut params = self.multi_buffer.params_uniform.data;
+        let mut params = self.current_params;
         let mut changed = false;
         let mut should_start_export = false;
         let mut export_request = self.base.export_manager.get_ui_request();
@@ -283,7 +263,7 @@ impl ShaderManager for JfaShader {
                         should_start_export = ExportManager::render_export_ui_widget(ui, &mut export_request);
                         
                         ui.separator();
-                        ui.label(format!("Frame: {}", self.multi_buffer.frame_count));
+                        ui.label(format!("Frame: {}", self.compute_shader.current_frame));
                         ui.label("JFA with Clifford Attractor (Simplified)");
                     });
             })
@@ -299,14 +279,14 @@ impl ShaderManager for JfaShader {
 
         self.base.export_manager.apply_ui_request(export_request);
         if controls_request.should_clear_buffers {
-            self.multi_buffer.buffer_manager.clear_all(core, COMPUTE_TEXTURE_FORMAT_RGBA16);
-            self.multi_buffer.frame_count = 0;
+            // Reset frame count to restart accumulation
+            self.compute_shader.current_frame = 0;
         }
         self.base.apply_control_request(controls_request);
 
         if changed {
-            self.multi_buffer.params_uniform.data = params;
-            self.multi_buffer.params_uniform.update(&core.queue);
+            self.current_params = params;
+            self.compute_shader.set_custom_params(params, &core.queue);
         }
 
         if should_start_export {
@@ -317,9 +297,6 @@ impl ShaderManager for JfaShader {
         core.queue.submit(std::iter::once(encoder.finish()));
         output.present();
 
-        // Update frame count and flip buffers
-        self.multi_buffer.frame_count += 1;
-        self.multi_buffer.buffer_manager.flip_buffers();
 
         Ok(())
     }

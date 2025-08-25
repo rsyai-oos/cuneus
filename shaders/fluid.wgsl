@@ -23,15 +23,17 @@ struct FluidParams {
     _padding6: f32,
     _padding7: f32,
 };
-@group(1) @binding(0) var<uniform> params: FluidParams;
+// Group 1: Primary Pass I/O & Parameters (Cuneus Way)
+@group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
+@group(1) @binding(1) var<uniform> params: FluidParams;
 
-@group(2) @binding(0) var output: texture_storage_2d<rgba16float, write>;
+// Group 2: Engine Resources (Channels - accessible from all passes!)
+@group(2) @binding(0) var channel0: texture_2d<f32>;
+@group(2) @binding(1) var channel0_sampler: sampler;
+
+// Group 3: Multipass feedback
 @group(3) @binding(0) var pass_in: texture_2d<f32>;
 @group(3) @binding(1) var bilinear: sampler;
-@group(3) @binding(2) var channel0: texture_2d<f32>;
-@group(3) @binding(3) var channel0_sampler: sampler;
-@group(3) @binding(4) var input_texture2: texture_2d<f32>; 
-@group(3) @binding(5) var input_sampler2: sampler;
 
 const ROT_NUM = 5u;
 const PI = 3.14159265359;
@@ -145,12 +147,14 @@ fn buffer_a(@builtin(global_invocation_id) id: vec3<u32>) {
     
     var color: vec4<f32>;
     if (time_data.frame <= 4u) {
+        // Initialize with channel0 texture for first several frames
         color = sample_level(channel0, fract(pos / dims));
     } else {
+        // After frame 4, mix channel0 (external) with pass_in (previous buffer_a output)
         let distorted_uv = fract((pos + v * vec2<f32>(-1.0, 1.0) * params.rotation_speed) / dims);
         
-        let fluid_color = sample_level(pass_in, distorted_uv);
-        let texture_color = sample_level(channel0, distorted_uv);
+        let fluid_color = sample_level(pass_in, distorted_uv);       // Previous frame from buffer_a
+        let texture_color = sample_level(channel0, distorted_uv);    // External texture (channel0)
         
         color = mix(texture_color, fluid_color, params.feedback);
         

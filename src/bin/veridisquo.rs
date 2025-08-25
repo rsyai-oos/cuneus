@@ -1,8 +1,7 @@
-use cuneus::{Core, ShaderApp, ShaderManager, RenderKit, ShaderControls, UniformProvider, UniformBinding};
-use cuneus::compute::{ComputeShaderConfig, COMPUTE_TEXTURE_FORMAT_RGBA16};
+use cuneus::prelude::*;
+use cuneus::compute::*;
 use cuneus::audio::SynthesisManager;
-use winit::event::*;
-use std::path::PathBuf;
+use winit::event::WindowEvent;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -23,14 +22,12 @@ impl UniformProvider for SongParams {
     }
 }
 
-// number of voices for our polyphonic synth.
-// 0: Melody(ritim), 1: Bass
-const NUM_VOICES: usize = 2;
 
 struct VeridisQuo {
     base: RenderKit,
+    compute_shader: ComputeShader,
+    current_params: SongParams,
     audio_synthesis: Option<SynthesisManager>,
-    song_params_uniform: UniformBinding<SongParams>,
 }
 
 impl ShaderManager for VeridisQuo {
@@ -56,90 +53,56 @@ impl ShaderManager for VeridisQuo {
                 },
             ],
         });
-        
-        let mut base = RenderKit::new(
+
+        let base = RenderKit::new(
             core,
             include_str!("../../shaders/vertex.wgsl"),
             include_str!("../../shaders/blit.wgsl"),
             &[&texture_bind_group_layout],
             None,
         );
-        
-        let song_params_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-            label: Some("song_params_bind_group_layout"),
-        });
-        
-        let song_params_uniform = UniformBinding::new(
-            &core.device,
-            "Song Params",
-            SongParams {
-                volume: 0.5,
-                octave_shift: 0.0,
-                tempo_multiplier: 1.0,
-                waveform_type: 1,
-                crossfade: 0.0,
-                reverb_mix: 0.0,
-                chorus_rate: 0.0,
-                _padding: 0.0,
-            },
-            &song_params_bind_group_layout,
-            0,
-        );
-        
-        let compute_config = ComputeShaderConfig {
-            workgroup_size: [16, 16, 1],
-            workgroup_count: None,
-            dispatch_once: false,
-            storage_texture_format: COMPUTE_TEXTURE_FORMAT_RGBA16,
-            enable_atomic_buffer: false,
-            atomic_buffer_multiples: 4,
-            entry_points: vec!["main".to_string()],
-            sampler_address_mode: wgpu::AddressMode::ClampToEdge,
-            sampler_filter_mode: wgpu::FilterMode::Linear,
-            label: "Veridis Quo".to_string(),
-            mouse_bind_group_layout: None,  // Don't pass here, add separately
-            enable_fonts: true,
-            enable_audio_buffer: true,
-            audio_buffer_size: 4096,
-            enable_custom_uniform: true,
-            enable_input_texture: false,
-            custom_storage_buffers: Vec::new(),
+
+        let initial_params = SongParams {
+            volume: 0.5,
+            octave_shift: 0.0,
+            tempo_multiplier: 1.0,
+            waveform_type: 1,
+            crossfade: 0.0,
+            reverb_mix: 0.0,
+            chorus_rate: 0.0,
+            _padding: 0.0,
         };
-        
-        base.compute_shader = Some(cuneus::compute::ComputeShader::new_with_config(
+
+        let config = ComputeShader::builder()
+            .with_entry_point("main")
+            .with_custom_uniforms::<SongParams>()
+            .with_fonts()       // Fonts in Group 2
+            .with_audio(4096)   // Audio buffer in Group 2
+            .with_workgroup_size([16, 16, 1])
+            .with_texture_format(COMPUTE_TEXTURE_FORMAT_RGBA16)
+            .with_label("Veridis Quo Unified")
+            .build();
+
+        let mut compute_shader = ComputeShader::from_builder(
             core,
             include_str!("../../shaders/veridisquo.wgsl"),
-            compute_config,
-        ));
-        
-        if let Some(compute_shader) = &mut base.compute_shader {
-            compute_shader.add_custom_uniform_binding(&song_params_uniform.bind_group);
-        }
-        
-        if let Some(compute_shader) = &mut base.compute_shader {
-            let shader_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("Veridis Quo Compute Shader"),
+            config,
+        );
+
+        // Enable hot reload
+        if let Err(e) = compute_shader.enable_hot_reload(
+            core.device.clone(),
+            std::path::PathBuf::from("shaders/veridisquo.wgsl"),
+            core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Veridisquo Hot Reload"),
                 source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/veridisquo.wgsl").into()),
-            });
-            if let Err(e) = compute_shader.enable_hot_reload(
-                core.device.clone(),
-                PathBuf::from("shaders/veridisquo.wgsl"),
-                shader_module,
-            ) {
-                eprintln!("Failed to enable compute shader hot reload: {}", e);
-            }
+            }),
+        ) {
+            eprintln!("Failed to enable hot reload for veridisquo shader: {}", e);
         }
-        
+
+        compute_shader.set_custom_params(initial_params, &core.queue);
+
         let audio_synthesis = match SynthesisManager::new() {
             Ok(mut synth) => {
                 if let Err(_e) = synth.start_gpu_synthesis() {
@@ -149,51 +112,48 @@ impl ShaderManager for VeridisQuo {
                     Some(synth)
                 }
             },
-            Err(_e) => {
-                None
-            }
+            Err(_e) => None,
         };
-        
+
         Self { 
             base,
+            compute_shader,
+            current_params: initial_params,
             audio_synthesis,
-            song_params_uniform,
         }
     }
 
     fn update(&mut self, core: &Core) {
+        // Check for hot reload updates
+        self.compute_shader.check_hot_reload(&core.device);
+        
         let current_time = self.base.controls.get_time(&self.base.start_time);
         let delta = 1.0/60.0;
-        self.base.update_compute_shader_time(current_time, delta, &core.queue);
+        self.compute_shader.set_time(current_time, delta, &core.queue);
         self.base.fps_tracker.update();
         
-        self.song_params_uniform.update(&core.queue);
+        // Handle GPU audio reading for CPU synthesis
         if self.base.time_uniform.data.frame % 2 == 0 {
-            if let Some(compute_shader) = &self.base.compute_shader {
-                if let Ok(gpu_samples) = pollster::block_on(compute_shader.read_audio_samples(&core.device, &core.queue)) {
-                    if gpu_samples.len() >= 3 + NUM_VOICES * 2 {
-                        let waveform_type = self.song_params_uniform.data.waveform_type;
+            if let Some(ref mut synth) = self.audio_synthesis {
+                // Update the waveform type for all voices
+                synth.update_waveform(self.current_params.waveform_type);
+                
+                // Read melody and bass frequencies from GPU's audio buffer
+                // The GPU shader writes: melody_freq, envelope, waveform_type, final_melody_freq, melody_amp, final_bass_freq, bass_amp
+                if let Ok(audio_data) = pollster::block_on(self.compute_shader.read_audio_buffer(&core.device, &core.queue)) {
+                    if audio_data.len() >= 7 {
+                        let final_melody_freq = audio_data[3];
+                        let melody_amp = audio_data[4]; 
+                        let final_bass_freq = audio_data[5];
+                        let bass_amp = audio_data[6];
                         
-                        if let Some(ref mut synth) = self.audio_synthesis {
-                            // Update the waveform type for all voices
-                            synth.update_waveform(waveform_type);
-                            
-                            // Read melody and bass frequencies from shader's specific audio_buffer indices
-                            // Melody: frequency at index 3, amplitude at index 4  
-                            // Bass: frequency at index 5, amplitude at index 6
-                            let melody_freq = gpu_samples[3];
-                            let melody_amp = gpu_samples[4];
-                            let bass_freq = gpu_samples[5]; 
-                            let bass_amp = gpu_samples[6];
-                            
-                            // Voice 0: Melody
-                            let melody_active = melody_amp > 0.01 && melody_freq > 10.0;
-                            synth.set_voice(0, melody_freq, melody_amp, melody_active);
-                            
-                            // Voice 1: Bass  
-                            let bass_active = bass_amp > 0.01 && bass_freq > 10.0;
-                            synth.set_voice(1, bass_freq, bass_amp, bass_active);
-                        }
+                        // Voice 0: Melody
+                        let melody_active = melody_amp > 0.01 && final_melody_freq > 10.0;
+                        synth.set_voice(0, final_melody_freq, melody_amp, melody_active);
+                        
+                        // Voice 1: Bass
+                        let bass_active = bass_amp > 0.01 && final_bass_freq > 10.0;
+                        synth.set_voice(1, final_bass_freq, bass_amp, bass_active);
                     }
                 }
             }
@@ -204,12 +164,13 @@ impl ShaderManager for VeridisQuo {
         let output = core.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
         
+        let mut params = self.current_params;
+        let mut changed = false;
         let mut controls_request = self.base.controls.get_ui_request(
             &self.base.start_time,
             &core.size
         );
         controls_request.current_fps = Some(self.base.fps_tracker.fps());
-        
         
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
@@ -227,9 +188,9 @@ impl ShaderManager for VeridisQuo {
                         egui::CollapsingHeader::new("Audio Controls")
                             .default_open(true)
                             .show(ui, |ui| {
-                                ui.add(egui::Slider::new(&mut self.song_params_uniform.data.volume, 0.0..=1.0).text("Volume"));
-                                ui.add(egui::Slider::new(&mut self.song_params_uniform.data.octave_shift, -2.0..=2.0).text("Octave"));
-                                ui.add(egui::Slider::new(&mut self.song_params_uniform.data.tempo_multiplier, 0.5..=4.0).text("Tempo"));
+                                changed |= ui.add(egui::Slider::new(&mut params.volume, 0.0..=1.0).text("Volume")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.octave_shift, -2.0..=2.0).text("Octave")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.tempo_multiplier, 0.5..=4.0).text("Tempo")).changed();
                             });
                         
                         egui::CollapsingHeader::new("Waveforms")
@@ -240,9 +201,10 @@ impl ShaderManager for VeridisQuo {
                                     ("Triangle", 3), ("Pulse", 4)
                                 ];
                                 for (name, wave_type) in waveform_names.iter() {
-                                    let selected = self.song_params_uniform.data.waveform_type == *wave_type;
+                                    let selected = params.waveform_type == *wave_type;
                                     if ui.selectable_label(selected, *name).clicked() {
-                                        self.song_params_uniform.data.waveform_type = *wave_type;
+                                        params.waveform_type = *wave_type;
+                                        changed = true;
                                     }
                                 }
                             });
@@ -250,11 +212,12 @@ impl ShaderManager for VeridisQuo {
                         egui::CollapsingHeader::new("Effects")
                             .default_open(false)
                             .show(ui, |ui| {
-                                ui.add(egui::Slider::new(&mut self.song_params_uniform.data.crossfade, 0.0..=1.0).text("Legato"));
-                                ui.add(egui::Slider::new(&mut self.song_params_uniform.data.reverb_mix, 0.0..=1.0).text("Reverb"));
-                                ui.add(egui::Slider::new(&mut self.song_params_uniform.data.chorus_rate, 0.1..=8.0).text("Chorus Rate"));
+                                changed |= ui.add(egui::Slider::new(&mut params.crossfade, 0.0..=1.0).text("Legato")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.reverb_mix, 0.0..=1.0).text("Reverb")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.chorus_rate, 0.1..=8.0).text("Chorus Rate")).changed();
                             });
                         
+                        ui.separator();
                         ShaderControls::render_controls_widget(ui, &mut controls_request);
                     });
             })
@@ -262,36 +225,32 @@ impl ShaderManager for VeridisQuo {
             self.base.render_ui(core, |_ctx| {})
         };
         
+        if changed {
+            self.current_params = params;
+            self.compute_shader.set_custom_params(params, &core.queue);
+        }
+        
         self.base.apply_control_request(controls_request);
         
         let mut encoder = core.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Veridis Quo Render Encoder"),
         });
         
-        self.base.dispatch_compute_shader(&mut encoder, core);
+        // Single stage dispatch
+        self.compute_shader.dispatch(&mut encoder, core);
         
         {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Veridis Quo Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
+            let mut render_pass = cuneus::Renderer::begin_render_pass(
+                &mut encoder,
+                &view,
+                wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                Some("Veridis Quo Render Pass"),
+            );
             
-            if let Some(compute_texture) = self.base.get_compute_output_texture() {
-                render_pass.set_pipeline(&self.base.renderer.render_pipeline);
-                render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-                render_pass.set_bind_group(0, &compute_texture.bind_group, &[]);
-                render_pass.draw(0..4, 0..1);
-            }
+            render_pass.set_pipeline(&self.base.renderer.render_pipeline);
+            render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
+            render_pass.set_bind_group(0, &self.compute_shader.output_texture.bind_group, &[]);
+            render_pass.draw(0..4, 0..1);
         }
 
         self.base.handle_render_output(core, &view, full_output, &mut encoder);
@@ -303,16 +262,13 @@ impl ShaderManager for VeridisQuo {
 
     fn resize(&mut self, core: &Core) {
         self.base.update_resolution(&core.queue, core.size);
-        self.base.resize_compute_shader(core);
+        self.compute_shader.resize(core, core.size.width, core.size.height);
     }
 
     fn handle_input(&mut self, core: &Core, event: &WindowEvent) -> bool {
-        let ui_handled = self.base.egui_state.on_window_event(core.window(), event).consumed;
-        
-        if ui_handled {
+        if self.base.egui_state.on_window_event(core.window(), event).consumed {
             return true;
         }
-        
         
         if let WindowEvent::KeyboardInput { event, .. } = event {
             if event.state == winit::event::ElementState::Pressed {
@@ -335,7 +291,6 @@ impl ShaderManager for VeridisQuo {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
-    
     cuneus::gst::init()?;
     
     let (app, event_loop) = ShaderApp::new("Veridis Quo", 800, 600);

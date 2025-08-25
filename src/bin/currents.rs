@@ -2,9 +2,10 @@
 // Very complex example demonstrating multi-buffer ping-pong computation
 // I hope this example is useful for those who came from the Shadertoy, I tried to use same terminology (bufferA, ichannels etc)
 // I used the all buffers (buffera,b,c,d,mainimage) and complex ping-pong logic 
-use cuneus::prelude::*;
-use cuneus::compute::*;
-use winit::event::WindowEvent;
+use cuneus::{Core, ShaderApp, ShaderManager, RenderKit, ShaderControls};
+use cuneus::compute::{ComputeShader, COMPUTE_TEXTURE_FORMAT_RGBA16, PassDescription};
+use cuneus::{UniformProvider, ExportManager};
+use winit::event::*;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -100,13 +101,20 @@ impl UniformProvider for CurrentsParams {
 
 struct CurrentsShader {
     base: RenderKit,
-    multi_buffer: MultiBufferCompute<CurrentsParams>,
+    compute_shader: ComputeShader,
 }
 
+impl CurrentsShader {
+    fn clear_buffers(&mut self, core: &Core) {
+        self.compute_shader.clear_all_buffers(core);
+    }
+}
 
 impl ShaderManager for CurrentsShader {
     fn init(core: &Core) -> Self {
+        // Create texture display layout
         let texture_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Texture Bind Group Layout"),
             entries: &[
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
@@ -125,7 +133,6 @@ impl ShaderManager for CurrentsShader {
                     count: None,
                 },
             ],
-            label: Some("Texture Bind Group Layout"),
         });
 
         let base = RenderKit::new(
@@ -136,137 +143,82 @@ impl ShaderManager for CurrentsShader {
             None,
         );
 
-        // Create multi-buffer compute system
-        let multi_buffer = MultiBufferCompute::new(
+        // Define the 5 passes
+        let passes = vec![
+            PassDescription::new("buffer_a", &["buffer_a"]), // self-feedback
+            PassDescription::new("buffer_b", &["buffer_b", "buffer_a"]), // reads BufferB + BufferA
+            PassDescription::new("buffer_c", &["buffer_c", "buffer_a"]), // reads BufferC + BufferA
+            PassDescription::new("buffer_d", &["buffer_d", "buffer_c", "buffer_b"]), // reads BufferD + BufferC + BufferB
+            PassDescription::new("main_image", &["buffer_d"]), // reads BufferD for final output
+        ];
+
+        let config = ComputeShader::builder()
+            .with_entry_point("buffer_a") // Start with buffer_a
+            .with_multi_pass(&passes)
+            .with_custom_uniforms::<CurrentsParams>()
+            .with_workgroup_size([16, 16, 1])
+            .with_texture_format(COMPUTE_TEXTURE_FORMAT_RGBA16)
+            .with_label("Currents Multi-Pass")
+            .build();
+
+        let mut compute_shader = ComputeShader::from_builder(
             core,
-            &["buffer_a", "buffer_b", "buffer_c", "buffer_d"],
-            "shaders/currents.wgsl",
-            &["buffer_a", "buffer_b", "buffer_c", "buffer_d", "main_image"],
-            CurrentsParams::default(),
+            include_str!("../../shaders/currents.wgsl"),
+            config,
         );
 
-        Self { base, multi_buffer }
+        // Enable hot reload
+        if let Err(e) = compute_shader.enable_hot_reload(
+            core.device.clone(),
+            std::path::PathBuf::from("shaders/currents.wgsl"),
+            core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Currents Hot Reload"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/currents.wgsl").into()),
+            }),
+        ) {
+            eprintln!("Failed to enable hot reload for currents shader: {}", e);
+        }
+
+        let shader = Self { 
+            base,
+            compute_shader,
+        };
+        
+        // Initialize custom uniform with default parameters
+        shader.compute_shader.set_custom_params(CurrentsParams::default(), &core.queue);
+        
+        shader
     }
 
     fn update(&mut self, core: &Core) {
-        if let Some(new_shader) = self.multi_buffer.hot_reload.reload_compute_shader() {
-            println!("Reloading Currents shader at time: {:.2}s", self.base.start_time.elapsed().as_secs_f32());
-            
-            let mut resource_layout = cuneus::compute::ResourceLayout::new();
-            resource_layout.add_time_uniform(); // Group 0
-            resource_layout.add_custom_uniform("currents_params", std::mem::size_of::<CurrentsParams>() as u64); // Group 2
-            let bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
-            let time_layout = bind_group_layouts.get(&0).unwrap(); // Group 0 for time
-            let params_layout = bind_group_layouts.get(&2).unwrap(); // Group 2 for custom params
-            
-            let pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Updated Currents Pipeline Layout"),
-                bind_group_layouts: &[
-                    &time_layout,
-                    &params_layout,
-                    self.multi_buffer.buffer_manager.get_storage_layout(),
-                    self.multi_buffer.buffer_manager.get_multi_texture_layout(),
-                ],
-                push_constant_ranges: &[],
-            });
-
-            // Update pipelines
-            for entry_point in &["buffer_a", "buffer_b", "buffer_c", "buffer_d", "main_image"] {
-                let pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                    label: Some(&format!("Updated Currents Pipeline - {}", entry_point)),
-                    layout: Some(&pipeline_layout),
-                    module: &new_shader,
-                    entry_point: Some(entry_point),
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                    cache: None,
-                });
-                self.multi_buffer.pipelines.insert(entry_point.to_string(), pipeline);
-            }
-        }
-
+        // Update time
+        let current_time = self.base.controls.get_time(&self.base.start_time);
+        let delta = 1.0/60.0;
+        self.compute_shader.set_time(current_time, delta, &core.queue);
+        
         self.base.fps_tracker.update();
+        
+        // Check for hot reload updates
+        self.compute_shader.check_hot_reload(&core.device);
     }
 
     fn resize(&mut self, core: &Core) {
-        self.multi_buffer.buffer_manager.resize(core, core.size.width, core.size.height, COMPUTE_TEXTURE_FORMAT_RGBA16);
-        self.multi_buffer.frame_count = 0;
+        self.base.update_resolution(&core.queue, core.size);
+        self.compute_shader.resize(core, core.size.width, core.size.height);
     }
 
     fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {
         let output = core.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder = core.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Currents Render Encoder"),
-        });
-
-        // Update time
-        let current_time = self.base.controls.get_time(&self.base.start_time);
-        self.multi_buffer.update_time(&core.queue, current_time);
-
-        // Execute multi-buffer compute passes in dependency order
-        // Buffer A: self-feedback
-        self.multi_buffer.dispatch_buffer(&mut encoder, core, "buffer_a", &["buffer_a"]);
         
-        // Buffer B: reads BufferB + BufferA  
-        self.multi_buffer.dispatch_buffer(&mut encoder, core, "buffer_b", &["buffer_b", "buffer_a"]);
-        
-        // Buffer C: reads BufferC + BufferA
-        self.multi_buffer.dispatch_buffer(&mut encoder, core, "buffer_c", &["buffer_c", "buffer_a"]);
-        
-        // Buffer D: reads BufferD + BufferC + BufferB
-        self.multi_buffer.dispatch_buffer(&mut encoder, core, "buffer_d", &["buffer_d", "buffer_c", "buffer_b"]);
-        
-        // Main image uses buffer_d output
-        let sampler = core.device.create_sampler(&wgpu::SamplerDescriptor::default());
-        let main_input_bind_group = self.multi_buffer.buffer_manager.create_input_bind_group(&core.device, &sampler, &["buffer_d"]);
-        
-        {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Currents Main Image Pass"),
-                timestamp_writes: None,
-            });
-
-            if let Some(pipeline) = self.multi_buffer.pipelines.get("main_image") {
-                compute_pass.set_pipeline(pipeline);
-                compute_pass.set_bind_group(0, &self.multi_buffer.time_uniform.bind_group, &[]);
-                compute_pass.set_bind_group(1, &self.multi_buffer.params_uniform.bind_group, &[]);
-                compute_pass.set_bind_group(2, self.multi_buffer.buffer_manager.get_output_bind_group(), &[]);
-                compute_pass.set_bind_group(3, &main_input_bind_group, &[]);
-
-                let width = core.size.width.div_ceil(16);
-                let height = core.size.height.div_ceil(16);
-                compute_pass.dispatch_workgroups(width, height, 1);
-            }
-        }
-
-        // Render to screen
-        let display_bind_group = create_display_bind_group(
-            &core.device,
-            &self.base.renderer.render_pipeline.get_bind_group_layout(0),
-            self.multi_buffer.buffer_manager.get_output_texture(),
-        );
-
-        {
-            let mut render_pass = Renderer::begin_render_pass(
-                &mut encoder,
-                &view,
-                wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                Some("Currents Display Pass"),
-            );
-
-            render_pass.set_pipeline(&self.base.renderer.render_pipeline);
-            render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-            render_pass.set_bind_group(0, &display_bind_group, &[]);
-            render_pass.draw(0..4, 0..1);
-        }
+        let mut controls_request = self.base.controls.get_ui_request(&self.base.start_time, &core.size);
+        controls_request.current_fps = Some(self.base.fps_tracker.fps());
 
         // Handle UI and controls
-        let mut params = self.multi_buffer.params_uniform.data;
+        let mut params = CurrentsParams::default();
         let mut changed = false;
         let mut should_start_export = false;
         let mut export_request = self.base.export_manager.get_ui_request();
-        let mut controls_request = self.base.controls.get_ui_request(&self.base.start_time, &core.size);
-        controls_request.current_fps = Some(self.base.fps_tracker.fps());
 
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
@@ -407,8 +359,7 @@ impl ShaderManager for CurrentsShader {
                         should_start_export = ExportManager::render_export_ui_widget(ui, &mut export_request);
                         
                         ui.separator();
-                        ui.label(format!("Frame: {}", self.multi_buffer.frame_count));
-                        ui.label("Multi-buffer system with ping-pong textures - Simplified");
+                        ui.label(format!("Frame: {}", self.compute_shader.current_frame));
                     });
             })
         } else {
@@ -417,28 +368,58 @@ impl ShaderManager for CurrentsShader {
 
         self.base.export_manager.apply_ui_request(export_request);
         if controls_request.should_clear_buffers {
-            self.multi_buffer.buffer_manager.clear_all(core, COMPUTE_TEXTURE_FORMAT_RGBA16);
-            self.multi_buffer.frame_count = 0;
+            self.clear_buffers(core);
         }
         self.base.apply_control_request(controls_request);
 
         if changed {
-            self.multi_buffer.params_uniform.data = params;
-            self.multi_buffer.params_uniform.update(&core.queue);
+            self.compute_shader.set_custom_params(params, &core.queue);
+            // Reset frame counter for proper photon accumulation restart
+            self.compute_shader.current_frame = 0;
         }
 
         if should_start_export {
             self.base.export_manager.start_export();
         }
 
+        // Create command encoder
+        let mut encoder = core.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Currents Render Encoder"),
+        });
+
+        self.compute_shader.dispatch(&mut encoder, core);
+
+        // Render compute output to screen
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Currents Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+
+            let compute_texture = self.compute_shader.get_output_texture();
+            render_pass.set_pipeline(&self.base.renderer.render_pipeline);
+            render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
+            render_pass.set_bind_group(0, &compute_texture.bind_group, &[]);
+            render_pass.draw(0..4, 0..1);
+        }
+
         self.base.handle_render_output(core, &view, full_output, &mut encoder);
-        core.queue.submit(std::iter::once(encoder.finish()));
+        core.queue.submit(Some(encoder.finish()));
         output.present();
-
-        // Update frame count and flip buffers
-        self.multi_buffer.frame_count += 1;
-        self.multi_buffer.buffer_manager.flip_buffers();
-
+        
+        // Flip ping-pong buffers for next frame
+        self.compute_shader.flip_buffers();
+        
         Ok(())
     }
 
@@ -455,7 +436,7 @@ impl ShaderManager for CurrentsShader {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
-    let (app, event_loop) = cuneus::ShaderApp::new("Ping-Pong", 800, 600);
+    let (app, event_loop) = ShaderApp::new("Photon Tracing", 800, 600);
     
     app.run(event_loop, |core| {
         CurrentsShader::init(core)
