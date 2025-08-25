@@ -143,6 +143,9 @@ struct TimeUniform { time: f32, delta: f32, frame: u32, /* ... */ };
 @group(1) @binding(3) var input_sampler: sampler;
 
 // Group 2: Global Engine Resources (Order is fixed if multiple are enabled)
+// The binding index for each resource depends on which resources before it were enabled.
+// Example: If only mouse and atomics are enabled, mouse is @binding(0) and atomics is @binding(1).
+
 // @binding(0): Mouse data (if .with_mouse() is used)
 @group(2) @binding(0) var<uniform> mouse: MouseUniform; 
 // @binding(1-3): Font data (if .with_fonts() is used)
@@ -158,9 +161,9 @@ struct TimeUniform { time: f32, delta: f32, frame: u32, /* ... */ };
 @group(2) @binding(7) var channel0_sampler: sampler;
 
 // Group 3: User Data & Multi-Pass I/O
-// User-defined storage buffers (if .with_storage_buffer() is used)
+// User-defined storage buffers (if .with_storage_buffer() is used, this takes priority)
 @group(3) @binding(0) var<storage, read_write> my_data: array<f32>;
-// OR: Multi-pass input textures (if .with_multi_pass() is used without storage)
+// OR: Multi-pass input textures (if .with_multi_pass() is used without storage buffers)
 @group(3) @binding(0) var input_texture0: texture_2d<f32>;
 @group(3) @binding(1) var input_sampler0: sampler;
 ```
