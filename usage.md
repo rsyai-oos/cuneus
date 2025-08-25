@@ -76,10 +76,25 @@ impl ShaderManager for MyShader {
         let base = RenderKit::new(core, /* ... boilerplate vertex/blit shaders ... */);
         let initial_params = MyParams { /* ... */ };
 
+        // --- To convert this to a Multi-Pass shader, make the following changes: ---
+        
+        // 1. (Multi-Pass) Define your passes and their dependencies.
+        //    The string in `new()` is the WGSL entry point name.
+        //    The slice `&[]` contains the names of the buffers this pass reads from.
+        /*
+        let passes = vec![
+            PassDescription::new("buffer_a", &["buffer_a"]), // A pass that reads its own previous frame output
+            PassDescription::new("main_image", &["buffer_a"]), // A pass that reads the final state of buffer_a
+        ];
+        */
+
         // Configure the compute shader using the builder
         let config = ComputeShader::builder()
             .with_label("My Shader")
+            // For Single-Pass, use .with_entry_point():
             .with_entry_point("main")
+            // 2. (Multi-Pass) Comment out .with_entry_point() and use .with_multi_pass() instead: (we define the passes above)
+            // .with_multi_pass(&passes)
             .with_custom_uniforms::<MyParams>()
             .with_mouse()
             .build();
@@ -108,13 +123,25 @@ impl ShaderManager for MyShader {
     }
 
     fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {
+        let output = core.surface.get_current_texture()?;
+        let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = core.device.create_command_encoder(/* ... */);
 
-        // Execute the entire compute pipeline
+        // Execute the entire compute pipeline.
+        // This works for both single-pass and multi-pass shaders automatically.
         self.compute_shader.dispatch(&mut encoder, core);
 
         // Display the final output texture and UI
         // ... rendering boilerplate ...
+        core.queue.submit(Some(encoder.finish()));
+        output.present();
+
+        // 3. (Multi-Pass) For texture-based feedback (ping-pong), you must flip the buffers
+        //    at the end of the frame so the next frame reads from the correct texture.
+        /*
+        self.compute_shader.flip_buffers();
+        */
+        
         Ok(())
     }
     
