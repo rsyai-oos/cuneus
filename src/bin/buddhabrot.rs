@@ -355,7 +355,7 @@ impl ShaderManager for BuddhabrotShader {
         }
         
         // Always dispatch stage 1 (main_image) for rendering with screen-based workgroups
-        //Note: in cuneus, individual stage dispatch methods need manual frame management.
+        // Note: in cuneus, individual stage dispatch methods need manual frame management (if you need of course!)
 
         self.compute_shader.dispatch_stage(&mut encoder, core, 1);
         

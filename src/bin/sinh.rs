@@ -1,7 +1,6 @@
-use cuneus::{Core, ShaderManager, UniformProvider, UniformBinding, RenderKit, ShaderControls, ExportManager};
-use cuneus::compute::{ComputeShader, ComputeShaderConfig};
+use cuneus::prelude::*;
+use cuneus::compute::*;
 use winit::event::WindowEvent;
-use std::path::PathBuf;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -40,91 +39,13 @@ impl UniformProvider for SinhParams {
 
 struct SinhShader {
     base: RenderKit,
-    params_uniform: UniformBinding<SinhParams>,
-    frame_count: u32,
+    compute_shader: ComputeShader,
+    current_params: SinhParams,
 }
 
 impl SinhShader {
-
-    fn capture_frame(&mut self, core: &Core, time: f32) -> Result<Vec<u8>, wgpu::SurfaceError> {
-        let settings = self.base.export_manager.settings();
-        let (capture_texture, output_buffer) = self.base.create_capture_texture(
-            &core.device,
-            settings.width,
-            settings.height
-        );
-        let align = 256;
-        let unpadded_bytes_per_row = settings.width * 4;
-        let padding = (align - unpadded_bytes_per_row % align) % align;
-        let padded_bytes_per_row = unpadded_bytes_per_row + padding;
-        let capture_view = capture_texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder = core.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Capture Encoder"),
-        });
-        self.base.time_uniform.data.time = time;
-        self.base.time_uniform.update(&core.queue);
-        {
-            let mut render_pass = cuneus::Renderer::begin_render_pass(
-                &mut encoder,
-                &capture_view,
-                wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                Some("Capture Pass"),
-            );
-            render_pass.set_pipeline(&self.base.renderer.render_pipeline);
-            render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-            if let Some(compute_shader) = &self.base.compute_shader {
-                render_pass.set_bind_group(0, &compute_shader.get_output_texture().bind_group, &[]);
-            }
-            render_pass.draw(0..4, 0..1);
-        }
-        encoder.copy_texture_to_buffer(
-            wgpu::TexelCopyTextureInfo {
-                texture: &capture_texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::TexelCopyBufferInfo {
-                buffer: &output_buffer,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(padded_bytes_per_row),
-                    rows_per_image: Some(settings.height),
-                },
-            },
-            wgpu::Extent3d {
-                width: settings.width,
-                height: settings.height,
-                depth_or_array_layers: 1,
-            },
-        );
-        core.queue.submit(Some(encoder.finish()));
-        let buffer_slice = output_buffer.slice(..);
-        let (tx, rx) = std::sync::mpsc::channel();
-        buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
-            tx.send(result).unwrap();
-        });
-        let _ = core.device.poll(wgpu::PollType::Wait).unwrap();
-        rx.recv().unwrap().unwrap();
-        let padded_data = buffer_slice.get_mapped_range().to_vec();
-        let mut unpadded_data = Vec::with_capacity((settings.width * settings.height * 4) as usize);
-        for chunk in padded_data.chunks(padded_bytes_per_row as usize) {
-            unpadded_data.extend_from_slice(&chunk[..unpadded_bytes_per_row as usize]);
-        }
-        Ok(unpadded_data)
-    }
-
-    fn handle_export(&mut self, core: &Core) {
-        if let Some((frame, time)) = self.base.export_manager.try_get_next_frame() {
-            if let Ok(data) = self.capture_frame(core, time) {
-                let settings = self.base.export_manager.settings();
-                if let Err(e) = cuneus::save_frame(data, frame, settings) {
-                    eprintln!("Error saving frame: {:?}", e);
-                }
-            }
-        } else {
-            self.base.export_manager.complete_export();
-        }
+    fn clear_buffers(&mut self, core: &Core) {
+        self.compute_shader.clear_all_buffers(core);
     }
 }
 
@@ -188,75 +109,35 @@ impl ShaderManager for SinhShader {
             vignette_offset: 0.0,
         };
         
-        let mut resource_layout = cuneus::compute::ResourceLayout::new();
-        resource_layout.add_custom_uniform("sinh_params", std::mem::size_of::<SinhParams>() as u64);
-        let bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
-        let sinh_params_layout = bind_group_layouts.get(&2).unwrap();
+        let config = ComputeShader::builder()
+            .with_entry_point("main")
+            .with_custom_uniforms::<SinhParams>()
+            .with_workgroup_size([16, 16, 1])
+            .with_texture_format(COMPUTE_TEXTURE_FORMAT_RGBA16)
+            .with_label("Sinh Unified")
+            .build();
 
-        let params_uniform = UniformBinding::new(
-            &core.device,
-            "Sinh Params",
-            initial_params,
-            sinh_params_layout,
-            0,
-        );
-        
-        let compute_config = ComputeShaderConfig {
-            label: "Sinh".to_string(),
-            enable_input_texture: false,
-            enable_custom_uniform: true,
-            entry_points: vec![
-                "main".to_string(),
-            ],
-            custom_storage_buffers: vec![],
-            ..Default::default()
-        };
-        
-        let mut base = base;
-        base.compute_shader = Some(ComputeShader::new_with_config(
+        let compute_shader = ComputeShader::from_builder(
             core,
             include_str!("../../shaders/sinh.wgsl"),
-            compute_config,
-        ));
-        
-        // Enable hot reload using direct ComputeShader approach (before adding bindings)
-        if let Some(compute_shader) = &mut base.compute_shader {
-            let shader_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("Sinh Compute Shader Hot Reload"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/sinh.wgsl").into()),
-            });
-            if let Err(e) = compute_shader.enable_hot_reload(
-                core.device.clone(),
-                PathBuf::from("shaders/sinh.wgsl"),
-                shader_module,
-            ) {
-                eprintln!("Failed to enable compute shader hot reload: {}", e);
-            }
-        }
-        
-        // Add custom uniform binding
-        if let Some(compute_shader) = &mut base.compute_shader {
-            compute_shader.add_custom_uniform_binding(&params_uniform.bind_group);
-        }
+            config,
+        );
+
+        compute_shader.set_custom_params(initial_params, &core.queue);
         
         Self {
             base,
-            params_uniform,
-            frame_count: 0,
+            compute_shader,
+            current_params: initial_params,
         }
     }
     
-    fn update(&mut self, core: &Core) {
-        if self.base.export_manager.is_exporting() {
-            self.handle_export(core);
-        }
+    fn update(&mut self, _core: &Core) {
         self.base.fps_tracker.update();
     }
     fn resize(&mut self, core: &Core) {
         self.base.update_resolution(&core.queue, core.size);
-        if let Some(compute_shader) = &mut self.base.compute_shader {
-            compute_shader.resize(core, core.size.width, core.size.height);
-        }
+        self.compute_shader.resize(core, core.size.width, core.size.height);
     }
     fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {
         let output = core.surface.get_current_texture()?;
@@ -265,7 +146,7 @@ impl ShaderManager for SinhShader {
             label: Some("Render Encoder"),
         });
         
-        let mut params = self.params_uniform.data;
+        let mut params = self.current_params;
         let mut changed = false;
         let mut should_start_export = false;
         let mut export_request = self.base.export_manager.get_ui_request();
@@ -366,32 +247,26 @@ impl ShaderManager for SinhShader {
         };
         
         self.base.export_manager.apply_ui_request(export_request);
+        if controls_request.should_clear_buffers {
+            self.clear_buffers(core);
+        }
         self.base.apply_control_request(controls_request);
         
+        let current_time = self.base.controls.get_time(&self.base.start_time);
+        
+        let delta = 1.0 / 60.0;
+        self.compute_shader.set_time(current_time, delta, &core.queue);
+        
         if changed {
-            self.params_uniform.data = params;
-            self.params_uniform.update(&core.queue);
+            self.current_params = params;
+            self.compute_shader.set_custom_params(params, &core.queue);
         }
         
         if should_start_export {
             self.base.export_manager.start_export();
         }
         
-        let current_time = self.base.controls.get_time(&self.base.start_time);
-        
-        // Update time for ComputeShader
-        if let Some(compute_shader) = &mut self.base.compute_shader {
-            let delta = 1.0/60.0;
-            compute_shader.set_time(current_time, delta, &core.queue);
-            
-            // Check for hot reload updates
-            compute_shader.check_hot_reload(&core.device);
-            
-            // Compute stage: Render fractal
-            let width = core.size.width.div_ceil(16);
-            let height = core.size.height.div_ceil(16);
-            compute_shader.dispatch_stage(&mut encoder, 0, (width, height, 1), Some(&self.params_uniform.bind_group));
-        }
+        self.compute_shader.dispatch(&mut encoder, core);
         
         {
             let mut render_pass = cuneus::Renderer::begin_render_pass(
@@ -403,9 +278,7 @@ impl ShaderManager for SinhShader {
             
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-            if let Some(compute_shader) = &self.base.compute_shader {
-                render_pass.set_bind_group(0, &compute_shader.get_output_texture().bind_group, &[]);
-            }
+            render_pass.set_bind_group(0, &self.compute_shader.output_texture.bind_group, &[]);
             
             render_pass.draw(0..4, 0..1);
         }
@@ -413,8 +286,6 @@ impl ShaderManager for SinhShader {
         self.base.handle_render_output(core, &view, full_output, &mut encoder);
         core.queue.submit(Some(encoder.finish()));
         output.present();
-        
-        self.frame_count += 1;
         
         Ok(())
     }

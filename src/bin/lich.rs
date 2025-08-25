@@ -24,7 +24,15 @@ impl UniformProvider for LichParams {
 
 struct LichShader {
     base: RenderKit,
-    multi_buffer: MultiBufferCompute<LichParams>,
+    compute_shader: ComputeShader,
+    current_params: LichParams,
+}
+
+impl LichShader {
+    fn clear_buffers(&mut self, core: &Core) {
+        // Clear multipass ping-pong buffers
+        self.compute_shader.clear_all_buffers(core);
+    }
 }
 
 impl ShaderManager for LichShader {
@@ -59,68 +67,59 @@ impl ShaderManager for LichShader {
             None,
         );
 
-        let multi_buffer = MultiBufferCompute::new(
+        let passes = vec![
+            PassDescription::new("buffer_a", &[]),
+            PassDescription::new("buffer_b", &["buffer_a", "buffer_b"]), // Self-feedback! 
+            PassDescription::new("main_image", &["buffer_b"]),
+        ];
+
+        let config = ComputeShader::builder()
+            .with_multi_pass(&passes)
+            .with_custom_uniforms::<LichParams>()
+            .with_workgroup_size([16, 16, 1])
+            .with_texture_format(cuneus::compute::COMPUTE_TEXTURE_FORMAT_RGBA16)
+            .with_label("Lich Lightning")
+            .build();
+            
+        let compute_shader = ComputeShader::from_builder(
             core,
-            &["buffer_a", "buffer_b"],
-            "shaders/lich.wgsl",
-            &["buffer_a", "buffer_b", "main_image"],
-            LichParams {
-                cloud_density: 3.0,
-                lightning_intensity: 1.0,
-                branch_count: 1.0,
-                feedback_decay: 0.98,
-                base_color: [1.0, 1.0, 1.0],
-                _pad1: 0.0,
-                color_shift: 2.0,
-                spectrum_mix: 0.5,
-                _pad2: [0.0; 2],
-            },
+            include_str!("../../shaders/lich.wgsl"),
+            config,
         );
 
-        Self { base, multi_buffer }
+        let initial_params = LichParams {
+            cloud_density: 3.0,
+            lightning_intensity: 1.0,
+            branch_count: 1.0,
+            feedback_decay: 0.98,
+            base_color: [1.0, 1.0, 1.0],
+            _pad1: 0.0,
+            color_shift: 2.0,
+            spectrum_mix: 0.5,
+            _pad2: [0.0; 2],
+        };
+
+        // Initialize custom uniform with initial parameters
+        compute_shader.set_custom_params(initial_params, &core.queue);
+
+        Self { 
+            base, 
+            compute_shader,
+            current_params: initial_params,
+        }
     }
 
     fn update(&mut self, core: &Core) {
-        if let Some(new_shader) = self.multi_buffer.hot_reload.reload_compute_shader() {
-            println!("Reloading Lich shader at time: {:.2}s", self.base.start_time.elapsed().as_secs_f32());
-            
-            let mut resource_layout = cuneus::compute::ResourceLayout::new();
-            resource_layout.add_time_uniform();
-            resource_layout.add_custom_uniform("lich_params", std::mem::size_of::<LichParams>() as u64);
-            let bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
-            let time_layout = bind_group_layouts.get(&0).unwrap();
-            let params_layout = bind_group_layouts.get(&2).unwrap();
-            
-            let pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Updated Lich Pipeline Layout"),
-                bind_group_layouts: &[
-                    &time_layout,
-                    &params_layout,
-                    self.multi_buffer.buffer_manager.get_storage_layout(),
-                    self.multi_buffer.buffer_manager.get_multi_texture_layout(),
-                ],
-                push_constant_ranges: &[],
-            });
-
-            for entry_point in &["buffer_a", "buffer_b", "main_image"] {
-                let pipeline = core.device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                    label: Some(&format!("Updated Lich Pipeline - {}", entry_point)),
-                    layout: Some(&pipeline_layout),
-                    module: &new_shader,
-                    entry_point: Some(entry_point),
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                    cache: None,
-                });
-                self.multi_buffer.pipelines.insert(entry_point.to_string(), pipeline);
-            }
-        }
-
+        // Update time
+        let current_time = self.base.controls.get_time(&self.base.start_time);
+        let delta = 1.0/60.0;
+        self.compute_shader.set_time(current_time, delta, &core.queue);
+        
         self.base.fps_tracker.update();
     }
 
     fn resize(&mut self, core: &Core) {
-        self.multi_buffer.buffer_manager.resize(core, core.size.width, core.size.height, COMPUTE_TEXTURE_FORMAT_RGBA16);
-        self.multi_buffer.frame_count = 0;
+        self.compute_shader.resize(core, core.size.width, core.size.height);
     }
 
     fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {
@@ -130,7 +129,7 @@ impl ShaderManager for LichShader {
             label: Some("Lich Render Encoder"),
         });
 
-        let mut params = self.multi_buffer.params_uniform.data;
+        let mut params = self.current_params;
         let mut changed = false;
         let mut should_start_export = false;
         let mut export_request = self.base.export_manager.get_ui_request();
@@ -185,80 +184,54 @@ impl ShaderManager for LichShader {
             self.base.render_ui(core, |_ctx| {})
         };
 
-        let current_time = self.base.controls.get_time(&self.base.start_time);
-        self.multi_buffer.update_time(&core.queue, current_time);
+        self.compute_shader.dispatch(&mut encoder, core);
 
-        // Lightning generation: dispatch lightning_gen entry point to buffer_a
-        self.multi_buffer.dispatch_buffer(&mut encoder, core, "buffer_a", &["buffer_a"]);
-        
-        // Feedback accumulation: dispatch feedback_accumulate entry point to buffer_b, reading from buffer_a and buffer_b  
-        self.multi_buffer.dispatch_buffer(&mut encoder, core, "buffer_b", &["buffer_a", "buffer_b"]);
-        
-        // Main image: Final gamma correction
-        let sampler = core.device.create_sampler(&wgpu::SamplerDescriptor::default());
-        let main_input_bind_group = self.multi_buffer.buffer_manager.create_input_bind_group(&core.device, &sampler, &["buffer_b"]);
-        
+        // Render compute output to screen
         {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Lich Main Image Pass"),
+            let compute_texture = self.compute_shader.get_output_texture();
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Lich Display Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
                 timestamp_writes: None,
+                occlusion_query_set: None,
             });
-
-            if let Some(pipeline) = self.multi_buffer.pipelines.get("main_image") {
-                compute_pass.set_pipeline(pipeline);
-                compute_pass.set_bind_group(0, &self.multi_buffer.time_uniform.bind_group, &[]);
-                compute_pass.set_bind_group(1, &self.multi_buffer.params_uniform.bind_group, &[]);
-                compute_pass.set_bind_group(2, self.multi_buffer.buffer_manager.get_output_bind_group(), &[]);
-                compute_pass.set_bind_group(3, &main_input_bind_group, &[]);
-
-                let width = core.size.width.div_ceil(16);
-                let height = core.size.height.div_ceil(16);
-                compute_pass.dispatch_workgroups(width, height, 1);
-            }
-        }
-
-        let display_bind_group = create_display_bind_group(
-            &core.device,
-            &self.base.renderer.render_pipeline.get_bind_group_layout(0),
-            self.multi_buffer.buffer_manager.get_output_texture(),
-        );
-
-        {
-            let mut render_pass = Renderer::begin_render_pass(
-                &mut encoder,
-                &view,
-                wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                Some("Lich Display Pass"),
-            );
 
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-            render_pass.set_bind_group(0, &display_bind_group, &[]);
+            render_pass.set_bind_group(0, &compute_texture.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
         }
 
-        self.base.export_manager.apply_ui_request(export_request);
+        // Apply UI changes
         if controls_request.should_clear_buffers {
-            self.multi_buffer.buffer_manager.clear_all(core, COMPUTE_TEXTURE_FORMAT_RGBA16);
-            self.multi_buffer.frame_count = 0;
+            self.clear_buffers(core);
         }
-        self.base.apply_control_request(controls_request);
-
-        if changed {
-            self.multi_buffer.params_uniform.data = params;
-            self.multi_buffer.params_uniform.update(&core.queue);
-        }
-
+        self.base.apply_control_request(controls_request.clone());
+        
+        self.base.export_manager.apply_ui_request(export_request);
         if should_start_export {
             self.base.export_manager.start_export();
+        }
+
+        if changed {
+            self.current_params = params;
+            self.compute_shader.set_custom_params(params, &core.queue);
         }
 
         self.base.handle_render_output(core, &view, full_output, &mut encoder);
         core.queue.submit(std::iter::once(encoder.finish()));
         output.present();
 
-        self.multi_buffer.frame_count += 1;
-        self.multi_buffer.buffer_manager.flip_buffers();
+        // Flip ping-pong buffers for next frame (required for multi-pass)
+        self.compute_shader.flip_buffers();
 
         Ok(())
     }
