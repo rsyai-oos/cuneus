@@ -1,15 +1,55 @@
 # Cuneus Usage Guide
 
-Cuneus is a Rust-based GPU shader engine with a unified backend that handles single-pass, multi-pass, and atomic compute shaders with built-in UI controls, hot-reloading, and media integration.
+Cuneus is a Rust-based creative coding framework designed for the rapid development of GPU compute shaders. It provides a unified backend that handles single-pass, multi-pass, and GPGPU compute tasks with built-in UI controls, hot-reloading, and media integration.
 
-## Core Structure
+## Core Concepts
 
-Every shader follows this pattern:
+### 1. The Unified Compute Pipeline
+In Cuneus, almost everything is a compute shader. Instead of writing traditional vertex/fragment shaders, you write compute kernels that write directly to an output texture. The framework provides a simple renderer to blit this texture to the screen. This approach gives you maximum control and performance for GPGPU tasks.
+
+### 2. The Builder Pattern (`ComputeShaderBuilder`)
+The `ComputeShader::builder()` is the single entry point for configuring your shader. API allows you to specify exactly what resources your shader needs, and Cuneus handles all the complex WGPU boilerplate for you.
+
+```rust
+let config = ComputeShader::builder()
+    .with_label("My Awesome Shader")
+    .with_custom_uniforms::<MyParams>() // Custom parameters
+    .with_mouse()                       // Enable mouse input
+    .with_channels(1)                   // Enable one external texture (e.g., video)
+    .build();
+```
+
+### 3. The 4-Group Binding Convention
+Cuneus enforces a standard bind group layout to create a stable and predictable contract between your Rust code and your WGSL shader. This eliminates the need to manually track binding numbers.
+
+| Group | Binding(s) | Description | Configuration |
+| :--- | :--- | :--- | :--- |
+| **0** | `@binding(0)` | **Per-Frame Data** (Time, frame count). | Engine-managed. Always available. |
+| **1** | `@binding(0)`<br/>`@binding(1)`<br/>`@binding(2..)` | **Primary I/O & Params**. Output texture, your custom `UniformProvider`, and an optional input texture. | User-configured via builder (`.with_custom_uniforms()`, `.with_input_texture()`). |
+| **2** | `@binding(0..N)` | **Global Engine Resources**. Mouse, fonts, audio buffer, atomics, and media channels. The binding order is fixed. | User-configured via builder (`.with_mouse()`, `.with_fonts()`, etc.). |
+| **3** | `@binding(0..N)` | **User Data & Multi-Pass I/O**. User-defined storage buffers or textures for multi-pass feedback loops. | User-configured via builder (`.with_storage_buffer()` or `.with_multi_pass()`). |
+
+### 4. Execution Models (Dispatching)
+- **Automatic (`.dispatch()`):** This is the recommended method. It executes the entire pipeline you defined in the builder (including all multi-pass stages) and automatically increments the frame counter.
+- **Manual (`.dispatch_stage()`):** This gives you fine-grained control to run specific compute kernels from your WGSL file. It is essential for advanced patterns like path tracing accumulation or conditional updates. **You must manually increment `compute_shader.current_frame` when using this method.**
+
+### 5. Multi-Pass Models
+The framework elegantly handles two types of multi-pass computation:
+
+1.  **Texture-Based (Ping-Pong):** Ideal for image processing and feedback effects. Intermediate results are stored in textures that are automatically swapped between passes. This is enabled with `.with_multi_pass()` and does not require manual storage buffers.
+    *   *Examples: `lich.rs`, `jfa.rs`, `currents.rs`*
+2.  **Storage-Buffer-Based (Shared Memory):** Ideal for GPGPU algorithms like FFT or simulations like CNNs. All passes read from and write to the same large, user-defined storage buffers. This is enabled by using `.with_multi_pass()` *and* `.with_storage_buffer()`.
+    *   *Examples: `fft.rs`, `cnn.rs`*
+
+## Getting Started: Shader Structure
+
+Every shader application follows a similar pattern implementing the `ShaderManager` trait.
 
 ```rust
 use cuneus::prelude::*;
 use cuneus::compute::*;
 
+// 1. Define custom parameters for the UI
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct MyParams {
@@ -19,163 +59,181 @@ struct MyParams {
 }
 
 impl UniformProvider for MyParams {
-    fn as_bytes(&self) -> &[u8] {
-        bytemuck::bytes_of(self)
-    }
+    fn as_bytes(&self) -> &[u8] { bytemuck::bytes_of(self) }
 }
 
+// 2. Define the main application struct
 struct MyShader {
     base: RenderKit,
     compute_shader: ComputeShader,
     current_params: MyParams,
 }
 
+// 3. Implement the ShaderManager trait
 impl ShaderManager for MyShader {
     fn init(core: &Core) -> Self {
-        let base = RenderKit::new(core, /* ... */);
-        let initial_params = MyParams { strength: 1.0, color: [1.0, 0.5, 0.2], _padding: 0.0 };
+        // RenderKit handles the final blit to screen and UI
+        let base = RenderKit::new(core, /* ... boilerplate vertex/blit shaders ... */);
+        let initial_params = MyParams { /* ... */ };
 
-        // Universal builder pattern - handles all shader types
+        // Configure the compute shader using the builder
         let config = ComputeShader::builder()
-            .with_entry_point("main")                    // Single pass
-            .with_multi_pass(&passes)                    // Multi-pass (alternative)
-            .with_custom_uniforms::<MyParams>()         // Custom parameters
-            .with_atomic_buffer()                        // Atomic operations (optional)
-            .with_mouse()                                // Mouse input (optional)
-            .with_fonts()                                // GPU text rendering (optional)
-            .with_audio(4096)                            // Audio buffer (optional)
-            .with_channels(2)                            // External textures (optional)
-            .with_input_texture()                        // Input texture (optional)
-            .with_workgroup_size([16, 16, 1])           // Default workgroup (WGSL overrides this)
-            .with_texture_format(COMPUTE_TEXTURE_FORMAT_RGBA16)
             .with_label("My Shader")
+            .with_entry_point("main")
+            .with_custom_uniforms::<MyParams>()
+            .with_mouse()
             .build();
 
-        let mut compute_shader = ComputeShader::from_builder(core, include_str!("../../shaders/my_shader.wgsl"), config);
+        // Create the compute shader instance
+        let mut compute_shader = ComputeShader::from_builder(
+            core,
+            include_str!("../../shaders/my_shader.wgsl"),
+            config,
+        );
+
+        // (Optional but recommended) Enable hot-reloading
+        compute_shader.enable_hot_reload(/* ... */).unwrap();
         
-        // Hot reload (recommended)
-        compute_shader.enable_hot_reload(core.device.clone(), std::path::PathBuf::from("shaders/my_shader.wgsl"), /* ... */);
-        
+        // Set initial parameters
         compute_shader.set_custom_params(initial_params, &core.queue);
+
         Self { base, compute_shader, current_params: initial_params }
     }
 
     fn update(&mut self, core: &Core) {
-        let current_time = self.base.controls.get_time(&self.base.start_time);
-        self.compute_shader.set_time(current_time, 1.0/60.0, &core.queue);
-        self.compute_shader.check_hot_reload(&core.device);  // Hot reload check
-        self.base.fps_tracker.update();
+        // Update time uniform, check for hot-reloads, etc.
+        let time = self.base.controls.get_time(&self.base.start_time);
+        self.compute_shader.set_time(time, 1.0/60.0, &core.queue);
+        self.compute_shader.check_hot_reload(&core.device);
     }
 
     fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {
-        let mut encoder = core.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Render Encoder"),
-        });
+        let mut encoder = core.device.create_command_encoder(/* ... */);
 
-        // Universal dispatch - works for all shader types
+        // Execute the entire compute pipeline
         self.compute_shader.dispatch(&mut encoder, core);
-        
-        // For advanced manual control only:
-        // self.compute_shader.dispatch_stage(&mut encoder, core, stage_index);
-        // self.compute_shader.current_frame += 1;  // Manual frame increment required!
 
-        // Render to screen...
+        // Display the final output texture and UI
+        // ... rendering boilerplate ...
         Ok(())
     }
+    
+    fn handle_input(&mut self, _core: &Core, _event: &WindowEvent) -> bool {
+        // Handle keyboard/mouse events
+        false
+    }
 }
-```
-
-## Key Concepts
-
-### Workgroup Sizes
-- **WGSL takes precedence**: `@workgroup_size(256, 1, 1)` in WGSL overrides backend settings
-- **Backend is fallback**: `.with_workgroup_size([16, 16, 1])` used only if WGSL doesn't specify
-- **Different entry points**: Each `@compute` function can have different workgroup sizes
-
-### Frame Management
-- **Automatic**: `.dispatch()` automatically increments frame counter (recommended)
-- **Manual**: `.dispatch_stage()` requires manual `self.compute_shader.current_frame += 1`
-- **WGSL access**: Frame counter available as `time_data.frame` for accumulation effects
-
-### Multi-Pass Setup
-```rust
-let passes = vec![
-    PassDescription::new("stage1", &[]).with_workgroup_size([256, 1, 1]),
-    PassDescription::new("stage2", &["stage1"]).with_workgroup_size([16, 16, 1]),
-];
-let config = ComputeShader::builder().with_multi_pass(&passes).build();
-```
-
-### Manual Entry Points (Advanced)
-```rust
-let mut config = ComputeShader::builder().with_entry_point("main").build();
-config.entry_points.push("secondary".to_string());
-// Use dispatch_stage() for individual control + manual frame management
 ```
 
 ## Standard Bind Group Layout
 
-Your WGSL shaders should follow this layout:
+Your WGSL shaders should follow this layout for predictable resource access.
 
 ```wgsl
-// Group 0: Time data (automatic)
+// Group 0: Per-Frame Data (Engine-Managed)
+struct TimeUniform { time: f32, delta: f32, frame: u32, /* ... */ };
 @group(0) @binding(0) var<uniform> time_data: TimeUniform;
 
-// Group 1: I/O + Custom parameters (you provide these)
+// Group 1: Primary Pass I/O & Custom Parameters
 @group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
-@group(1) @binding(1) var<uniform> params: MyParams;
+// Optional: Your custom uniform struct
+@group(1) @binding(1) var<uniform> params: MyParams; 
+// Optional: Input texture for image processing
+@group(1) @binding(2) var input_texture: texture_2d<f32>;
+@group(1) @binding(3) var input_sampler: sampler;
 
-// Group 2: Engine resources (mouse, fonts, audio, channels - optional)
-@group(2) @binding(0) var<uniform> mouse: MouseUniform;
+// Group 2: Global Engine Resources (Order is fixed if multiple are enabled)
+// @binding(0): Mouse data (if .with_mouse() is used)
+@group(2) @binding(0) var<uniform> mouse: MouseUniform; 
+// @binding(1-3): Font data (if .with_fonts() is used)
 @group(2) @binding(1) var<uniform> font_uniform: FontUniforms;
 @group(2) @binding(2) var font_texture: texture_2d<f32>;
-@group(2) @binding(3) var<storage, read_write> audio_buffer: array<f32>;
-@group(2) @binding(4) var channel0: texture_2d<f32>;
-@group(2) @binding(5) var channel0_sampler: sampler;
+@group(2) @binding(3) var font_sampler: sampler;
+// @binding(N): Audio buffer (if .with_audio() is used)
+@group(2) @binding(4) var<storage, read_write> audio_buffer: array<f32>;
+// @binding(N+1): Atomic buffer (if .with_atomic_buffer() is used)
+@group(2) @binding(5) var<storage, read_write> atomic_buffer: array<atomic<u32>>;
+// @binding(N+2..): Media channels (if .with_channels() is used)
+@group(2) @binding(6) var channel0: texture_2d<f32>;
+@group(2) @binding(7) var channel0_sampler: sampler;
 
-// Group 3: User storage buffers and atomic operations (optional)
-@group(3) @binding(0) var<storage, read_write> atomic_buffer: array<atomic<u32>>;
-@group(3) @binding(1) var<storage, read_write> my_data: array<f32>;
+// Group 3: User Data & Multi-Pass I/O
+// User-defined storage buffers (if .with_storage_buffer() is used)
+@group(3) @binding(0) var<storage, read_write> my_data: array<f32>;
+// OR: Multi-pass input textures (if .with_multi_pass() is used without storage)
+@group(3) @binding(0) var input_texture0: texture_2d<f32>;
+@group(3) @binding(1) var input_sampler0: sampler;
 ```
 
-## Audio & Media Integration
+## Advanced Topics
+
+### Workgroup Sizes
+
+-   **WGSL is the Source of Truth:** A workgroup size defined in your shader with `@workgroup_size(x, y, z)` will always be used to compile the pipeline.
+-   **Builder is a Fallback:** `.with_workgroup_size()` is only used if the WGSL entry point has no size decorator.
+-   **Per-Pass Specificity:** For multi-pass shaders, you can specify a unique workgroup size for each stage. This is critical for performance in algorithms like FFTs or CNNs.
+    ```rust
+    // See cnn.rs for a practical example
+    let passes = vec![
+        PassDescription::new("conv_layer1", &["canvas_update"])
+            .with_workgroup_size([12, 12, 8]), // Custom size for this pass
+        PassDescription::new("main_image", &["fully_connected"]), // Uses default or WGSL size
+    ];
+    ```
+
+### Manual Dispatching
+
+For effects like path tracing that require conditional accumulation, use `dispatch_stage()`. This prevents the frame counter from advancing automatically, allowing you to build up an image over multiple real frames that all correspond to a single logical `time_data.frame`.
+
+```rust
+// See mandelbulb.rs for a practical example
+fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {
+    // ...
+    // Set frame uniform manually for accumulation
+    self.compute_shader.time_uniform.data.frame = self.frame_count;
+    self.compute_shader.time_uniform.update(&core.queue);
+    
+    // Dispatch the single stage of the path tracer
+    self.compute_shader.dispatch_stage(&mut encoder, core, 0);
+
+    // Only increment the logical frame count when accumulation is active
+    if self.current_params.accumulate > 0 {
+        self.frame_count += 1;
+    }
+    // ...
+}
+```
+
+## Media & Integration
 
 ### GPU Audio Generation
+You can generate audio synthesis parameters directly on the GPU and read them back on the CPU for playback. The `.with_audio(size)` builder method provides a `storage` buffer in Group 2.
+
 ```wgsl
-// Write audio data from compute shader to CPU
-if global_id.x == 0u && global_id.y == 0u {
-    audio_buffer[0] = frequency;        // Hz
-    audio_buffer[1] = amplitude;        // 0.0-1.0
-    audio_buffer[2] = waveform_type;    // 0=sine, 1=square, etc.
+// In WGSL: Write to the audio buffer
+// This pattern is used by veridisquo.wgsl
+if (global_id.x == 0u && global_id.y == 0u) {
+    audio_buffer[0] = final_melody_freq;
+    audio_buffer[1] = melody_amplitude;
+    audio_buffer[2] = f32(waveform_type);
+    audio_buffer[3] = final_bass_freq;
+    audio_buffer[4] = bass_amplitude;
 }
 ```
-
-### CPU Audio Reading
 ```rust
-// Read GPU-computed audio data
-if let Ok(audio_data) = self.compute_shader.read_audio_buffer(&core.device, &core.queue).await {
-    let frequency = audio_data[0];
-    let amplitude = audio_data[1];
-    // Use with SynthesisManager for actual audio output
+// In Rust: Read the buffer and send to the audio engine
+// This pattern is used by veridisquo.rs
+if let Ok(data) = pollster::block_on(compute.read_audio_buffer(&core.device, &core.queue)) {
+    // data[0] is frequency, data[1] is amplitude, etc.
+    synth.set_voice(0, data[0], data[1], true);
 }
 ```
+**Pro-tip:** The audio buffer is just a generic `array<f32>`. You can use it to store any `f32` data, like the game state in `blockgame.wgsl`.
 
-### GPU Text Rendering
-```wgsl
-// Draw text directly in compute shaders
-fn draw_char(pos: vec2<f32>, char_code: u32, color: vec3<f32>) -> vec3<f32> {
-    let char_uv = get_char_uv(char_code, font_uniform);
-    let char_sample = textureSample(font_texture, font_sampler, char_uv);
-    return mix(color, vec3<f32>(1.0), char_sample.r);
-}
-```
+### External Textures (`.with_channels()`)
+The `.with_channels(N)` method exposes `N` texture/sampler pairs in Group 2, making them globally accessible to **all passes** of a multi-pass shader. This is the preferred way to pipe in video, webcam feeds, or static images into complex simulations.
+*   *Example: `fluid.rs` uses `.with_channels(1)` to feed a video into its simulation.*
 
-
-
-## Best Practices
-
-1. **Use `.dispatch()`** for most cases - it handles everything automatically
-2. **Specify workgroup sizes in WGSL** with `@workgroup_size()` decorators  
-3. **Follow bind group layout** for consistency
-4. **Only use manual dispatch** for complex conditional logic (accumulated rendering, etc.)
-5. **Always increment frame manually** when using `dispatch_stage()`.
+### Fonts
+The `.with_fonts()` method provides everything needed to render text directly inside your compute shader. This is perfect for debug overlays or creative typography effects.
+*   *Examples: `debugscreen.rs` uses this for its UI, and `cnn.rs` uses it to label its output bars.*
