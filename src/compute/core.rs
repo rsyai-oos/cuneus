@@ -114,7 +114,9 @@ impl ComputeShader {
             resource_layout.add_audio_buffer(config.audio_buffer_size);
         }
         if config.has_atomic_buffer {
-            let atomic_size = (core.size.width * core.size.height * 4) as u64;
+            // Create buffer with 3 u32s per pixel
+            // The shader accesses: atomic_buffer[idx], atomic_buffer[idx + w*h], atomic_buffer[idx + 2*w*h]
+            let atomic_size = (core.size.width * core.size.height * 3 * 4) as u64;
             resource_layout.add_atomic_buffer(atomic_size);
         }
         if let Some(num_channels) = config.num_channels {
@@ -556,8 +558,9 @@ impl ComputeShader {
         };
         
         // Create atomic buffer if needed (raw buffer, not old AtomicBuffer struct)
+        // buffer size: 3 u32s * 4 bytes per pixel 
         let atomic_buffer_raw = if config.has_atomic_buffer {
-            let buffer_size = (core.size.width * core.size.height * 4 * 4) as u64;
+            let buffer_size = (core.size.width * core.size.height * 3 * 4) as u64;
             Some(core.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("Atomic Storage Buffer"),
                 size: buffer_size,
@@ -1287,26 +1290,76 @@ impl ComputeShader {
             multipass.resize(core, width, height);
         }
         
-        // Recreate atomic buffer if present
+        // Recreate atomic buffer if present (like clear_atomic_buffer)
         if let Some(atomic_buffer) = &mut self.atomic_buffer_raw {
-            let buffer_size = (width * height * 4 * 4) as u64; // Same as old AtomicBuffer: 4 values * 4 bytes each
+            let buffer_size = (width * height * 3 * 4) as u64; // 3 u32s * 4 bytes per pixel
             *atomic_buffer = core.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("Atomic Storage Buffer (resized)"),
                 size: buffer_size,
                 usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
+            
+            // Recreate group2 bind group with the new buffer
+            if let Some(layout) = self.bind_group_layouts.get(&2) {
+                self.group2_bind_group = Self::create_group2_bind_group(
+                    &core.device,
+                    &core.queue,
+                    layout,
+                    &self.font_system,
+                    &self.atomic_buffer_raw,
+                    &self.audio_buffer,
+                    &self.mouse_uniform,
+                    &self.channel_textures,
+                    self.num_channels,
+                );
+            }
         }
+        
+        // Reset frame counter on resize to start fresh
+        self.current_frame = 0;
     }
     
-    /// Clear atomic buffer
-    pub fn clear_atomic_buffer(&self, core: &Core) {
-        if let Some(atomic_buffer) = &self.atomic_buffer_raw {
-            // Clear the atomic buffer with zeros
-            // Buffer size is width * height * 4 * 4 bytes (4 u32 values per pixel)
-            let buffer_size = core.size.width * core.size.height * 4; // 4 u32 values per pixel
-            let clear_data = vec![0u32; buffer_size as usize];
-            core.queue.write_buffer(atomic_buffer, 0, bytemuck::cast_slice(&clear_data));
+    /// Clear all buffers (atomic or multipass) 
+    pub fn clear_all_buffers(&mut self, core: &Core) {
+        // Clear multipass buffers if present
+        if let Some(multipass) = &mut self.multipass_manager {
+            multipass.clear_all(core);
+        }
+        
+        // Clear atomic buffer if present
+        self.clear_atomic_buffer(core);
+        
+        // Reset frame counter
+        self.current_frame = 0;
+    }
+    
+    /// Clear atomic buffer by recreating it (like old clear_all method)
+    pub fn clear_atomic_buffer(&mut self, core: &Core) {
+        if self.atomic_buffer_raw.is_some() {
+            // Recreate the atomic buffer entirely (more thorough than just writing zeros)
+            let buffer_size = (core.size.width * core.size.height * 3 * 4) as u64; // 3 u32s * 4 bytes per pixel
+            self.atomic_buffer_raw = Some(core.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("Atomic Storage Buffer (cleared)"),
+                size: buffer_size,
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }));
+            
+            // Recreate group2 bind group with the new buffer
+            if let Some(layout) = self.bind_group_layouts.get(&2) {
+                self.group2_bind_group = Self::create_group2_bind_group(
+                    &core.device,
+                    &core.queue,
+                    layout,
+                    &self.font_system,
+                    &self.atomic_buffer_raw,
+                    &self.audio_buffer,
+                    &self.mouse_uniform,
+                    &self.channel_textures,
+                    self.num_channels,
+                );
+            }
         }
     }
     
@@ -1316,5 +1369,8 @@ impl ComputeShader {
             mouse_uniform.data = *mouse_uniform_data;
             mouse_uniform.update(queue);
         }
+    }
+        pub fn get_audio_buffer(&self) -> Option<&wgpu::Buffer> {
+        self.audio_buffer.as_ref()
     }
 }
