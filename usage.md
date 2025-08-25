@@ -265,6 +265,9 @@ if let Ok(data) = pollster::block_on(compute.read_audio_buffer(&core.device, &co
 The `.with_channels(N)` method exposes `N` texture/sampler pairs in Group 2, making them globally accessible to **all passes** of a multi-pass shader. This is the preferred way to pipe in video, webcam feeds, or static images into complex simulations.
 *   *Example: `fluid.rs` uses `.with_channels(1)` to feed a video into its simulation.*
 
+### Audio Spectrum Analysis (`.with_audio_spectrum()`)
+Use `.with_audio_spectrum(64)` to access real-time frequency spectrum data from loaded audio/video files as a read-only storage buffer in Group 2.
+
 ### Fonts
 The `.with_fonts()` method provides everything needed to render text directly inside your compute shader. This is perfect for debug overlays or creative typography effects.
 *   *Examples: `debugscreen.rs` uses this for its UI, and `cnn.rs` uses it to label its output bars.*
