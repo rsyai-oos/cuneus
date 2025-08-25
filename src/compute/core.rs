@@ -60,6 +60,7 @@ pub struct ComputeShader {
     pub atomic_buffer_raw: Option<wgpu::Buffer>,
     pub audio_buffer: Option<wgpu::Buffer>,
     pub audio_staging_buffer: Option<wgpu::Buffer>,
+    pub audio_spectrum_buffer: Option<wgpu::Buffer>,
     pub mouse_uniform: Option<UniformBinding<crate::MouseUniform>>,
     
     // Channel system for external textures (Group 2)
@@ -118,6 +119,9 @@ impl ComputeShader {
             // The shader accesses: atomic_buffer[idx], atomic_buffer[idx + w*h], atomic_buffer[idx + 2*w*h]
             let atomic_size = (core.size.width * core.size.height * 3 * 4) as u64;
             resource_layout.add_atomic_buffer(atomic_size);
+        }
+        if config.has_audio_spectrum {
+            resource_layout.add_audio_spectrum_buffer(config.audio_spectrum_size);
         }
         if let Some(num_channels) = config.num_channels {
             resource_layout.add_channel_textures(num_channels);
@@ -222,7 +226,7 @@ impl ComputeShader {
         
         
         // Step 6: Create engine resources (Group 2) if needed
-        let (font_system, atomic_buffer_raw, audio_buffer, audio_staging_buffer, mouse_uniform, group2_bind_group) = 
+        let (font_system, atomic_buffer_raw, audio_buffer, audio_staging_buffer, audio_spectrum_buffer, mouse_uniform, group2_bind_group) = 
             Self::create_engine_resources(core, &bind_group_layouts, &config);
         
         // Step 7: Create user storage buffers (Group 3) if needed
@@ -319,6 +323,7 @@ impl ComputeShader {
             atomic_buffer_raw,
             audio_buffer,
             audio_staging_buffer,
+            audio_spectrum_buffer,
             mouse_uniform,
             storage_buffers,
             empty_bind_groups,
@@ -540,12 +545,13 @@ impl ComputeShader {
         Option<wgpu::Buffer>,
         Option<wgpu::Buffer>,
         Option<wgpu::Buffer>,
+        Option<wgpu::Buffer>,
         Option<UniformBinding<crate::MouseUniform>>,
         Option<wgpu::BindGroup>,
     ) {
         let layout = layouts.get(&2);
         if layout.is_none() {
-            return (None, None, None, None, None, None);
+            return (None, None, None, None, None, None, None);
         }
         let layout = layout.unwrap();
         
@@ -594,6 +600,22 @@ impl ComputeShader {
             (None, None)
         };
         
+        // Create audio spectrum buffer if needed  
+        let audio_spectrum_buffer = if config.has_audio_spectrum {
+            let buffer_size = config.audio_spectrum_size * std::mem::size_of::<f32>();
+            
+            let buffer = core.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(&format!("{} Audio Spectrum Buffer", config.label)),
+                size: buffer_size as u64,
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            
+            Some(buffer)
+        } else {
+            None
+        };
+        
         // Create mouse uniform if needed
         let mouse_uniform = if config.has_mouse {
             // Create a temporary bind group layout for UniformBinding compatibility
@@ -634,13 +656,14 @@ impl ComputeShader {
             &font_system,
             &atomic_buffer_raw,
             &audio_buffer,
+            &audio_spectrum_buffer,
             &mouse_uniform,
             &empty_channels,
             num_channels,
         );
         
         
-        (font_system, atomic_buffer_raw, audio_buffer, audio_staging_buffer, mouse_uniform, bind_group)
+        (font_system, atomic_buffer_raw, audio_buffer, audio_staging_buffer, audio_spectrum_buffer, mouse_uniform, bind_group)
     }
     
     fn create_group2_bind_group(
@@ -650,6 +673,7 @@ impl ComputeShader {
         font_system: &Option<FontSystem>,
         atomic_buffer_raw: &Option<wgpu::Buffer>,
         audio_buffer: &Option<wgpu::Buffer>,
+        audio_spectrum_buffer: &Option<wgpu::Buffer>,
         mouse_uniform: &Option<UniformBinding<crate::MouseUniform>>,
         channel_textures: &HashMap<u32, Option<(wgpu::TextureView, wgpu::Sampler)>>,
         num_channels: u32,
@@ -659,8 +683,9 @@ impl ComputeShader {
         // 1. mouse (if has_mouse) -> binding 0
         // 2. fonts (if has_fonts) -> bindings 1,2,3  
         // 3. audio (if has_audio) -> binding N
-        // 4. atomic_buffer (if has_atomic_buffer) -> binding N+1
-        // 5. channels (if num_channels > 0) -> bindings N+1 onwards (texture + sampler pairs)
+        // 4. audio_spectrum (if has_audio_spectrum) -> binding N+1
+        // 5. atomic_buffer (if has_atomic_buffer) -> binding N+2
+        // 6. channels (if num_channels > 0) -> bindings N+3 onwards (texture + sampler pairs)
         
         // Create a default 1x1 magenta texture for unassigned channels  
         let default_texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -731,6 +756,15 @@ impl ComputeShader {
             entries.push(wgpu::BindGroupEntry {
                 binding: binding_counter,
                 resource: audio.as_entire_binding(),
+            });
+            binding_counter += 1;
+        }
+        
+        // Add audio spectrum buffer
+        if let Some(audio_spectrum) = audio_spectrum_buffer {
+            entries.push(wgpu::BindGroupEntry {
+                binding: binding_counter,
+                resource: audio_spectrum.as_entire_binding(),
             });
             binding_counter += 1;
         }
@@ -1015,6 +1049,7 @@ impl ComputeShader {
                 &self.font_system,
                 &self.atomic_buffer_raw,
                 &self.audio_buffer,
+                &self.audio_spectrum_buffer,
                 &self.mouse_uniform,
                 &self.channel_textures,
                 self.num_channels,
@@ -1239,6 +1274,32 @@ impl ComputeShader {
         self.time_uniform.update(queue);
     }
     
+    /// Update audio spectrum buffer with data from ResolutionUniform
+    pub fn update_audio_spectrum(&mut self, resolution_uniform: &crate::ResolutionUniform, queue: &wgpu::Queue) {
+        if let Some(ref buffer) = self.audio_spectrum_buffer {
+            // Convert audio_data from [[f32; 4]; 32] to [f32; 64] format
+            // Note: Only taking 64 values to match the original gAV function expectation
+            let mut spectrum_data = vec![0.0f32; 64];
+            for i in 0..64 {
+                let vec_idx = i / 4;
+                let comp_idx = i % 4;
+                if vec_idx < 32 {
+                    spectrum_data[i] = resolution_uniform.audio_data[vec_idx][comp_idx];
+                }
+            }
+            
+            // Debug logging to see if we're getting data
+            let total_energy: f32 = spectrum_data.iter().sum();
+            if total_energy > 0.01 {
+                log::info!("Audio spectrum update: total_energy={:.3}, first_10={:?}", 
+                          total_energy, &spectrum_data[..10]);
+            }
+            
+            // Write the spectrum data to the buffer
+            queue.write_buffer(buffer, 0, bytemuck::cast_slice(&spectrum_data));
+        }
+    }
+    
     /// Get output texture for display
     pub fn get_output_texture(&self) -> &TextureManager {
         &self.output_texture
@@ -1272,6 +1333,8 @@ impl ComputeShader {
                 has_audio: true,
                 has_atomic_buffer: false,
                 audio_buffer_size: 1024,
+                has_audio_spectrum: false,
+                audio_spectrum_size: 128,
                 storage_buffers: Vec::new(),
                 workgroup_size: self.workgroup_size,
                 dispatch_once: self.dispatch_once,
@@ -1309,6 +1372,7 @@ impl ComputeShader {
                     &self.font_system,
                     &self.atomic_buffer_raw,
                     &self.audio_buffer,
+                    &self.audio_spectrum_buffer,
                     &self.mouse_uniform,
                     &self.channel_textures,
                     self.num_channels,
@@ -1355,6 +1419,7 @@ impl ComputeShader {
                     &self.font_system,
                     &self.atomic_buffer_raw,
                     &self.audio_buffer,
+                    &self.audio_spectrum_buffer,
                     &self.mouse_uniform,
                     &self.channel_textures,
                     self.num_channels,

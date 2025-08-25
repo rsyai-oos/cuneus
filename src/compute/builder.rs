@@ -59,6 +59,8 @@ pub struct ComputeConfiguration {
     pub has_audio: bool,
     pub has_atomic_buffer: bool,
     pub audio_buffer_size: usize,
+    pub has_audio_spectrum: bool,
+    pub audio_spectrum_size: usize,
     pub storage_buffers: Vec<StorageBufferSpec>,
     pub workgroup_size: [u32; 3],
     pub dispatch_once: bool,
@@ -89,6 +91,8 @@ impl ComputeShaderBuilder {
                 has_audio: false,
                 has_atomic_buffer: false,
                 audio_buffer_size: 1024,
+                has_audio_spectrum: false,
+                audio_spectrum_size: 128,
                 storage_buffers: Vec::new(),
                 workgroup_size: [16, 16, 1],
                 dispatch_once: false,
@@ -146,6 +150,13 @@ impl ComputeShaderBuilder {
     pub fn with_audio(mut self, buffer_size: usize) -> Self {
         self.config.has_audio = true;
         self.config.audio_buffer_size = buffer_size;
+        self
+    }
+    
+    /// Enable audio spectrum data buffer for visualizers (goes to @group(2))
+    pub fn with_audio_spectrum(mut self, spectrum_size: usize) -> Self {
+        self.config.has_audio_spectrum = true;
+        self.config.audio_spectrum_size = spectrum_size;
         self
     }
     
