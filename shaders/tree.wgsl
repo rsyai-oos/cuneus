@@ -12,14 +12,15 @@ struct TreeParams {
     col2: f32,
     decay: f32,
 };
-@group(1) @binding(0) var<uniform> params: TreeParams;
-
-@group(2) @binding(0) var output: texture_storage_2d<rgba16float, write>;
+@group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
+@group(1) @binding(1) var<uniform> params: TreeParams;
 
 @group(3) @binding(0) var input_texture0: texture_2d<f32>;
 @group(3) @binding(1) var input_sampler0: sampler;
 @group(3) @binding(2) var input_texture1: texture_2d<f32>;
 @group(3) @binding(3) var input_sampler1: sampler;
+@group(3) @binding(4) var input_texture2: texture_2d<f32>;
+@group(3) @binding(5) var input_sampler2: sampler;
 
 const PI: f32 = 3.14159265;
 const ITER: i32 = 200;

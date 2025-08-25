@@ -26,25 +26,40 @@ struct CNNParams {
     show_frequencies: i32,
     conv1_pool_size: f32,
     conv2_pool_size: f32,
-    mouse_x: f32,
-    mouse_y: f32,
-    mouse_click_x: f32,
-    mouse_click_y: f32,
-    mouse_buttons: u32,
     _padding1: f32,
     _padding2: f32,
     _padding3: f32,
+    _padding4: f32,
+    _padding5: f32,
+    _padding6: f32,
 }
-@group(1) @binding(0) var output_texture: texture_storage_2d<rgba16float, write>;
-@group(1) @binding(1) var font_atlas: texture_2d<f32>;
-@group(1) @binding(2) var font_sampler: sampler;
+// Group 1: Primary Pass I/O & Parameters
+@group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
+@group(1) @binding(1) var<uniform> params: CNNParams;
 
-@group(2) @binding(0) var<uniform> params: CNNParams;
+// Group 2: Engine Resources (Mouse & Fonts)
+@group(2) @binding(0) var<uniform> mouse: MouseUniform;
+@group(2) @binding(1) var<uniform> font_uniform: FontUniforms;
+@group(2) @binding(2) var font_texture: texture_2d<f32>;
+@group(2) @binding(3) var font_sampler: sampler;
 
 @group(3) @binding(0) var<storage, read_write> canvas_data: array<f32>;      
 @group(3) @binding(1) var<storage, read_write> conv1_data: array<f32>;       
 @group(3) @binding(2) var<storage, read_write> conv2_data: array<f32>;       
-@group(3) @binding(3) var<storage, read_write> fc_data: array<f32>;          
+@group(3) @binding(3) var<storage, read_write> fc_data: array<f32>;
+
+struct FontUniforms {
+    font_tex_size: vec2<f32>,
+    char_size: vec2<f32>,
+    color: vec4<f32>,
+};
+
+struct MouseUniform {
+    position: vec2<f32>,
+    click_position: vec2<f32>,
+    wheel: vec2<f32>,
+    buttons: vec2<u32>,
+};          
 
 const INPUT_SIZE: u32 = 28u;
 const CONV1_SIZE: u32 = 12u;  
@@ -674,9 +689,9 @@ fn render_digit(pos: vec2<f32>, char_pos: vec2<f32>, digit: u32, size: f32) -> f
         (f32(grid_y) + uv.y) / f32(grid_size)
     );
     
-    let atlas_dimensions = textureDimensions(font_atlas);
+    let atlas_dimensions = textureDimensions(font_texture);
     let pixel_coord = vec2<i32>(atlas_uv * vec2<f32>(atlas_dimensions));
-    let font_sample = textureLoad(font_atlas, pixel_coord, 0);
+    let font_sample = textureLoad(font_texture, pixel_coord, 0);
     return font_sample.a;
 }
 
@@ -723,7 +738,7 @@ fn canvas_update(@builtin(global_invocation_id) id: vec3<u32>) {
     if any(pos >= vec2(i32(INPUT_SIZE))) { return; }
     
     let idx = canvas_index(pos.x, pos.y);
-    let btns = params.mouse_buttons;
+    let btns = mouse.buttons.x;
     
     if params.clear_canvas == 1 || (btns & 2u) != 0u {
         canvas_data[idx] = 0.;
@@ -731,14 +746,14 @@ fn canvas_update(@builtin(global_invocation_id) id: vec3<u32>) {
     }
     
     if (btns & 1u) != 0u {
-        let mouse_pos = vec2<f32>(params.mouse_x, params.mouse_y);
-        let canvas_pos = screen_to_canvas(mouse_pos, vec2<f32>(textureDimensions(output_texture)));
+        let mouse_pos = mouse.position;
+        let canvas_pos = screen_to_canvas(mouse_pos, vec2<f32>(textureDimensions(output)));
         if canvas_pos.x >= 0 {
             let dist = length(vec2<f32>(canvas_pos - pos));
             let radius = params.brush_size * params.input_resolution * 10.;
             let intensity = 1. - smoothstep(0., radius, dist);
             if intensity > 0. {
-                canvas_data[idx] = min(1., canvas_data[idx] + intensity * .3);
+                canvas_data[idx] = min(1., canvas_data[idx] + intensity * 0.3); // Normal brush intensity
             }
         }
     }
@@ -821,7 +836,7 @@ fn fully_connected(@builtin(global_invocation_id) id: vec3<u32>) {
 
 @compute @workgroup_size(16, 16, 1)
 fn main_image(@builtin(global_invocation_id) id: vec3<u32>) {
-    let res = textureDimensions(output_texture);
+    let res = textureDimensions(output);
     if any(id.xy >= res) { return; }
     
     let uv = vec2<f32>(f32(id.x), f32(res.y - id.y)) / vec2<f32>(res);
@@ -831,14 +846,14 @@ fn main_image(@builtin(global_invocation_id) id: vec3<u32>) {
     let canvas_end = canvas_start + params.canvas_size;
     
     if all(uv >= canvas_start) && all(uv <= canvas_end) {
-        color = vec3(.0);
+        color = vec3(0.0); // Black canvas
         
         let canvas_uv = (uv - canvas_start) / params.canvas_size;
         let canvas_coord = vec2<i32>(canvas_uv * params.input_resolution);
         
         if all(canvas_coord >= vec2(0)) && all(canvas_coord < vec2(i32(params.input_resolution))) {
             let val = sample_canvas(canvas_coord);
-            color = mix(color, vec3(1.), val);
+            color = mix(color, vec3(1.0), val); // White for drawn pixels
         }
         
         let border = .005;
@@ -914,12 +929,12 @@ fn main_image(@builtin(global_invocation_id) id: vec3<u32>) {
         let digit_alpha = render_digit(pixel_pos, digit_screen_pos, u32(digit), 32.0);
         color = mix(color, vec3(1.0), digit_alpha);
     }
-    let mouse_corrected = vec2<f32>(params.mouse_x, 1.0 - params.mouse_y);
+    let mouse_corrected = vec2<f32>(mouse.position.x, 1.0 - mouse.position.y);
     let mouse_dist = distance(uv, mouse_corrected);
     if mouse_dist < .02 {
         let pulse = sin(time_data.time * 10.) * .5 + .5;
         color = mix(color, vec3(1.), .3 * pulse);
     }
     
-    textureStore(output_texture, vec2<i32>(id.xy), vec4(pow(color, vec3(.8)), 1.));
+    textureStore(output, vec2<i32>(id.xy), vec4(pow(color, vec3(.8)), 1.));
 }

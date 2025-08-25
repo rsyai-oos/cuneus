@@ -36,9 +36,9 @@ struct JfaParams {
     _padding1: f32,
     _padding2: f32,
 }
-@group(1) @binding(0) var<uniform> params: JfaParams;
-
-@group(2) @binding(0) var output: texture_storage_2d<rgba16float, write>;
+// Group 1: Output texture + Custom uniform
+@group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
+@group(1) @binding(1) var<uniform> params: JfaParams;
 
 @group(3) @binding(0) var input_texture0: texture_2d<f32>;
 @group(3) @binding(1) var input_sampler0: sampler;

@@ -21,12 +21,12 @@ struct CNNParams {
     show_frequencies: i32,
     conv1_pool_size: f32,
     conv2_pool_size: f32,
-    mouse_x: f32,
-    mouse_y: f32,
-    mouse_click_x: f32,
-    mouse_click_y: f32,
-    mouse_buttons: u32,
-    _padding: [f32; 3],
+    _padding1: f32,
+    _padding2: f32,
+    _padding3: f32,
+    _padding4: f32,
+    _padding5: f32,
+    _padding6: f32,
 }
 
 impl UniformProvider for CNNParams {
@@ -37,9 +37,9 @@ impl UniformProvider for CNNParams {
 
 struct CNNDigitRecognizer {
     base: RenderKit,
-    params_uniform: UniformBinding<CNNParams>,
     compute_shader: ComputeShader,
-    frame_count: u32,
+    current_params: CNNParams,
+    first_frame: bool,
 }
 
 impl CNNDigitRecognizer {}
@@ -48,124 +48,95 @@ impl ShaderManager for CNNDigitRecognizer {
     fn init(core: &Core) -> Self {
         let texture_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
-                wgpu::BindGroupLayoutEntry { binding: 0, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Texture { multisampled: false, sample_type: wgpu::TextureSampleType::Float { filterable: true }, view_dimension: wgpu::TextureViewDimension::D2, }, count: None, },
-                wgpu::BindGroupLayoutEntry { binding: 1, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None, },
+                wgpu::BindGroupLayoutEntry { 
+                    binding: 0, 
+                    visibility: wgpu::ShaderStages::FRAGMENT, 
+                    ty: wgpu::BindingType::Texture { 
+                        multisampled: false, 
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true }, 
+                        view_dimension: wgpu::TextureViewDimension::D2, 
+                    }, 
+                    count: None, 
+                },
+                wgpu::BindGroupLayoutEntry { 
+                    binding: 1, 
+                    visibility: wgpu::ShaderStages::FRAGMENT, 
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), 
+                    count: None, 
+                },
             ],
             label: Some("texture_bind_group_layout"),
         });
         
-        let mut resource_layout = cuneus::compute::ResourceLayout::new();
-        resource_layout.add_custom_uniform("cnn_params", std::mem::size_of::<CNNParams>() as u64);
-        let bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
-        let custom_uniform_layout = bind_group_layouts.get(&2).unwrap();
-
-        let params_uniform = UniformBinding::new(
-            &core.device,
-            "CNN Params",
-            CNNParams {
-                canvas_size: 0.6,
-                brush_size: 0.007,
-                input_resolution: 28.0,
-                clear_canvas: 0,
-                show_debug: 0,
-                prediction_threshold: 0.1,
-                canvas_offset_x: 0.1,
-                canvas_offset_y: 0.1,
-                feature_maps_1: 8.0,
-                feature_maps_2: 5.0,
-                num_classes: 10.0,
-                normalization_mean: 0.1307,
-                normalization_std: 0.3081,
-                show_frequencies: 0,
-                conv1_pool_size: 12.0,
-                conv2_pool_size: 4.0,
-                mouse_x: 0.0,
-                mouse_y: 0.0,
-                mouse_click_x: 0.0,
-                mouse_click_y: 0.0,
-                mouse_buttons: 0,
-                _padding: [0.0; 3],
-            },
-            &custom_uniform_layout,
-            0,
+        let base = RenderKit::new(
+            core, 
+            include_str!("../../shaders/vertex.wgsl"), 
+            include_str!("../../shaders/blit.wgsl"), 
+            &[&texture_bind_group_layout], 
+            None
         );
         
-        let base = RenderKit::new(core, include_str!("../../shaders/vertex.wgsl"), include_str!("../../shaders/blit.wgsl"), &[&texture_bind_group_layout], None);
-        
-        // CNN needs 4 custom storage buffers: canvas, conv1, conv2, fc
-        let compute_config = ComputeShaderConfig {
-            workgroup_size: [16, 16, 1],
-            workgroup_count: None,
-            dispatch_once: false,
-            storage_texture_format: wgpu::TextureFormat::Rgba16Float,
-            enable_atomic_buffer: false,
-            atomic_buffer_multiples: 0,
-            entry_points: vec![
-                "canvas_update".to_string(),
-                "conv_layer1".to_string(),
-                "conv_layer2".to_string(),
-                "fully_connected".to_string(),
-                "main_image".to_string(),
-            ],
-            sampler_address_mode: wgpu::AddressMode::ClampToEdge,
-            sampler_filter_mode: wgpu::FilterMode::Linear,
-            label: "CNN".to_string(),
-            mouse_bind_group_layout: None,
-            enable_fonts: true, 
-            enable_audio_buffer: false,
-            audio_buffer_size: 0,
-            enable_custom_uniform: true,
-            enable_input_texture: false,
-            custom_storage_buffers: vec![
-                CustomStorageBuffer {
-                    label: "Canvas Buffer".to_string(),
-                    size: (28 * 28 * 4) as u64, // Canvas data for 28x28 pixels
-                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-                },
-                CustomStorageBuffer {
-                    label: "Conv1 Buffer".to_string(),
-                    size: (12 * 12 * 8 * 4) as u64, // First convolution layer: 12x12x8 feature maps
-                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-                },
-                CustomStorageBuffer {
-                    label: "Conv2 Buffer".to_string(),
-                    size: (4 * 4 * 5 * 4) as u64, // Second convolution layer: 4x4x5 feature maps
-                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-                },
-                CustomStorageBuffer {
-                    label: "FC Buffer".to_string(),
-                    size: (10 * 4) as u64, // Fully connected layer: 10 classes
-                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-                },
-            ],
-        };
-        
-        let mut compute_shader = ComputeShader::new_with_config(
+        // Configure multi-pass CNN with 5 stages: canvas_update -> conv_layer1 -> conv_layer2 -> fully_connected -> main_image
+        let passes = vec![
+            PassDescription::new("canvas_update", &[])
+                .with_workgroup_size([28, 28, 1]),  // 28x28 canvas pixels
+            PassDescription::new("conv_layer1", &["canvas_update"])
+                .with_workgroup_size([12, 12, 8]),   // 12x12 output × 8 feature maps 
+            PassDescription::new("conv_layer2", &["conv_layer1"])
+                .with_workgroup_size([4, 4, 5]),     // 4x4 output × 5 feature maps
+            PassDescription::new("fully_connected", &["conv_layer2"])
+                .with_workgroup_size([10, 1, 1]),    // 10 output classes
+            PassDescription::new("main_image", &["fully_connected"]),  // Screen size dispatch handled automatically
+        ];
+
+        let compute_shader = ComputeShaderBuilder::new()
+            .with_label("CNN Digit Recognizer")
+            .with_multi_pass(&passes)
+            .with_custom_uniforms::<CNNParams>()
+            .with_mouse()
+            .with_fonts()
+            .with_storage_buffer(StorageBufferSpec::new("canvas_data", (28 * 28 * 4) as u64)) // Canvas data for 28x28 pixels
+            .with_storage_buffer(StorageBufferSpec::new("conv1_data", (12 * 12 * 8 * 4) as u64)) // First convolution layer: 12x12x8 feature maps
+            .with_storage_buffer(StorageBufferSpec::new("conv2_data", (4 * 4 * 5 * 4) as u64)) // Second convolution layer: 4x4x5 feature maps  
+            .with_storage_buffer(StorageBufferSpec::new("fc_data", (10 * 4) as u64)) // Fully connected layer: 10 classes
+            .build();
+            
+        let compute_shader = ComputeShader::from_builder(
             core,
             include_str!("../../shaders/cnn.wgsl"),
-            compute_config,
+            compute_shader,
         );
-
-        // Enable hot reload
-        let shader_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("CNN Compute Shader Hot Reload"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/cnn.wgsl").into()),
-        });
-        if let Err(e) = compute_shader.enable_hot_reload(
-            core.device.clone(),
-            std::path::PathBuf::from("shaders/cnn.wgsl"),
-            shader_module,
-        ) {
-            eprintln!("Failed to enable compute shader hot reload: {}", e);
-        }
         
-        compute_shader.add_custom_uniform_binding(&params_uniform.bind_group);
+        let current_params = CNNParams {
+            canvas_size: 0.6,
+            brush_size: 0.007,
+            input_resolution: 28.0,
+            clear_canvas: 0,
+            show_debug: 0,
+            prediction_threshold: 0.1,
+            canvas_offset_x: 0.1,
+            canvas_offset_y: 0.1,
+            feature_maps_1: 8.0,
+            feature_maps_2: 5.0,
+            num_classes: 10.0,
+            normalization_mean: 0.1307,
+            normalization_std: 0.3081,
+            show_frequencies: 0,
+            conv1_pool_size: 12.0,
+            conv2_pool_size: 4.0,
+            _padding1: 0.0,
+            _padding2: 0.0,
+            _padding3: 0.0,
+            _padding4: 0.0,
+            _padding5: 0.0,
+            _padding6: 0.0,
+        };
         
         Self {
             base,
-            params_uniform,
             compute_shader,
-            frame_count: 0,
+            current_params,
+            first_frame: true,
         }
     }
     
@@ -181,8 +152,12 @@ impl ShaderManager for CNNDigitRecognizer {
         let output = core.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
         
-        let mut params = self.params_uniform.data;
-        let mut changed = false;
+        let mut encoder = core.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("CNN Frame"),
+        });
+        
+        let mut params = self.current_params;
+        let mut changed = self.first_frame; // Update params on first frame
         let mut should_start_export = false;
         let mut export_request = self.base.export_manager.get_ui_request();
         let mut controls_request = self.base.controls.get_ui_request(&self.base.start_time, &core.size);
@@ -233,86 +208,61 @@ impl ShaderManager for CNNDigitRecognizer {
                         
                         ui.separator();
                         should_start_export = ExportManager::render_export_ui_widget(ui, &mut export_request);
-                        
-                        ui.separator();
-                        ui.label(format!("Frame: {}", self.frame_count));
-                        ui.label("CNN Digit Recognition");
                     });
             })
         } else {
             self.base.render_ui(core, |_ctx| {})
         };
         
-        // Create separate encoder for compute passes to avoid texture usage conflicts
-        let mut compute_encoder = core.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("CNN Compute Encoder"),
-        });
+        // Update mouse uniform for drawing interaction
+        self.compute_shader.update_mouse_uniform(&self.base.mouse_tracker.uniform, &core.queue);
+        
+        // Execute CNN pipeline
+        // Note: our backend automatically uses custom workgroup sizes from PassDescription
+        self.compute_shader.dispatch(&mut encoder, core);
 
-        // Check for hot reload updates
-        self.compute_shader.check_hot_reload(&core.device);
-        
-        // Execute CNN pipeline stages using dispatch_stage
-        self.compute_shader.dispatch_stage(&mut compute_encoder, 0, (28, 28, 1), Some(&self.params_uniform.bind_group)); // canvas_update
-        self.compute_shader.dispatch_stage(&mut compute_encoder, 1, (12, 12, 8), Some(&self.params_uniform.bind_group)); // conv_layer1
-        self.compute_shader.dispatch_stage(&mut compute_encoder, 2, (4, 4, 5), Some(&self.params_uniform.bind_group)); // conv_layer2
-        self.compute_shader.dispatch_stage(&mut compute_encoder, 3, (10, 1, 1), Some(&self.params_uniform.bind_group)); // fully_connected
-        self.compute_shader.dispatch_stage(&mut compute_encoder, 4, (core.size.width.div_ceil(16), core.size.height.div_ceil(16), 1), Some(&self.params_uniform.bind_group)); // main_image
-        
-
-        self.base.export_manager.apply_ui_request(export_request);
-        self.base.apply_control_request(controls_request);
-
-        // Submit compute commands first
-        core.queue.submit(Some(compute_encoder.finish()));
-        
-        // Create separate encoder for render pass
-        let mut render_encoder = core.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("CNN Render Encoder"),
-        });
-        
+        // Render compute output to screen
         {
-            let mut render_pass = Renderer::begin_render_pass(&mut render_encoder, &view, wgpu::LoadOp::Clear(wgpu::Color::BLACK), Some("Display Pass"));
-            
             let compute_texture = self.compute_shader.get_output_texture();
-            render_pass.set_bind_group(0, &compute_texture.bind_group, &[]);
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("CNN Display Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
+            render_pass.set_bind_group(0, &compute_texture.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
         }
-        
-        let current_time = self.base.controls.get_time(&self.base.start_time);
-        
-        self.base.time_uniform.data.time = current_time;
-        self.base.time_uniform.data.frame = self.frame_count;
-        self.base.time_uniform.update(&core.queue);
-        
-        self.compute_shader.set_time(current_time, 1.0/60.0, &core.queue);
-        self.compute_shader.time_uniform.data.frame = self.frame_count;
-        self.compute_shader.time_uniform.update(&core.queue);
-        
-        // Update mouse parameters for drawing
-        params.mouse_x = self.base.mouse_tracker.uniform.position[0];
-        params.mouse_y = self.base.mouse_tracker.uniform.position[1];
-        params.mouse_click_x = self.base.mouse_tracker.uniform.click_position[0];
-        params.mouse_click_y = self.base.mouse_tracker.uniform.click_position[1];
-        params.mouse_buttons = self.base.mouse_tracker.uniform.buttons[0];
-        changed = true;
 
-        if changed {
-            self.params_uniform.data = params;
-            self.params_uniform.update(&core.queue);
-        }
-
+        // Apply UI changes
+        self.base.apply_control_request(controls_request.clone());
+        
+        self.base.export_manager.apply_ui_request(export_request);
         if should_start_export {
             self.base.export_manager.start_export();
         }
-        
-        self.frame_count += 1;
-        
-        self.base.handle_render_output(core, &view, full_output, &mut render_encoder);
-        core.queue.submit(Some(render_encoder.finish()));
+
+        if changed {
+            self.current_params = params;
+            self.compute_shader.set_custom_params(params, &core.queue);
+            self.first_frame = false;
+        }
+
+        self.base.handle_render_output(core, &view, full_output, &mut encoder);
+        core.queue.submit(std::iter::once(encoder.finish()));
         output.present();
-        
+
         Ok(())
     }
     
@@ -335,7 +285,7 @@ impl ShaderManager for CNNDigitRecognizer {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let (app, event_loop) = cuneus::ShaderApp::new("CNN Digit Recognizer", 800, 600);
+    let (app, event_loop) = ShaderApp::new("CNN Digit Recognizer", 800, 600);
     
     app.run(event_loop, |core| {
         CNNDigitRecognizer::init(core)
