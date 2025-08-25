@@ -18,8 +18,6 @@ struct TimeUniform {
 @group(0) @binding(0) var<uniform> time_data: TimeUniform;
 
 struct MandelbulbParams {
-    mouse_x: f32,
-    mouse_y: f32,
     power: f32,
     max_bounces: u32,
     samples_per_pixel: u32,
@@ -46,10 +44,6 @@ struct MandelbulbParams {
     palette_d_g: f32,
     palette_d_b: f32,
     
-    manual_rotation_x: f32,
-    manual_rotation_y: f32,
-    manual_rotation_z: f32,
-    use_mouse_rotation: u32,
     
     gamma: f32,
     zoom: f32,
@@ -68,9 +62,17 @@ struct MandelbulbParams {
     glow_color_b: f32,
 }
 @group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
+@group(1) @binding(1) var<uniform> params: MandelbulbParams;
 
-@group(2) @binding(0) var<uniform> params: MandelbulbParams;
-@group(3) @binding(0) var<storage, read_write> atomic_buffer: array<atomic<u32>>;
+// Group 2: Global Engine Resources (mouse, fonts, audio, atomics)
+struct MouseUniform {
+    position: vec2<f32>,
+    click_position: vec2<f32>, 
+    wheel: vec2<f32>,
+    buttons: vec2<u32>,
+};
+@group(2) @binding(0) var<uniform> mouse: MouseUniform;
+@group(2) @binding(1) var<storage, read_write> atomic_buffer: array<atomic<u32>>;
 
 alias v4 = vec4<f32>;
 alias v3 = vec3<f32>;
@@ -341,18 +343,13 @@ fn draw(frag_coord: v2, frame: u32) -> v4 {
     let focus_point = v3(-0.7, -0.25, -0.3);
     let cam_tar = focus_point;
     
-    var current_rotation: v3;
-    
-    if (params.use_mouse_rotation > 0) {
-        let mouse_sensitivity = 3.0;
-        current_rotation = v3(
-            (params.mouse_y - 0.5) * mouse_sensitivity,
-            (params.mouse_x - 0.5) * mouse_sensitivity,
-            0.0
-        );
-    } else {
-        current_rotation = v3(params.manual_rotation_x, params.manual_rotation_y, params.manual_rotation_z);
-    }
+    let mouse_sensitivity = 3.0;
+    // mouse.position is already normalized to [0,1] from Rust side
+    let current_rotation = v3(
+        (mouse.position.y - 0.5) * mouse_sensitivity,
+        (mouse.position.x - 0.5) * mouse_sensitivity,
+        0.0
+    );
     
     let rotation = rotation_z(current_rotation.z) * rotation_y(current_rotation.y) * rotation_x(current_rotation.x);
     

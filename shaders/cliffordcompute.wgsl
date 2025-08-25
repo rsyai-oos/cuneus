@@ -29,8 +29,8 @@ struct CliffordParams {
 }
 @group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
 
-@group(2) @binding(0) var<uniform> params: CliffordParams;
-@group(3) @binding(0) var<storage, read_write> atomic_buffer: array<atomic<u32>>;
+@group(1) @binding(1) var<uniform> params: CliffordParams;
+@group(2) @binding(0) var<storage, read_write> atomic_buffer: array<atomic<u32>>;
 
 // Aliases for common types
 alias v4 = vec4<f32>;

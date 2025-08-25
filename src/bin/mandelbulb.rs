@@ -1,12 +1,10 @@
-use cuneus::prelude::*;
-use cuneus::compute::*;
+use cuneus::{Core, ShaderManager, UniformProvider, RenderKit, ShaderControls, ExportManager, MouseUniform};
+use cuneus::compute::ComputeShader;
 use winit::event::WindowEvent;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct MandelbulbParams {
-    mouse_x: f32,
-    mouse_y: f32,
     power: f32,
     max_bounces: u32,
     samples_per_pixel: u32,
@@ -33,10 +31,6 @@ struct MandelbulbParams {
     palette_d_g: f32,
     palette_d_b: f32,
     
-    manual_rotation_x: f32,
-    manual_rotation_y: f32,
-    manual_rotation_z: f32,
-    use_mouse_rotation: u32,
     
     gamma: f32,
     zoom: f32,
@@ -61,76 +55,16 @@ impl UniformProvider for MandelbulbParams {
     }
 }
 
-struct MouseRotation {
-    last_mouse_x: f32,
-    last_mouse_y: f32,
-    mouse_initialized: bool,
-    mouse_enabled: bool,
-    rotation_x: f32,
-    rotation_y: f32,
-    mouse_sensitivity: f32,
-}
-
-impl Default for MouseRotation {
-    fn default() -> Self {
-        Self {
-            last_mouse_x: 0.0,
-            last_mouse_y: 0.0,
-            mouse_initialized: false,
-            mouse_enabled: true,
-            rotation_x: 0.0,
-            rotation_y: 0.0,
-            mouse_sensitivity: 0.005,
-        }
-    }
-}
-
-impl MouseRotation {
-    fn handle_mouse_movement(&mut self, x: f32, y: f32) -> bool {
-        if !self.mouse_enabled {
-            return false;
-        }
-        
-        if !self.mouse_initialized {
-            self.last_mouse_x = x;
-            self.last_mouse_y = y;
-            self.mouse_initialized = true;
-            return false;
-        }
-        
-        let dx = x - self.last_mouse_x;
-        let dy = y - self.last_mouse_y;
-        
-        self.last_mouse_x = x;
-        self.last_mouse_y = y;
-        
-        self.rotation_y += dx * self.mouse_sensitivity;
-        self.rotation_x += dy * self.mouse_sensitivity;
-        
-        self.rotation_x = self.rotation_x.clamp(-std::f32::consts::PI, std::f32::consts::PI);
-        
-        true
-    }
-    
-    fn toggle_mouse_rotation(&mut self) {
-        self.mouse_enabled = !self.mouse_enabled;
-        self.mouse_initialized = false;
-    }
-    
-    fn get_normalized_position(&self, window_size: &winit::dpi::PhysicalSize<u32>) -> (f32, f32) {
-        let norm_x = (self.last_mouse_x / window_size.width as f32).clamp(0.0, 1.0);
-        let norm_y = (self.last_mouse_y / window_size.height as f32).clamp(0.0, 1.0);
-        (norm_x, norm_y)
-    }
-}
 
 struct MandelbulbShader {
     base: RenderKit,
-    params_uniform: UniformBinding<MandelbulbParams>,
     compute_shader: ComputeShader,
     frame_count: u32,
     should_reset_accumulation: bool,
-    mouse_rotation: MouseRotation,
+    current_params: MandelbulbParams,
+    // Mouse tracking for accumulation reset
+    previous_mouse_pos: [f32; 2],
+    mouse_enabled: bool,
 }
 
 impl MandelbulbShader {
@@ -233,6 +167,34 @@ impl MandelbulbShader {
 
 impl ShaderManager for MandelbulbShader {
     fn init(core: &Core) -> Self {
+        let initial_params = MandelbulbParams {
+            power: 8.0,
+            max_bounces: 6,
+            samples_per_pixel: 2,
+            accumulate: 1,
+            
+            animation_speed: 1.0,
+            hold_duration: 3.0,
+            transition_duration: 3.0,
+            
+            exposure: 1.5,
+            focal_length: 6.0,
+            dof_strength: 0.02,
+            
+            palette_a_r: 0.5, palette_a_g: 0.5, palette_a_b: 0.5,
+            palette_b_r: 0.5, palette_b_g: 0.1, palette_b_b: 0.1,
+            palette_c_r: 1.0, palette_c_g: 1.0, palette_c_b: 1.0,
+            palette_d_r: 0.0, palette_d_g: 0.33, palette_d_b: 0.67,
+            
+            gamma: 1.1,
+            zoom: 1.0,
+            
+            background_r: 0.1, background_g: 0.1, background_b: 0.15,
+            sun_color_r: 8.10, sun_color_g: 6.00, sun_color_b: 4.20,
+            fog_color_r: 0.1, fog_color_g: 0.1, fog_color_b: 0.15,
+            glow_color_r: 0.5, glow_color_g: 0.7, glow_color_b: 1.0,
+        };
+        // Create texture bind group layout for displaying compute shader output  
         let texture_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -252,55 +214,9 @@ impl ShaderManager for MandelbulbShader {
                     count: None,
                 },
             ],
-            label: Some("texture_bind_group_layout"),
+            label: Some("Mandelbulb Texture Bind Group Layout"),
         });
-
-        let mut resource_layout = cuneus::compute::ResourceLayout::new();
-        resource_layout.add_custom_uniform("mandelbulb_params", std::mem::size_of::<MandelbulbParams>() as u64);
-        let bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
-        let mandelbulb_params_layout = bind_group_layouts.get(&2).unwrap();
-
-        let params_uniform = UniformBinding::new(
-            &core.device,
-            "Mandelbulb Params",
-            MandelbulbParams {
-                mouse_x: 0.5,
-                mouse_y: 0.5,
-                power: 8.0,
-                max_bounces: 6,
-                samples_per_pixel: 2,
-                accumulate: 1,
-                
-                animation_speed: 1.0,
-                hold_duration: 3.0,
-                transition_duration: 3.0,
-                
-                exposure: 1.5,
-                focal_length: 6.0,
-                dof_strength: 0.02,
-                
-                palette_a_r: 0.5, palette_a_g: 0.5, palette_a_b: 0.5,
-                palette_b_r: 0.5, palette_b_g: 0.1, palette_b_b: 0.1,
-                palette_c_r: 1.0, palette_c_g: 1.0, palette_c_b: 1.0,
-                palette_d_r: 0.0, palette_d_g: 0.33, palette_d_b: 0.67,
-                
-                manual_rotation_x: 0.0,
-                manual_rotation_y: 0.0,
-                manual_rotation_z: 0.0,
-                use_mouse_rotation: 1,
-                
-                gamma: 1.1,
-                zoom: 1.0,
-                
-                background_r: 0.1, background_g: 0.1, background_b: 0.15,
-                sun_color_r: 8.10, sun_color_g: 6.00, sun_color_b: 4.20,
-                fog_color_r: 0.1, fog_color_g: 0.1, fog_color_b: 0.15,
-                glow_color_r: 0.5, glow_color_g: 0.7, glow_color_b: 1.0,
-            },
-            mandelbulb_params_layout,
-            0,
-        );
-
+        
         let base = RenderKit::new(
             core,
             include_str!("../../shaders/vertex.wgsl"),
@@ -308,56 +224,34 @@ impl ShaderManager for MandelbulbShader {
             &[&texture_bind_group_layout],
             None,
         );
+        
+        let config = ComputeShader::builder()
+            .with_entry_point("main")
+            .with_custom_uniforms::<MandelbulbParams>()
+            .with_mouse() // Enable mouse backend integration
+            .with_atomic_buffer() // Enable atomic buffer for path tracing
+            .with_workgroup_size([16, 16, 1])
+            .with_texture_format(cuneus::compute::COMPUTE_TEXTURE_FORMAT_RGBA16)
+            .with_label("Mandelbulb Unified")
+            .build();
 
-        let compute_config = ComputeShaderConfig {
-            workgroup_size: [16, 16, 1],
-            workgroup_count: None,
-            dispatch_once: false,
-            storage_texture_format: COMPUTE_TEXTURE_FORMAT_RGBA16,
-            enable_atomic_buffer: true,
-            atomic_buffer_multiples: 3,
-            entry_points: vec!["main".to_string()],
-            sampler_address_mode: wgpu::AddressMode::ClampToEdge,
-            sampler_filter_mode: wgpu::FilterMode::Linear,
-            label: "Mandelbulb".to_string(),
-            mouse_bind_group_layout: None,
-            enable_fonts: false,
-            enable_audio_buffer: false,
-            audio_buffer_size: 0,
-            enable_custom_uniform: true,
-            enable_input_texture: false,
-            custom_storage_buffers: Vec::new(),
-        };
-
-        let mut compute_shader = ComputeShader::new_with_config(
+        let compute_shader = ComputeShader::from_builder(
             core,
             include_str!("../../shaders/mandelbulb.wgsl"),
-            compute_config,
+            config,
         );
 
-        // Enable hot reload
-        let shader_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Mandelbulb Compute Shader Hot Reload"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/mandelbulb.wgsl").into()),
-        });
-        if let Err(e) = compute_shader.enable_hot_reload(
-            core.device.clone(),
-            std::path::PathBuf::from("shaders/mandelbulb.wgsl"),
-            shader_module,
-        ) {
-            eprintln!("Failed to enable compute shader hot reload: {}", e);
-        }
-
-        // Add custom parameters uniform to the compute shader
-        compute_shader.add_custom_uniform_binding(&params_uniform.bind_group);
+        // Initialize custom uniform with initial parameters
+        compute_shader.set_custom_params(initial_params, &core.queue);
 
         Self {
             base,
-            params_uniform,
             compute_shader,
             frame_count: 0,
             should_reset_accumulation: true,
-            mouse_rotation: MouseRotation::default(),
+            current_params: initial_params,
+            previous_mouse_pos: [0.0, 0.0],
+            mouse_enabled: true,
         }
     }
     
@@ -382,7 +276,32 @@ impl ShaderManager for MandelbulbShader {
             label: Some("Render Encoder"),
         });
         
-        let mut params = self.params_uniform.data;
+        // Check if mouse moved and reset accumulation if needed
+        let current_mouse_pos = self.base.mouse_tracker.uniform.position;
+        if self.mouse_enabled {
+            let moved = (current_mouse_pos[0] - self.previous_mouse_pos[0]).abs() > 0.001 ||
+                       (current_mouse_pos[1] - self.previous_mouse_pos[1]).abs() > 0.001;
+            if moved {
+                self.should_reset_accumulation = true;
+                self.previous_mouse_pos = current_mouse_pos;
+            }
+        }
+
+        // Update mouse uniform only if mouse is enabled, otherwise use static position
+        if self.mouse_enabled {
+            self.compute_shader.update_mouse_uniform(&self.base.mouse_tracker.uniform, &core.queue);
+        } else {
+            // Use a fixed mouse position when disabled
+            let static_mouse = MouseUniform {
+                position: [0.5, 0.5], // Center position
+                click_position: [0.5, 0.5],
+                wheel: [0.0, 0.0],
+                buttons: [0, 0],
+            };
+            self.compute_shader.update_mouse_uniform(&static_mouse, &core.queue);
+        }
+        
+        let mut params = self.current_params;
         let mut changed = false;
         let mut should_start_export = false;
         let mut export_request = self.base.export_manager.get_ui_request();
@@ -407,8 +326,8 @@ impl ShaderManager for MandelbulbShader {
                     .resizable(true)
                     .default_width(350.0)
                     .show(ctx, |ui| {
-                        ui.label("Left Click + Drag - Rotate bulb");
-                        ui.label("Right: - Toggle mouse");
+                        ui.label("Mouse - Rotate camera (when enabled)");
+                        ui.label("M key - Toggle mouse on/off");
                         ui.separator();
                         
                         egui::CollapsingHeader::new("Camera&View")
@@ -419,19 +338,18 @@ impl ShaderManager for MandelbulbShader {
                                 changed |= ui.add(egui::Slider::new(&mut params.dof_strength, 0.0..=1.0).text("DoF")).changed();
                                 
                                 ui.separator();
-                                ui.label("Rotation:");
-                                let mut use_mouse = params.use_mouse_rotation > 0;
-                                if ui.checkbox(&mut use_mouse, "Use Mouse Rotation").changed() {
-                                    params.use_mouse_rotation = if use_mouse { 1 } else { 0 };
-                                    changed = true;
-                                    self.should_reset_accumulation = true;
+                                let old_mouse_enabled = self.mouse_enabled;
+                                ui.checkbox(&mut self.mouse_enabled, "Mouse Camera Control");
+                                if self.mouse_enabled != old_mouse_enabled {
+                                    if !self.mouse_enabled {
+                                        // When disabling mouse, reset accumulation one more time
+                                        self.should_reset_accumulation = true;
+                                    }
                                 }
-                                
-                                if !use_mouse {
-                                    ui.label("Manual");
-                                    changed |= ui.add(egui::Slider::new(&mut params.manual_rotation_x, -std::f32::consts::PI..=std::f32::consts::PI).text("X")).changed();
-                                    changed |= ui.add(egui::Slider::new(&mut params.manual_rotation_y, -std::f32::consts::PI..=std::f32::consts::PI).text("Y")).changed();
-                                    changed |= ui.add(egui::Slider::new(&mut params.manual_rotation_z, -std::f32::consts::PI..=std::f32::consts::PI).text("Z")).changed();
+                                if !self.mouse_enabled {
+                                    ui.colored_label(egui::Color32::GRAY, "Mouse disabled - camera locked");
+                                } else {
+                                    ui.colored_label(egui::Color32::GREEN, "Mouse enabled - move to rotate camera");
                                 }
                             });
                         
@@ -602,7 +520,6 @@ impl ShaderManager for MandelbulbShader {
                         ui.label(format!("Accumulated Samples: {}", self.frame_count));
                         ui.label(format!("Resolution: {}x{}", core.size.width, core.size.height));
                         ui.label(format!("FPS: {:.1}", current_fps));
-                        ui.label(format!("Mouse Rotation: {}", if self.mouse_rotation.mouse_enabled { "ON" } else { "OFF" }));
                     });
             })
         } else {
@@ -626,18 +543,11 @@ impl ShaderManager for MandelbulbShader {
         self.compute_shader.time_uniform.data.frame = self.frame_count;
         self.compute_shader.time_uniform.update(&core.queue);
         
-        if params.use_mouse_rotation > 0 {
-            let (norm_x, norm_y) = self.mouse_rotation.get_normalized_position(&core.size);
-            params.mouse_x = norm_x;
-            params.mouse_y = norm_y;
-            params.manual_rotation_x = self.mouse_rotation.rotation_x;
-            params.manual_rotation_y = self.mouse_rotation.rotation_y;
-            changed = true;
-        }
-        
+
         if changed {
-            self.params_uniform.data = params;
-            self.params_uniform.update(&core.queue);
+            self.current_params = params;
+            self.compute_shader.set_custom_params(params, &core.queue);
+            self.should_reset_accumulation = true;
         }
         
         if should_start_export {
@@ -665,7 +575,7 @@ impl ShaderManager for MandelbulbShader {
         core.queue.submit(Some(encoder.finish()));
         output.present();
         
-        if self.params_uniform.data.accumulate > 0 {
+        if self.current_params.accumulate > 0 {
             self.frame_count += 1;
         }
         
@@ -677,23 +587,8 @@ impl ShaderManager for MandelbulbShader {
             return true;
         }
         
-        if let WindowEvent::CursorMoved { position, .. } = event {
-            let x = position.x as f32;
-            let y = position.y as f32;
-            
-            if self.mouse_rotation.handle_mouse_movement(x, y) && self.params_uniform.data.use_mouse_rotation > 0 {
-                self.should_reset_accumulation = true;
-                return true;
-            }
-        }
-        
-        if let WindowEvent::MouseInput { state, button, .. } = event {
-            if *button == winit::event::MouseButton::Right {
-                if *state == winit::event::ElementState::Released {
-                    self.mouse_rotation.toggle_mouse_rotation();
-                    return true;
-                }
-            }
+        if self.base.handle_mouse_input(core, event, false) {
+            return true;
         }
         
         if let WindowEvent::KeyboardInput { event, .. } = event {
@@ -701,9 +596,18 @@ impl ShaderManager for MandelbulbShader {
                 match ch.as_str() {
                     " " => {
                         if event.state == winit::event::ElementState::Released {
-                            self.params_uniform.data.accumulate = 1 - self.params_uniform.data.accumulate;
+                            self.current_params.accumulate = 1 - self.current_params.accumulate;
                             self.should_reset_accumulation = true;
-                            self.params_uniform.update(&core.queue);
+                            self.compute_shader.set_custom_params(self.current_params, &core.queue);
+                            return true;
+                        }
+                    },
+                    "m" | "M" => {
+                        if event.state == winit::event::ElementState::Released {
+                            self.mouse_enabled = !self.mouse_enabled;
+                            if !self.mouse_enabled {
+                                self.should_reset_accumulation = true;
+                            }
                             return true;
                         }
                     },
