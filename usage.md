@@ -2,7 +2,6 @@
 
 Cuneus is a Rust-based GPU shader engine with a unified backend that handles single-pass, multi-pass, and atomic compute shaders with built-in UI controls, hot-reloading, and media integration.
 
-In Cuneus, almost everything is a compute shader. Instead of writing traditional vertex/fragment shaders, you write compute kernels that write directly to an output texture. The framework provides a simple renderer to blit this texture to the screen. This approach gives you maximum control and performance for GPU tasks.
 
 ## Core Concepts
 
