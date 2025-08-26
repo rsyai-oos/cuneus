@@ -18,7 +18,7 @@ jobs:
           - group: "media"
             features: ""
             gstreamer_required: true
-            shaders: "audiovis,computecolors,fft,gabornoise,matrix,pathtracing,scenecolor,spiral,voronoi,fluid,cnn,synth,blockgame"
+            shaders: "audiovis,computecolors,fft,matrix,pathtracing,scenecolor,spiral,voronoi,fluid,cnn,synth,blockgame"
           
           # Shaders that DON'T need GStreamer (pure GPU compute)
           - group: "no-media" 
