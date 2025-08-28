@@ -1,6 +1,7 @@
-use cuneus::{Core,Renderer,ShaderApp, ShaderManager, UniformProvider, UniformBinding, RenderKit,ExportManager,ShaderHotReload,ShaderControls};
+use cuneus::{Core, ShaderApp, ShaderManager, UniformProvider, RenderKit, ShaderControls, ExportManager};
+use cuneus::prelude::ComputeShader;
 use winit::event::*;
-use std::path::PathBuf;
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct ShaderParams {
@@ -10,7 +11,7 @@ struct ShaderParams {
     green_boost: f32,
     contrast: f32,
     gamma: f32,
-    glow:f32,
+    glow: f32,
 }
 
 impl UniformProvider for ShaderParams {
@@ -18,188 +19,26 @@ impl UniformProvider for ShaderParams {
         bytemuck::bytes_of(self)
     }
 }
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     cuneus::gst::init()?;
-    //std::env::set_var("RUST_LOG", "info,gstreamer=debug,cuneus=debug");
     env_logger::init();
-    //std::env::set_var("GST_DEBUG", "spectrum:5");
     let (app, event_loop) = ShaderApp::new("matrix", 800, 600);
     app.run(event_loop, |core| {
         MatrixShader::init(core)
     })
 }
+
 struct MatrixShader {
     base: RenderKit,
-    params_uniform: UniformBinding<ShaderParams>,
-    hot_reload: ShaderHotReload,
-    texture_bind_group_layout: wgpu::BindGroupLayout,
-    time_bind_group_layout: wgpu::BindGroupLayout,
-    resolution_bind_group_layout: wgpu::BindGroupLayout,
-    params_bind_group_layout: wgpu::BindGroupLayout,
-}
-impl MatrixShader {
-
-    fn capture_frame(&mut self, core: &Core, time: f32) -> Result<Vec<u8>, wgpu::SurfaceError> {
-        let settings = self.base.export_manager.settings();
-        let (capture_texture, output_buffer) = self.base.create_capture_texture(
-            &core.device,
-            settings.width,
-            settings.height
-        );
-        let align = 256;
-        let unpadded_bytes_per_row = settings.width * 4;
-        let padding = (align - unpadded_bytes_per_row % align) % align;
-        let padded_bytes_per_row = unpadded_bytes_per_row + padding;
-        let capture_view = capture_texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder = core.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Capture Encoder"),
-        });
-        self.base.time_uniform.data.time = time;
-        self.base.time_uniform.update(&core.queue);
-        self.base.resolution_uniform.data.dimensions = [settings.width as f32, settings.height as f32];
-        self.base.resolution_uniform.update(&core.queue);
-        {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Capture Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &capture_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
-            render_pass.set_pipeline(&self.base.renderer.render_pipeline);
-            render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-            if self.base.using_video_texture {
-                if let Some(video_manager) = &self.base.video_texture_manager {
-                    render_pass.set_bind_group(0, &video_manager.texture_manager().bind_group, &[]);
-                }
-            } else if self.base.using_webcam_texture {
-                if let Some(webcam_manager) = &self.base.webcam_texture_manager {
-                    render_pass.set_bind_group(0, &webcam_manager.texture_manager().bind_group, &[]);
-                }
-            } else if let Some(texture_manager) = &self.base.texture_manager {
-                render_pass.set_bind_group(0, &texture_manager.bind_group, &[]);
-            }
-            render_pass.set_bind_group(1, &self.base.time_uniform.bind_group, &[]);
-            render_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
-            render_pass.set_bind_group(3, &self.base.resolution_uniform.bind_group, &[]);
-            render_pass.draw(0..4, 0..1);
-        }
-        encoder.copy_texture_to_buffer(
-            wgpu::TexelCopyTextureInfo {
-                texture: &capture_texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::TexelCopyBufferInfo {
-                buffer: &output_buffer,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(padded_bytes_per_row),
-                    rows_per_image: Some(settings.height),
-                },
-            },
-            wgpu::Extent3d {
-                width: settings.width,
-                height: settings.height,
-                depth_or_array_layers: 1,
-            },
-        );
-        core.queue.submit(Some(encoder.finish()));
-        let buffer_slice = output_buffer.slice(..);
-        let (tx, rx) = std::sync::mpsc::channel();
-        buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
-            tx.send(result).unwrap();
-        });
-        let _ = core.device.poll(wgpu::PollType::Wait).unwrap();
-        rx.recv().unwrap().unwrap();
-        let padded_data = buffer_slice.get_mapped_range().to_vec();
-        let mut unpadded_data = Vec::with_capacity((settings.width * settings.height * 4) as usize);
-        for chunk in padded_data.chunks(padded_bytes_per_row as usize) {
-            unpadded_data.extend_from_slice(&chunk[..unpadded_bytes_per_row as usize]);
-        }
-        Ok(unpadded_data)
-    }
-
-    fn handle_export(&mut self, core: &Core) {
-        if let Some((frame, time)) = self.base.export_manager.try_get_next_frame() {
-            if let Ok(data) = self.capture_frame(core, time) {
-                let settings = self.base.export_manager.settings();
-                if let Err(e) = cuneus::save_frame(data, frame, settings) {
-                    eprintln!("Error saving frame: {:?}", e);
-                }
-            }
-        } else {
-            self.base.export_manager.complete_export();
-        }
-    }
+    compute_shader: ComputeShader,
+    current_params: ShaderParams,
 }
 impl ShaderManager for MatrixShader {
-    fn init(core: &cuneus::Core) -> Self {
-        let time_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-            label: Some("time_bind_group_layout"),
-        });
-        let resolution_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-            label: Some("resolution_bind_group_layout"),
-        });
-        let params_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-            label: Some("params_bind_group_layout"),
-        });
-        
-        let params_uniform = UniformBinding::new(
-            &core.device,
-            "Params Uniform",
-            ShaderParams {
-                red_power: 0.98,
-                green_power: 0.85,
-                blue_power: 0.90,
-                green_boost: 1.62,
-                contrast: 1.0,
-                gamma: 1.0,
-                glow: 0.05,
-            },
-            &params_bind_group_layout,
-            0,
-        );
-        
+    fn init(core: &Core) -> Self {
+        // Create texture display layout
         let texture_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Texture Bind Group Layout"),
             entries: &[
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
@@ -218,95 +57,68 @@ impl ShaderManager for MatrixShader {
                     count: None,
                 },
             ],
-            label: Some("texture_bind_group_layout"),
-        });
-        let bind_group_layouts = vec![
-            &texture_bind_group_layout,
-            &time_bind_group_layout,
-            &params_bind_group_layout,
-            &resolution_bind_group_layout,
-        ];
-        let vs_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Vertex Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/vertex.wgsl").into()),
         });
 
-        let fs_module = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Fragment Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/matrix.wgsl").into()),
-        });
-
-        let shader_paths = vec![
-            PathBuf::from("shaders/vertex.wgsl"),
-            PathBuf::from("shaders/matrix.wgsl"),
-        ];
-
-        let hot_reload = ShaderHotReload::new(
-            core.device.clone(),
-            shader_paths,
-            vs_module,
-            fs_module,
-        ).expect("Failed to initialize hot reload");
         let base = RenderKit::new(
             core,
             include_str!("../../shaders/vertex.wgsl"),
-            include_str!("../../shaders/matrix.wgsl"),
-            &bind_group_layouts,
+            include_str!("../../shaders/blit.wgsl"),
+            &[&texture_bind_group_layout],
             None,
         );
+
+        let initial_params = ShaderParams {
+            red_power: 0.98,
+            green_power: 0.85,
+            blue_power: 0.90,
+            green_boost: 1.62,
+            contrast: 1.0,
+            gamma: 1.0,
+            glow: 0.05,
+        };
+
+        let config = ComputeShader::builder()
+            .with_entry_point("main")
+            .with_input_texture()
+            .with_custom_uniforms::<ShaderParams>()
+            .build();
+
+        let compute_shader = ComputeShader::from_builder(
+            core,
+            include_str!("../../shaders/matrix.wgsl"),
+            config,
+        );
+
+        compute_shader.set_custom_params(initial_params, &core.queue);
+
         Self {
             base,
-            params_uniform,
-            hot_reload,
-            texture_bind_group_layout,
-            time_bind_group_layout,
-            resolution_bind_group_layout,
-            params_bind_group_layout,
+            compute_shader,
+            current_params: initial_params,
         }
     }
 
     fn update(&mut self, core: &Core) {
-        if let Some((new_vs, new_fs)) = self.hot_reload.check_and_reload() {
-            println!("Reloading shaders at time: {:.2}s", self.base.start_time.elapsed().as_secs_f32());
-            let pipeline_layout = core.device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[
-                    &self.texture_bind_group_layout,
-                    &self.time_bind_group_layout,
-                    &self.params_bind_group_layout,
-                    &self.resolution_bind_group_layout,
-                ],
-                push_constant_ranges: &[],
-            });
-            self.base.renderer = Renderer::new(
-                &core.device,
-                new_vs,
-                new_fs,
-                core.config.format,
-                &pipeline_layout,
-                None,
-            );
+        // Update time
+        let current_time = self.base.controls.get_time(&self.base.start_time);
+        let delta = 1.0/60.0;
+        self.compute_shader.set_time(current_time, delta, &core.queue);
+        
+        // Update input textures for media processing
+        self.base.update_current_texture(core, &core.queue);
+        if let Some(texture_manager) = self.base.get_current_texture_manager() {
+            self.compute_shader.update_input_texture(&texture_manager.view, &texture_manager.sampler, &core.device);
         }
-        if self.base.export_manager.is_exporting() {
-            self.handle_export(core);
-        }
+        
         self.base.fps_tracker.update();
+        self.compute_shader.check_hot_reload(&core.device);
     }
     
     fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {
         let output = core.surface.get_current_texture()?;
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let _video_updated = if self.base.using_video_texture {
-            self.base.update_video_texture(core, &core.queue)
-        } else {
-            false
-        };
-        let _webcam_updated = if self.base.using_webcam_texture {
-            self.base.update_webcam_texture(core, &core.queue)
-        } else {
-            false
-        };
-        let mut params = self.params_uniform.data;
+
+        let mut params = self.current_params;
         let mut changed = false;
         let mut should_start_export = false;
         let mut export_request = self.base.export_manager.get_ui_request();
@@ -314,6 +126,7 @@ impl ShaderManager for MatrixShader {
             &self.base.start_time,
             &core.size
         );
+        
         let using_video_texture = self.base.using_video_texture;
         let using_hdri_texture = self.base.using_hdri_texture;
         let using_webcam_texture = self.base.using_webcam_texture;
@@ -321,6 +134,7 @@ impl ShaderManager for MatrixShader {
         let hdri_info = self.base.get_hdri_info();
         let webcam_info = self.base.get_webcam_info();
         controls_request.current_fps = Some(self.base.fps_tracker.fps());
+
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
                 ctx.style_mut(|style| {
@@ -328,7 +142,7 @@ impl ShaderManager for MatrixShader {
                     style.text_styles.get_mut(&egui::TextStyle::Body).unwrap().size = 11.0;
                     style.text_styles.get_mut(&egui::TextStyle::Button).unwrap().size = 10.0;
                 });
-                
+
                 egui::Window::new("Matrix Effect")
                     .collapsible(true)
                     .resizable(true)
@@ -346,9 +160,9 @@ impl ShaderManager for MatrixShader {
                                 webcam_info
                             );
                         });
-    
+
                         ui.separator();
-    
+
                         ui.collapsing("Matrix Color Settings", |ui| {
                             changed |= ui.add(
                                 egui::Slider::new(&mut params.red_power, 0.5..=3.0)
@@ -362,7 +176,7 @@ impl ShaderManager for MatrixShader {
                             
                             changed |= ui.add(
                                 egui::Slider::new(&mut params.blue_power, 0.5..=3.0)
-                                    .text("Blue Power)")
+                                    .text("Blue Power")
                             ).changed();
                             
                             changed |= ui.add(
@@ -379,12 +193,13 @@ impl ShaderManager for MatrixShader {
                                 egui::Slider::new(&mut params.gamma, 0.2..=2.0)
                                     .text("Gamma")
                             ).changed();
+                            
                             changed |= ui.add(
                                 egui::Slider::new(&mut params.glow, -1.0..=1.0)
                                     .text("Glow")
                             ).changed();
                         });
-    
+
                         ui.separator();
                         ShaderControls::render_controls_widget(ui, &mut controls_request);
                         ui.separator();
@@ -394,29 +209,31 @@ impl ShaderManager for MatrixShader {
         } else {
             self.base.render_ui(core, |_ctx| {})
         };
-        
+
         self.base.export_manager.apply_ui_request(export_request);
         self.base.apply_control_request(controls_request.clone());
         self.base.handle_video_requests(core, &controls_request);
         self.base.handle_webcam_requests(core, &controls_request);
         self.base.handle_hdri_requests(core, &controls_request);
-        
-        let current_time = self.base.controls.get_time(&self.base.start_time);
-        self.base.time_uniform.data.time = current_time;
-        self.base.time_uniform.update(&core.queue);
+
         
         if changed {
-            self.params_uniform.data = params;
-            self.params_uniform.update(&core.queue);
+            self.current_params = params;
+            self.compute_shader.set_custom_params(params, &core.queue);
         }
-        
+
         if should_start_export {
             self.base.export_manager.start_export();
         }
-        
+
         let mut encoder = core.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Render Encoder"),
         });
+
+        // Run compute shader
+        self.compute_shader.dispatch(&mut encoder, core);
+        
+        // Render result to screen
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Main Render Pass"),
@@ -432,26 +249,16 @@ impl ShaderManager for MatrixShader {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
+
+            let compute_texture = self.compute_shader.get_output_texture();
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-            
-            if self.base.using_video_texture {
-                if let Some(video_manager) = &self.base.video_texture_manager {
-                    render_pass.set_bind_group(0, &video_manager.texture_manager().bind_group, &[]);
-                }
-            } else if self.base.using_webcam_texture {
-                if let Some(webcam_manager) = &self.base.webcam_texture_manager {
-                    render_pass.set_bind_group(0, &webcam_manager.texture_manager().bind_group, &[]);
-                }
-            } else if let Some(texture_manager) = &self.base.texture_manager {
-                render_pass.set_bind_group(0, &texture_manager.bind_group, &[]);
-            }
-            render_pass.set_bind_group(1, &self.base.time_uniform.bind_group, &[]);
-            render_pass.set_bind_group(2, &self.params_uniform.bind_group, &[]);
-            render_pass.set_bind_group(3, &self.base.resolution_uniform.bind_group, &[]);
+            render_pass.set_bind_group(0, &compute_texture.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
         }
+        
         self.base.handle_render_output(core, &view, full_output, &mut encoder);
+
         core.queue.submit(Some(encoder.finish()));
         output.present();
         Ok(())
@@ -459,6 +266,7 @@ impl ShaderManager for MatrixShader {
     
     fn resize(&mut self, core: &Core) {
         self.base.update_resolution(&core.queue, core.size);
+        self.compute_shader.resize(core, core.size.width, core.size.height);
     }
     
     fn handle_input(&mut self, core: &Core, event: &WindowEvent) -> bool {

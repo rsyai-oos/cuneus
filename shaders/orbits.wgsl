@@ -2,15 +2,14 @@
 // Trap technique: https://iquilezles.org/articles/ftrapsgeometric/
 struct TimeUniform {
     time: f32,
+    delta: f32,
+    frame: u32,
+    _padding: u32,
 };
 const PI = 3.14159;
-struct ResolutionUniform {
-    dimensions: vec2<f32>,
-    _padding: vec2<f32>,
-};
 @group(0) @binding(0) var<uniform> u_time: TimeUniform;
-@group(1) @binding(0) var<uniform> u_resolution: ResolutionUniform;
-@group(2) @binding(0) var<uniform> params: Params;
+@group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
+@group(1) @binding(1) var<uniform> params: Params;
 
 struct MouseUniform {
     position: vec2<f32>,         
@@ -18,7 +17,7 @@ struct MouseUniform {
     wheel: vec2<f32>,            
     buttons: vec2<u32>,          
 };
-@group(3) @binding(0) var<uniform> u_mouse: MouseUniform;
+@group(2) @binding(0) var<uniform> u_mouse: MouseUniform;
 
 struct Params {
     base_color: vec3<f32>,
@@ -89,10 +88,16 @@ fn im(c: vec2<f32>, t1: vec2<f32>, t2: vec2<f32>, t: f32) -> vec4<f32> {
 fn g(c: vec3<f32>, g: f32) -> vec3<f32> {
     return pow(c, vec3(1. / g));
 }
-@fragment
-fn fs_main(@builtin(position) fc: vec4<f32>) -> @location(0) vec4<f32> {
-    let ss = u_resolution.dimensions;
-    let frag = vec2(fc.x, ss.y - fc.y);
+@compute @workgroup_size(16, 16, 1)
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let ss = vec2<f32>(textureDimensions(output));
+    let coords = vec2<u32>(global_id.xy);
+    
+    if (coords.x >= u32(ss.x) || coords.y >= u32(ss.y)) {
+        return;
+    }
+    
+    let frag = vec2(f32(coords.x), ss.y - f32(coords.y));
     let AA = params.aa;
     let t = u_time.time;
     let t01 = t * .4;
@@ -140,5 +145,6 @@ fn fs_main(@builtin(position) fc: vec4<f32>) -> @location(0) vec4<f32> {
     col = g(col / f32(AA * AA), params.gamma_correction);
     let q = frag.xy / ss;
     col *= .7 + .3 * pow(16. * q.x * q.y * (1. - q.x) * (1. - q.y), .15);
-    return vec4(col, 1.);
+    
+    textureStore(output, vec2<i32>(i32(coords.x), i32(coords.y)), vec4(col, 1.0));
 }

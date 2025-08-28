@@ -1,13 +1,13 @@
 struct TimeUniform {
     time: f32,
+    delta: f32,
+    frame: u32,
+    _padding: u32,
 };
-struct ResolutionUniform {
-    dimensions: vec2<f32>,
-    _padding: vec2<f32>,
-};
+
 @group(0) @binding(0) var<uniform> u_time: TimeUniform;
-@group(1) @binding(0) var<uniform> u_resolution: ResolutionUniform;
-@group(2) @binding(0) var<uniform> params: Params;
+@group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
+@group(1) @binding(1) var<uniform> params: Params;
 struct Params {
     lambda: f32,
     theta: f32,
@@ -176,12 +176,21 @@ fn aces_tonemap(color: vec3<f32>) -> vec3<f32> {
     return clamp((color * (a * color + b)) / (color * (c * color + d) + e), vec3<f32>(0.0), vec3<f32>(1.0));
 }
 
-@fragment
-fn fs_main(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
+@compute @workgroup_size(16, 16, 1)
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let R = vec2<f32>(textureDimensions(output));
+    let coords = vec2<u32>(global_id.xy);
+    
+    if (coords.x >= u32(R.x) || coords.y >= u32(R.y)) {
+        return;
+    }
+    
+    let FragCoord = vec2<f32>(f32(coords.x), R.y - f32(coords.y));
+    
     let bg_color = vec3<f32>(params.background_r, params.background_g, params.background_b);
     let bg = oscillate(0.6, 0.6, 8.0, u_time.time);
     var fragColor = vec4<f32>(bg_color * bg, 1.0);
-    let screen_size = u_resolution.dimensions;
+    let screen_size = R;
     let t = u_time.time * 0.5;
     var angle: f32 = 0.25;
     let foldPattern = cos(t * 0.5) * PI * 0.25;
@@ -249,7 +258,7 @@ fn fs_main(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
     let des2_final = oscillate(0.7, 0.7, 5.0, u_time.time);
     fragColor = vec4<f32>(fragColor.rgb * (des2_final + globalLight * 0.1), 1.0);
 
-    let vignetteUV = (FragCoord.xy - 0.5 * vec2<f32>(1920.0, 1080.0)) / 1080.0;
+    let vignetteUV = (FragCoord.xy - 0.5 * screen_size) / screen_size.y;
     let vignette = 1.0 - dot(vignetteUV, vignetteUV) * VIGNETTE_STRENGTH;
 
     var final_color = fragColor.rgb;
@@ -257,5 +266,7 @@ fn fs_main(@builtin(position) FragCoord: vec4<f32>) -> @location(0) vec4<f32> {
         final_color = mix(final_color, aces_tonemap(final_color), params.aces_tonemapping);
     }
     let cor = gamma(final_color, params.gamma_correction);
-    return vec4<f32>(cor, fragColor.a);
+    let result = vec4<f32>(cor, fragColor.a);
+    
+    textureStore(output, vec2<i32>(i32(coords.x), i32(coords.y)), result);
 }

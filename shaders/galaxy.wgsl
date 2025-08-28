@@ -2,11 +2,15 @@
 
 struct TimeUniform {
     time: f32,
+    delta: f32,
+    frame: u32,
+    _padding: u32,
 };
-struct ResolutionUniform {
-    dimensions: vec2<f32>,
-    _padding: vec2<f32>,
-};
+
+@group(0) @binding(0) var<uniform> u_time: TimeUniform;
+@group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
+@group(1) @binding(1) var<uniform> params: Params;
+
 struct Params {
     max_iterations: i32,
     max_sub_iterations: i32,
@@ -16,10 +20,6 @@ struct Params {
     dist_offset: f32,
     _pad1: vec2<f32>,
 };
-
-@group(0) @binding(0) var<uniform> u_time: TimeUniform;
-@group(1) @binding(0) var<uniform> u_resolution: ResolutionUniform;
-@group(2) @binding(0) var<uniform> params: Params;
 
 const PI: f32 = 3.14159265359;
 const LIGHT_DIR: vec3<f32> = vec3<f32>(0.577350269, 0.577350269, 0.577350269);
@@ -140,7 +140,8 @@ fn v3(x: vec3<f32>) -> vec3<f32> {
 
 // gs: create stars
 fn gs(fragCoord: vec2<f32>) -> f32 {
-    let dimensions = vec2<f32>(1920.0, 1080.0);
+    let R = vec2<f32>(textureDimensions(output));
+    let dimensions = R;
     let gridSize = 1.0;
     let grid = floor(fragCoord / (dimensions / gridSize));
 
@@ -154,9 +155,17 @@ fn gs(fragCoord: vec2<f32>) -> f32 {
     return bloom * 1.5;
 }
 
-@fragment
-fn fs_main(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
-    let dim = u_resolution.dimensions;
+@compute @workgroup_size(16, 16, 1)
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let R = vec2<f32>(textureDimensions(output));
+    let coords = vec2<u32>(global_id.xy);
+    
+    if (coords.x >= u32(R.x) || coords.y >= u32(R.y)) {
+        return;
+    }
+    
+    let FragCoord = vec2<f32>(f32(coords.x), R.y - f32(coords.y));
+    let dim = R;
     var uv = (FragCoord.xy - 0.5 * dim) / dim.y;
 
     let dfc = length(uv) * params.center_scale;
@@ -232,5 +241,5 @@ fn fs_main(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec
     fc *= vec3<f32>(vignette);
     fc = gamma(fc, 0.41);
 
-    return vec4<f32>(fc, 1.0);
+    textureStore(output, vec2<i32>(i32(coords.x), i32(coords.y)), vec4<f32>(fc, 1.0));
 }
