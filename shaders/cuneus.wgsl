@@ -1,21 +1,19 @@
 // MIT License Enes Altun, 2025
 struct TimeUniform {
     time: f32,
-};
+    delta: f32,
+    frame: u32,
+    _padding: u32,
+}
 
-struct ResolutionUniform {
-    dimensions: vec2<f32>,
-    _padding: vec2<f32>,
-};
-
-@group(0) @binding(0) var<uniform> u_time: TimeUniform;
-@group(1) @binding(0) var<uniform> u_resolution: ResolutionUniform;
-@group(2) @binding(0) var<uniform> params: Params;
+@group(0) @binding(0) var<uniform> time_data: TimeUniform;
 
 struct Params {
     background_color: f32,
+    _pad0: f32,
+    _pad00: f32,
+    _pad000: f32,
     hue_color: vec4<f32>,
-    _pad1: f32,
     light_intensity: f32,
     rim_power: f32,
     ao_strength: f32,
@@ -28,7 +26,11 @@ struct Params {
     _pad2: f32,
     _pad3: f32,
     _pad4: f32,
-};
+}
+
+@group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
+@group(1) @binding(1) var<uniform> params: Params;
+
 
 const PI: f32 = 3.141592654;
 const TAU: f32 = 2.0 * PI;
@@ -262,16 +264,21 @@ fn gamma(color: vec3<f32>, gamma_value: f32) -> vec3<f32> {
     return pow(color, vec3<f32>(1.0 / gamma_value));
 }
 
-@fragment
-fn fs_main(@builtin(position) fragCoord: vec4<f32>) -> @location(0) vec4<f32> {
+@compute @workgroup_size(16, 16, 1)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let dimensions = textureDimensions(output);
+    if (gid.x >= dimensions.x || gid.y >= dimensions.y) {
+        return;
+    }
+
     var fragColor = vec4<f32>(vec3<f32>(params.background_color), 1.0);
     
-    let dimensions = u_resolution.dimensions;
+    let fragCoord = vec2<f32>(f32(gid.x), f32(gid.y));
     let uv = 6.0 * vec2<f32>(
-        fragCoord.x - 0.5 * dimensions.x, 
-        -(fragCoord.y - 0.5 * dimensions.y)
-    ) / dimensions.y;
-    let t = u_time.time * 0.5;
+        fragCoord.x - 0.5 * f32(dimensions.x), 
+        -(fragCoord.y - 0.5 * f32(dimensions.y))
+    ) / f32(dimensions.y);
+    let t = time_data.time * 0.5;
     
     // Layer-based approach for depth and animation
     for(var i = 0.1; i < 1.0; i += 0.2) {
@@ -325,5 +332,6 @@ fn fs_main(@builtin(position) fragCoord: vec4<f32>) -> @location(0) vec4<f32> {
     }
     fragColor = vec4<f32>(fragColor.rgb * params.global_light, 1.0);
     fragColor = vec4<f32>(gamma(fragColor.rgb, 0.45), fragColor.a);
-    return fragColor;
+    
+    textureStore(output, gid.xy, fragColor);
 }

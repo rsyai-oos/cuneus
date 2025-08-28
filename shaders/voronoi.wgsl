@@ -1,16 +1,14 @@
-@group(0) @binding(0) var tex: texture_2d<f32>;
-@group(0) @binding(1) var tex_sampler: sampler;
-@group(1) @binding(0) var<uniform> u_time: TimeUniform;
-@group(2) @binding(0) var<uniform> params: Params;
-@group(3) @binding(0) var<uniform> u_resolution: ResolutionUniform;
-
-struct ResolutionUniform {
-    dimensions: vec2<f32>,
-    _padding: vec2<f32>,
-};
+@group(0) @binding(0) var<uniform> u_time: TimeUniform;
+@group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
+@group(1) @binding(1) var<uniform> params: Params;
+@group(1) @binding(2) var input_texture: texture_2d<f32>;
+@group(1) @binding(3) var input_sampler: sampler;
 
 struct TimeUniform {
     time: f32,
+    delta: f32,
+    frame: u32,
+    _padding: u32,
 };
 
 struct Params {
@@ -37,10 +35,17 @@ fn lumi(color: vec3<f32>) -> f32 {
     return dot(color, vec3<f32>(0.299, 0.587, 0.114));
 }
 
-@fragment
-fn fs_main(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec2<f32>) -> @location(0) vec4<f32> {
-    let R = u_resolution.dimensions;
-    let uv = vec2<f32>(FragCoord.x, R.y - FragCoord.y) / R;
+@compute @workgroup_size(16, 16, 1)
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let R = vec2<f32>(textureDimensions(output));
+    let coords = vec2<u32>(global_id.xy);
+    
+    if (coords.x >= u32(R.x) || coords.y >= u32(R.y)) {
+        return;
+    }
+    
+    let FragCoord = vec2<f32>(f32(coords.x), R.y - f32(coords.y));
+    let uv = FragCoord / R;
     
     let U = params.scale * FragCoord.xy / R.y;
     var P: vec2<f32>;
@@ -75,8 +80,15 @@ fn fs_main(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec
     }
     
     var cUV = (A[i32(params.cell_index)] * R.y/params.scale) / R;
-    cUV = vec2<f32>(cUV.x, 1.0 - cUV.y);
-    let cCol = textureSample(tex, tex_sampler, vec2<f32>(cUV.x, 1.0 - cUV.y));
+    let tex_dims = textureDimensions(input_texture);
+    var cCol = vec4<f32>(0.5, 0.5, 1.0, 1.0); // Default blue color
+    
+    if (tex_dims.x > 1u && tex_dims.y > 1u) {
+        // Apply same coordinate transformation as matrix.wgsl to fix upside down issue
+        let tex_coords = vec2<i32>(i32(cUV.x * f32(tex_dims.x)), i32((1.0 - cUV.y) * f32(tex_dims.y)));
+        let clamped_coords = clamp(tex_coords, vec2<i32>(0), vec2<i32>(tex_dims) - vec2<i32>(1));
+        cCol = textureLoad(input_texture, clamped_coords, 0);
+    }
     
     P = A[1] - A[0];
     d = length(P)/2.0 - dot(U-A[0], P)/length(P);
@@ -108,5 +120,6 @@ fn fs_main(@builtin(position) FragCoord: vec4<f32>, @location(0) tex_coords: vec
     let cI = 0.2;
     vCol = mix(vCol, cCol * (0.0 + cI), cP);
     
-    return clamp(vCol, vec4<f32>(0.0), vec4<f32>(1.0));
+    let final_color = clamp(vCol, vec4<f32>(0.0), vec4<f32>(1.0));
+    textureStore(output, vec2<i32>(i32(coords.x), i32(coords.y)), final_color);
 }
