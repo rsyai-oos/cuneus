@@ -307,6 +307,8 @@ impl ShaderManager for PathTracingShader {
         }
         
         self.base.fps_tracker.update();
+        // Handle export        
+        self.compute_shader.handle_export(core, &mut self.base);
     }
     
     fn resize(&mut self, core: &Core) {

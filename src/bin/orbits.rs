@@ -144,6 +144,8 @@ impl ShaderManager for Shader {
     fn update(&mut self, core: &Core) {
         self.base.fps_tracker.update();
         self.compute_shader.check_hot_reload(&core.device);
+        // Handle export        
+        self.compute_shader.handle_export(core, &mut self.base);
     }
 
     fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {

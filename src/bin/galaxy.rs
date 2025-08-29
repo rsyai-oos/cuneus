@@ -107,6 +107,8 @@ impl ShaderManager for GalaxyShader {
 
     fn update(&mut self, core: &Core) {
         self.compute_shader.check_hot_reload(&core.device);
+        // Handle export        
+        self.compute_shader.handle_export(core, &mut self.base);
         self.base.fps_tracker.update();
     }
     fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {
