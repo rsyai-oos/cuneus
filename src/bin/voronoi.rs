@@ -116,6 +116,8 @@ impl ShaderManager for Voronoi {
         }
         
         self.base.fps_tracker.update();
+        // Handle export        
+        self.compute_shader.handle_export(core, &mut self.base);
         self.compute_shader.check_hot_reload(&core.device);
     }
     fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {

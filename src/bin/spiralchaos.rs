@@ -134,6 +134,11 @@ impl ShaderManager for SpiralShader {
     fn update(&mut self, core: &Core) {
         // Check for hot reload updates
         self.compute_shader.check_hot_reload(&core.device);
+        // Handle export with custom dispatch pattern      
+        self.compute_shader.handle_export_dispatch(core, &mut self.base, |shader, encoder, core| {
+            shader.dispatch_stage_with_workgroups(encoder, 0, [4096, 1, 1]);
+            shader.dispatch_stage(encoder, core, 1);
+        });
         
         self.base.fps_tracker.update();
     }

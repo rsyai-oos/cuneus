@@ -25,7 +25,6 @@ struct BuddhabrotParams {
     dithering: f32,           
 }
 
-
 impl UniformProvider for BuddhabrotParams {
     fn as_bytes(&self) -> &[u8] {
         bytemuck::bytes_of(self)
@@ -41,98 +40,6 @@ struct BuddhabrotShader {
 }
 
 impl BuddhabrotShader {
-    
-    fn capture_frame(&mut self, core: &Core, time: f32) -> Result<Vec<u8>, wgpu::SurfaceError> {
-        let settings = self.base.export_manager.settings();
-        let (capture_texture, output_buffer) = self.base.create_capture_texture(
-            &core.device,
-            settings.width,
-            settings.height
-        );
-        
-        let align = 256;
-        let unpadded_bytes_per_row = settings.width * 4;
-        let padding = (align - unpadded_bytes_per_row % align) % align;
-        let padded_bytes_per_row = unpadded_bytes_per_row + padding;
-        let capture_view = capture_texture.create_view(&wgpu::TextureViewDescriptor::default());
-        
-        let mut encoder = core.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Capture Encoder"),
-        });
-        
-        self.base.time_uniform.data.time = time;
-        self.base.time_uniform.update(&core.queue);
-        
-        {
-            let mut render_pass = cuneus::Renderer::begin_render_pass(
-                &mut encoder,
-                &capture_view,
-                wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                Some("Capture Pass"),
-            );
-            
-            render_pass.set_pipeline(&self.base.renderer.render_pipeline);
-            render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
-            let compute_texture = self.compute_shader.get_output_texture();
-            render_pass.set_bind_group(0, &compute_texture.bind_group, &[]);
-            render_pass.draw(0..4, 0..1);
-        }
-        
-        encoder.copy_texture_to_buffer(
-            wgpu::TexelCopyTextureInfo {
-                texture: &capture_texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::TexelCopyBufferInfo {
-                buffer: &output_buffer,
-                layout: wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(padded_bytes_per_row),
-                    rows_per_image: Some(settings.height),
-                },
-            },
-            wgpu::Extent3d {
-                width: settings.width,
-                height: settings.height,
-                depth_or_array_layers: 1,
-            },
-        );
-        
-        core.queue.submit(Some(encoder.finish()));
-        
-        let buffer_slice = output_buffer.slice(..);
-        let (tx, rx) = std::sync::mpsc::channel();
-        buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
-            tx.send(result).unwrap();
-        });
-        
-        let _ = core.device.poll(wgpu::PollType::Wait).unwrap();
-        rx.recv().unwrap().unwrap();
-        
-        let padded_data = buffer_slice.get_mapped_range().to_vec();
-        let mut unpadded_data = Vec::with_capacity((settings.width * settings.height * 4) as usize);
-        for chunk in padded_data.chunks(padded_bytes_per_row as usize) {
-            unpadded_data.extend_from_slice(&chunk[..unpadded_bytes_per_row as usize]);
-        }
-        
-        Ok(unpadded_data)
-    }
-    
-    fn handle_export(&mut self, core: &Core) {
-        if let Some((frame, time)) = self.base.export_manager.try_get_next_frame() {
-            if let Ok(data) = self.capture_frame(core, time) {
-                let settings = self.base.export_manager.settings();
-                if let Err(e) = cuneus::save_frame(data, frame, settings) {
-                    eprintln!("Error saving frame: {:?}", e);
-                }
-            }
-        } else {
-            self.base.export_manager.complete_export();
-        }
-    }
-    
     fn clear_buffers(&mut self, core: &Core) {
         // Clear atomic buffer (by recreating it)
         self.compute_shader.clear_atomic_buffer(core);
@@ -218,13 +125,15 @@ impl ShaderManager for BuddhabrotShader {
     }
     
     fn update(&mut self, core: &Core) {
-        if self.base.export_manager.is_exporting() {
-            self.handle_export(core);
-        }
         self.base.fps_tracker.update();
         
         // Check for hot reload updates
         self.compute_shader.check_hot_reload(&core.device);
+        // Handle export        
+        self.compute_shader.handle_export_dispatch(core, &mut self.base, |shader, encoder, core| {
+            shader.dispatch_stage_with_workgroups(encoder, 0, [2048, 1, 1]);
+            shader.dispatch_stage(encoder, core, 1);
+        });
     }
     
     fn resize(&mut self, core: &Core) {

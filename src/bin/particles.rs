@@ -134,6 +134,8 @@ impl ShaderManager for ParticleShader {
     fn update(&mut self, core: &Core) {
         // Check for hot reload updates
         self.compute_shader.check_hot_reload(&core.device);
+        // Handle export        
+        self.compute_shader.handle_export(core, &mut self.base);
         
         self.base.fps_tracker.update();
     }

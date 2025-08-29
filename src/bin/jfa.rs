@@ -148,6 +148,8 @@ impl ShaderManager for JfaShader {
     fn update(&mut self, core: &Core) {
         // Check for hot reload updates
         self.compute_shader.check_hot_reload(&core.device);
+        // Handle export        
+        self.compute_shader.handle_export(core, &mut self.base);
         
         let current_time = self.base.controls.get_time(&self.base.start_time);
         let delta = 1.0 / 60.0;

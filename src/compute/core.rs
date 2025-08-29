@@ -1493,4 +1493,145 @@ impl ComputeShader {
             Ok(Vec::new())
         }
     }
+
+    /// Automatic export - call from shader update() method
+    pub fn handle_export(&mut self, core: &Core, render_kit: &mut crate::RenderKit) {
+        if let Some((frame, time)) = render_kit.export_manager.try_get_next_frame() {
+            match self.capture_export_frame(core, time, render_kit, None::<fn(&mut Self, &mut wgpu::CommandEncoder, &Core)>) {
+                Ok(data) => {
+                    let settings = render_kit.export_manager.settings();
+                    if let Err(e) = crate::save_frame(data, frame, settings) {
+                        eprintln!("Error saving frame: {:?}", e);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error capturing export frame: {:?}", e);
+                }
+            }
+        } else {
+            render_kit.export_manager.complete_export();
+        }
+    }
+
+    /// Automatic export with custom dispatch
+    pub fn handle_export_dispatch(&mut self, core: &Core, render_kit: &mut crate::RenderKit, custom_dispatch: impl FnOnce(&mut Self, &mut wgpu::CommandEncoder, &Core))
+    {
+        if let Some((frame, time)) = render_kit.export_manager.try_get_next_frame() {
+            match self.capture_export_frame(core, time, render_kit, Some(custom_dispatch)) {
+                Ok(data) => {
+                    let settings = render_kit.export_manager.settings();
+                    if let Err(e) = crate::save_frame(data, frame, settings) {
+                        eprintln!("Error saving frame: {:?}", e);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error capturing export frame: {:?}", e);
+                }
+            }
+        } else {
+            render_kit.export_manager.complete_export();
+        }
+    }
+    
+    /// Captures current frame with format conversion and optional custom dispatch
+    pub fn capture_export_frame<F>(
+        &mut self,
+        core: &Core,
+        time: f32,
+        render_kit: &crate::RenderKit,
+        custom_dispatch: Option<F>,
+    ) -> Result<Vec<u8>, wgpu::SurfaceError> 
+    where 
+        F: FnOnce(&mut Self, &mut wgpu::CommandEncoder, &Core)
+    {
+        let settings = render_kit.export_manager.settings();
+        let (capture_texture, output_buffer) = render_kit.create_capture_texture(
+            &core.device,
+            settings.width,
+            settings.height,
+        );
+        
+        let capture_view = capture_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        
+        let mut encoder = core.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Export Encoder"),
+        });
+        
+        self.set_time(time, 0.0, &core.queue);
+        
+        // Use custom dispatch if provided, otherwise use default
+        if let Some(custom_dispatch) = custom_dispatch {
+            custom_dispatch(self, &mut encoder, core);
+        } else {
+            self.dispatch(&mut encoder, core);
+        }
+        
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Export Capture Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &capture_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            
+            render_pass.set_pipeline(&render_kit.renderer.render_pipeline);
+            render_pass.set_vertex_buffer(0, render_kit.renderer.vertex_buffer.slice(..));
+            render_pass.set_bind_group(0, &self.output_texture.bind_group, &[]);
+            render_pass.draw(0..4, 0..1);
+        }
+        
+        let align = 256;
+        let unpadded_bytes_per_row = settings.width * 4;
+        let padding = (align - unpadded_bytes_per_row % align) % align;
+        let padded_bytes_per_row = unpadded_bytes_per_row + padding;
+        
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &capture_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &output_buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded_bytes_per_row),
+                    rows_per_image: Some(settings.height),
+                },
+            },
+            wgpu::Extent3d {
+                width: settings.width,
+                height: settings.height,
+                depth_or_array_layers: 1,
+            },
+        );
+        
+        core.queue.submit(Some(encoder.finish()));
+        
+        let buffer_slice = output_buffer.slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+            tx.send(result).unwrap();
+        });
+        
+        let _ = core.device.poll(wgpu::PollType::Wait).unwrap();
+        rx.recv().unwrap().unwrap();
+        
+        let padded_data = buffer_slice.get_mapped_range().to_vec();
+        let mut unpadded_data = Vec::with_capacity((settings.width * settings.height * 4) as usize);
+        for chunk in padded_data.chunks(padded_bytes_per_row as usize) {
+            unpadded_data.extend_from_slice(&chunk[..unpadded_bytes_per_row as usize]);
+        }
+        
+        Ok(unpadded_data)
+    }
 }

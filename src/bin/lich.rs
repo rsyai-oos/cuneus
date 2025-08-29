@@ -124,6 +124,8 @@ impl ShaderManager for LichShader {
     fn update(&mut self, core: &Core) {
         // Check for hot reload updates
         self.compute_shader.check_hot_reload(&core.device);
+        // Handle export        
+        self.compute_shader.handle_export(core, &mut self.base);
         
         // Update time
         let current_time = self.base.controls.get_time(&self.base.start_time);

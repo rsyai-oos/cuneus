@@ -140,6 +140,8 @@ impl ShaderManager for Shader {
         self.compute_shader.set_time(current_time, delta, &core.queue);
         
         self.base.fps_tracker.update();
+        // Handle export        
+        self.compute_shader.handle_export(core, &mut self.base);
         self.compute_shader.check_hot_reload(&core.device);
     }
 

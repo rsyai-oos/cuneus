@@ -255,6 +255,8 @@ impl ShaderManager for ColorProjection {
         
         // Check for hot reload updates
         self.compute_shader.check_hot_reload(&core.device);
+        // Handle export        
+        self.compute_shader.handle_export(core, &mut self.base);
         
         // Color projection multi-stage dispatch - run all stages every frame for animation
         

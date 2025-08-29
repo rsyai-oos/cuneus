@@ -120,6 +120,11 @@ impl ShaderManager for CliffordShader {
         
         // Check for hot reload updates
         self.compute_shader.check_hot_reload(&core.device);
+        // Handle export with custom dispatch pattern for cliffordcompute        
+        self.compute_shader.handle_export_dispatch(core, &mut self.base, |shader, encoder, core| {
+            shader.dispatch_stage_with_workgroups(encoder, 0, [2048, 1, 1]);
+            shader.dispatch_stage(encoder, core, 1);
+        });
     }
     
     fn resize(&mut self, core: &Core) {
