@@ -1497,7 +1497,27 @@ impl ComputeShader {
     /// Automatic export - call from shader update() method
     pub fn handle_export(&mut self, core: &Core, render_kit: &mut crate::RenderKit) {
         if let Some((frame, time)) = render_kit.export_manager.try_get_next_frame() {
-            match self.capture_export_frame(core, time, render_kit) {
+            match self.capture_export_frame(core, time, render_kit, None::<fn(&mut Self, &mut wgpu::CommandEncoder, &Core)>) {
+                Ok(data) => {
+                    let settings = render_kit.export_manager.settings();
+                    if let Err(e) = crate::save_frame(data, frame, settings) {
+                        eprintln!("Error saving frame: {:?}", e);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error capturing export frame: {:?}", e);
+                }
+            }
+        } else {
+            render_kit.export_manager.complete_export();
+        }
+    }
+
+    /// Automatic export with custom dispatch
+    pub fn handle_export_dispatch(&mut self, core: &Core, render_kit: &mut crate::RenderKit, custom_dispatch: impl FnOnce(&mut Self, &mut wgpu::CommandEncoder, &Core))
+    {
+        if let Some((frame, time)) = render_kit.export_manager.try_get_next_frame() {
+            match self.capture_export_frame(core, time, render_kit, Some(custom_dispatch)) {
                 Ok(data) => {
                     let settings = render_kit.export_manager.settings();
                     if let Err(e) = crate::save_frame(data, frame, settings) {
@@ -1513,13 +1533,17 @@ impl ComputeShader {
         }
     }
     
-    /// Captures current frame with format conversion
-    pub fn capture_export_frame(
+    /// Captures current frame with format conversion and optional custom dispatch
+    pub fn capture_export_frame<F>(
         &mut self,
         core: &Core,
         time: f32,
         render_kit: &crate::RenderKit,
-    ) -> Result<Vec<u8>, wgpu::SurfaceError> {
+        custom_dispatch: Option<F>,
+    ) -> Result<Vec<u8>, wgpu::SurfaceError> 
+    where 
+        F: FnOnce(&mut Self, &mut wgpu::CommandEncoder, &Core)
+    {
         let settings = render_kit.export_manager.settings();
         let (capture_texture, output_buffer) = render_kit.create_capture_texture(
             &core.device,
@@ -1535,7 +1559,12 @@ impl ComputeShader {
         
         self.set_time(time, 0.0, &core.queue);
         
-        self.dispatch(&mut encoder, core);
+        // Use custom dispatch if provided, otherwise use default
+        if let Some(custom_dispatch) = custom_dispatch {
+            custom_dispatch(self, &mut encoder, core);
+        } else {
+            self.dispatch(&mut encoder, core);
+        }
         
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {

@@ -130,7 +130,10 @@ impl ShaderManager for BuddhabrotShader {
         // Check for hot reload updates
         self.compute_shader.check_hot_reload(&core.device);
         // Handle export        
-        self.compute_shader.handle_export(core, &mut self.base);
+        self.compute_shader.handle_export_dispatch(core, &mut self.base, |shader, encoder, core| {
+            shader.dispatch_stage_with_workgroups(encoder, 0, [2048, 1, 1]);
+            shader.dispatch_stage(encoder, core, 1);
+        });
     }
     
     fn resize(&mut self, core: &Core) {

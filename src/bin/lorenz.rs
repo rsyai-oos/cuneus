@@ -147,7 +147,11 @@ impl ShaderManager for LorenzShader {
         // Check for hot reload updates
         self.compute_shader.check_hot_reload(&core.device);
         // Handle export        
-        self.compute_shader.handle_export(core, &mut self.base);
+        self.compute_shader.handle_export_dispatch(core, &mut self.base, |shader, encoder, core| {
+            let particle_workgroups = (self.current_params.particle_count as u32 / 256).max(1);
+            shader.dispatch_stage_with_workgroups(encoder, 0, [particle_workgroups, 1, 1]);
+            shader.dispatch_stage(encoder, core, 1);
+        });
         
         self.base.fps_tracker.update();
     }
