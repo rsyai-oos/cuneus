@@ -13,7 +13,8 @@ struct LorenzParams {
     step_size: f32,      
     motion_speed: f32,  
     rotation_x: f32,     
-    rotation_y: f32,     
+    rotation_y: f32,
+    rotation_z: f32,     
     click_state: i32,    
     brightness: f32,     
     color1_r: f32,       
@@ -147,8 +148,7 @@ fn projParticle(_p: v3) -> v3 {
     
     p = rotY(muv.x * 2.0) * p;
     p = rotX(muv.y * 2.0) * p;
-    
-    p = rotZ(sin(time_data.time * 0.05) * 0.2) * p;
+    p = rotZ(params.rotation_z * 2.0 + sin(time_data.time * 0.05) * 0.1) * p;
     
     // perspective projection
     p.z += 4.0;

@@ -12,6 +12,7 @@ struct LorenzParams {
     motion_speed: f32,
     rotation_x: f32,
     rotation_y: f32,
+    rotation_z: f32,
     click_state: i32,
     brightness: f32,
     color1_r: f32,
@@ -79,6 +80,7 @@ impl ShaderManager for LorenzShader {
             motion_speed: 2.2,
             rotation_x: 0.0,
             rotation_y: 0.0,
+            rotation_z: 0.0,
             click_state: 0,
             brightness: 0.0005,
             color1_r: 1.0,
@@ -213,6 +215,10 @@ impl ShaderManager for LorenzShader {
                                 } else {
                                     ui.label("Mouse Look Active - Move mouse to control camera");
                                 }
+                                
+                                ui.separator();
+                                ui.label("Z Rotation");
+                                changed |= ui.add(egui::Slider::new(&mut params.rotation_z, -1.0..=1.0).text("Rotation Z")).changed();
                                 
                                 changed |= ui.add(egui::Slider::new(&mut params.scale, 0.001..=0.1).text("Zoom").logarithmic(true)).changed();
                             });
