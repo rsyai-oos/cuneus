@@ -8,11 +8,9 @@ A tool for experimenting with WGSL shaders, it uses `wgpu` for rendering, `egui`
 ### Current Features
 
 - Hot shader reloading
-- Compute & Fragment shader support 
 - Multi-pass, atomics etc
 - Interactive parameter adjustment, ez media imports through egui
-- Easily use HDR textures via UI
-- Easily use your own videos/webcam as textures
+- Easily use HDR textures, videos/webcam via UI
 - Audio/Visual synchronization: Spectrum and BPM detection
 - Real-time audio synthesis: Generate music directly from wgsl shaders
 - Export HQ frames via egui
@@ -68,6 +66,6 @@ A tool for experimenting with WGSL shaders, it uses `wgpu` for rendering, `egui`
 |:---:|:---:|:---:|
 | <a href="https://github.com/user-attachments/assets/bb5fc1c4-87bf-4eb9-8e0d-e54bcf32e0fb"><img src="https://github.com/user-attachments/assets/53efa317-8ec9-4435-988d-924d5efb6247" width="250" height ="200"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/examples/2dneuron.rs) | <a href="https://github.com/user-attachments/assets/45b8f532-f3fb-453c-b356-1d3c153d614a"><img src="https://github.com/user-attachments/assets/896228c3-7583-40de-9643-8b58aaec6050" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/examples/pathtracing.rs) | <a href="https://github.com/user-attachments/assets/3eda9c33-7961-4dd4-aad1-170ae32640e7"><img src="https://github.com/user-attachments/assets/3eda9c33-7961-4dd4-aad1-170ae32640e7" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/examples/audiovis.rs) |
 
-| **Poe2:loading** | **tree** | **voronoi** |
+| **sdvert** | **tree** | **voronoi** |
 |:---:|:---:|:---:|
-| <a href="https://github.com/user-attachments/assets/fa588334-dd8d-492d-9caa-1aaeaecf024b"><img src="https://github.com/user-attachments/assets/fa588334-dd8d-492d-9caa-1aaeaecf024b" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/examples/poe2.rs) | <a href="https://github.com/user-attachments/assets/2f0bdc7c-d226-4091-bae7-b96561c1fb4f"><img src="https://github.com/user-attachments/assets/2f0bdc7c-d226-4091-bae7-b96561c1fb4f" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/examples/tree.rs) | <a href="https://github.com/user-attachments/assets/6c68d718-872c-4e14-bccb-f2339cf121d2"><img src="https://github.com/user-attachments/assets/6c68d718-872c-4e14-bccb-f2339cf121d2" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/examples/voronoi.rs) |
+| <a href="https://github.com/user-attachments/assets/9306abfa-0516-4b7f-a80a-5674d0aa09bb"><img src="https://github.com/user-attachments/assets/5f463cce-492b-40ab-9b10-b855009c2c0a" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/examples/sdvert.rs) | <a href="https://github.com/user-attachments/assets/2f0bdc7c-d226-4091-bae7-b96561c1fb4f"><img src="https://github.com/user-attachments/assets/2f0bdc7c-d226-4091-bae7-b96561c1fb4f" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/examples/tree.rs) | <a href="https://github.com/user-attachments/assets/6c68d718-872c-4e14-bccb-f2339cf121d2"><img src="https://github.com/user-attachments/assets/6c68d718-872c-4e14-bccb-f2339cf121d2" width="250"/></a><br/>[Code](https://github.com/altunenes/cuneus/blob/main/examples/voronoi.rs) |
