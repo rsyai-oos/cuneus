@@ -35,5 +35,3 @@ default = ["media"]
 media = ["gstreamer", "gstreamer-video", "gstreamer-app", "gstreamer-pbutils"]
 
 [dev-dependencies]
-crossterm = "0.28.1"
-ratatui = "0.29.0"
