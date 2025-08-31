@@ -481,7 +481,6 @@ jobs:
             
             # Copy shader files
             cp "examples/shaders/$shader.wgsl" "release/$shader/shaders/"
-            cp "examples/shaders/vertex.wgsl" "release/$shader/shaders/"
             
             # Embed GStreamer for media shaders (cross-platform)
             if [[ "${{ matrix.shader_config.gstreamer_required }}" == "true" ]]; then

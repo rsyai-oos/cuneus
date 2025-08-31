@@ -73,8 +73,8 @@ struct MyShader {
 // 3. Implement the ShaderManager trait
 impl ShaderManager for MyShader {
     fn init(core: &Core) -> Self {
-        // RenderKit handles the final blit to screen and UI
-        let base = RenderKit::new(core, /* ... boilerplate vertex/blit shaders ... */);
+        // RenderKit handles the final blit to screen and UI (vertex/blit shaders built-in)
+        let base = RenderKit::new(core, &[/* bind group layouts */], None);
         let initial_params = MyParams { /* ... */ };
 
         // --- To convert this to a Multi-Pass shader, make the following changes: ---
