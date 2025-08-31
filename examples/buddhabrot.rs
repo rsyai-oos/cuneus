@@ -81,7 +81,7 @@ impl ShaderManager for BuddhabrotShader {
             dithering: 0.2,
         };
         
-        let base = RenderKit::new(core, include_str!("../shaders/vertex.wgsl"), include_str!("../shaders/blit.wgsl"), &[&texture_bind_group_layout], None);
+        let base = RenderKit::new(core, include_str!("shaders/vertex.wgsl"), include_str!("shaders/blit.wgsl"), &[&texture_bind_group_layout], None);
 
         let mut config = ComputeShader::builder()
             .with_entry_point("Splat")
@@ -97,17 +97,17 @@ impl ShaderManager for BuddhabrotShader {
             
         let mut compute_shader = ComputeShader::from_builder(
             core,
-            include_str!("../shaders/buddhabrot.wgsl"),
+            include_str!("shaders/buddhabrot.wgsl"),
             config,
         );
 
         // Enable hot reload
         if let Err(e) = compute_shader.enable_hot_reload(
             core.device.clone(),
-            std::path::PathBuf::from("shaders/buddhabrot.wgsl"),
+            std::path::PathBuf::from("examples/shaders/buddhabrot.wgsl"),
             core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Buddhabrot Hot Reload"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/buddhabrot.wgsl").into()),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/buddhabrot.wgsl").into()),
             }),
         ) {
             eprintln!("Failed to enable hot reload for buddhabrot shader: {}", e);

@@ -100,8 +100,8 @@ impl ShaderManager for LorenzShader {
 
         let base = RenderKit::new(
             core,
-            include_str!("../shaders/vertex.wgsl"),
-            include_str!("../shaders/blit.wgsl"),
+            include_str!("shaders/vertex.wgsl"),
+            include_str!("shaders/blit.wgsl"),
             &[&texture_bind_group_layout],
             None,
         );
@@ -119,17 +119,17 @@ impl ShaderManager for LorenzShader {
 
         let mut compute_shader = ComputeShader::from_builder(
             core,
-            include_str!("../shaders/lorenz.wgsl"),
+            include_str!("shaders/lorenz.wgsl"),
             config,
         );
 
         // Enable hot reload
         if let Err(e) = compute_shader.enable_hot_reload(
             core.device.clone(),
-            std::path::PathBuf::from("shaders/lorenz.wgsl"),
+            std::path::PathBuf::from("examples/shaders/lorenz.wgsl"),
             core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Lorenz Hot Reload"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/lorenz.wgsl").into()),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/lorenz.wgsl").into()),
             }),
         ) {
             eprintln!("Failed to enable hot reload for Lorenz shader: {}", e);

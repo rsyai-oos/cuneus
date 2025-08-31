@@ -86,8 +86,8 @@ impl ShaderManager for SpiralShader {
 
         let base = RenderKit::new(
             core,
-            include_str!("../shaders/vertex.wgsl"),
-            include_str!("../shaders/blit.wgsl"),
+            include_str!("shaders/vertex.wgsl"),
+            include_str!("shaders/blit.wgsl"),
             &[&texture_bind_group_layout],
             None,
         );
@@ -106,17 +106,17 @@ impl ShaderManager for SpiralShader {
 
         let mut compute_shader = ComputeShader::from_builder(
             core,
-            include_str!("../shaders/spiralchaos.wgsl"),
+            include_str!("shaders/spiralchaos.wgsl"),
             config,
         );
 
         // Enable hot reload
         if let Err(e) = compute_shader.enable_hot_reload(
             core.device.clone(),
-            std::path::PathBuf::from("shaders/spiralchaos.wgsl"),
+            std::path::PathBuf::from("examples/shaders/spiralchaos.wgsl"),
             core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Spiralchaos Hot Reload"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/spiralchaos.wgsl").into()),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/spiralchaos.wgsl").into()),
             }),
         ) {
             eprintln!("Failed to enable hot reload for Spiralchaos shader: {}", e);

@@ -103,7 +103,7 @@ impl ShaderManager for MyShader {
         // Create the compute shader instance
         let mut compute_shader = ComputeShader::from_builder(
             core,
-            include_str!("../../shaders/my_shader.wgsl"),
+            include_str!("shaders/my_shader.wgsl"),
             config,
         );
 

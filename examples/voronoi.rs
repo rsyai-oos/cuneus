@@ -56,8 +56,8 @@ impl ShaderManager for Voronoi {
 
         let base = RenderKit::new(
             core,
-            include_str!("../shaders/vertex.wgsl"),
-            include_str!("../shaders/blit.wgsl"),
+            include_str!("shaders/vertex.wgsl"),
+            include_str!("shaders/blit.wgsl"),
             &[&texture_bind_group_layout],
             None,
         );
@@ -78,17 +78,17 @@ impl ShaderManager for Voronoi {
 
         let mut compute_shader = ComputeShader::from_builder(
             core,
-            include_str!("../shaders/voronoi.wgsl"),
+            include_str!("shaders/voronoi.wgsl"),
             config,
         );
 
         // Enable hot reload
         if let Err(e) = compute_shader.enable_hot_reload(
             core.device.clone(),
-            std::path::PathBuf::from("shaders/voronoi.wgsl"),
+            std::path::PathBuf::from("examples/shaders/voronoi.wgsl"),
             core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Voronoi Hot Reload"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/voronoi.wgsl").into()),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/voronoi.wgsl").into()),
             }),
         ) {
             eprintln!("Failed to enable hot reload for voronoi shader: {}", e);

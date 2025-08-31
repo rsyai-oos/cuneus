@@ -95,8 +95,8 @@ impl ShaderManager for JfaShader {
 
         let base = RenderKit::new(
             core,
-            include_str!("../shaders/vertex.wgsl"),
-            include_str!("../shaders/blit.wgsl"),
+            include_str!("shaders/vertex.wgsl"),
+            include_str!("shaders/blit.wgsl"),
             &[&texture_bind_group_layout],
             None,
         );
@@ -120,17 +120,17 @@ impl ShaderManager for JfaShader {
 
         let mut compute_shader = ComputeShader::from_builder(
             core,
-            include_str!("../shaders/jfa.wgsl"),
+            include_str!("shaders/jfa.wgsl"),
             config,
         );
 
         // Enable hot reload
         if let Err(e) = compute_shader.enable_hot_reload(
             core.device.clone(),
-            std::path::PathBuf::from("shaders/jfa.wgsl"),
+            std::path::PathBuf::from("examples/shaders/jfa.wgsl"),
             core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("JFA Hot Reload"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/jfa.wgsl").into()),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/jfa.wgsl").into()),
             }),
         ) {
             eprintln!("Failed to enable hot reload for JFA shader: {}", e);

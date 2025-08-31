@@ -64,8 +64,8 @@ impl ShaderManager for TreeShader {
 
         let base = RenderKit::new(
             core,
-            include_str!("../shaders/vertex.wgsl"),
-            include_str!("../shaders/blit.wgsl"),
+            include_str!("shaders/vertex.wgsl"),
+            include_str!("shaders/blit.wgsl"),
             &[&texture_bind_group_layout],
             None,
         );
@@ -89,17 +89,17 @@ impl ShaderManager for TreeShader {
 
         let mut compute_shader = ComputeShader::from_builder(
             core,
-            include_str!("../shaders/tree.wgsl"),
+            include_str!("shaders/tree.wgsl"),
             config,
         );
 
         // Enable hot reload
         if let Err(e) = compute_shader.enable_hot_reload(
             core.device.clone(),
-            std::path::PathBuf::from("shaders/tree.wgsl"),
+            std::path::PathBuf::from("examples/shaders/tree.wgsl"),
             core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Tree Hot Reload"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/tree.wgsl").into()),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/tree.wgsl").into()),
             }),
         ) {
             eprintln!("Failed to enable hot reload for tree shader: {}", e);

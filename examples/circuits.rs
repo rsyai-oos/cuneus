@@ -71,7 +71,7 @@ impl ShaderManager for CircuitShader {
             _padding6: 0.0,
         };
         
-        let base = RenderKit::new(core, include_str!("../shaders/vertex.wgsl"), include_str!("../shaders/blit.wgsl"), &[&texture_bind_group_layout], None);
+        let base = RenderKit::new(core, include_str!("shaders/vertex.wgsl"), include_str!("shaders/blit.wgsl"), &[&texture_bind_group_layout], None);
 
         let config = ComputeShader::builder()
             .with_entry_point("main")
@@ -83,17 +83,17 @@ impl ShaderManager for CircuitShader {
 
         let mut compute_shader = ComputeShader::from_builder(
             core,
-            include_str!("../shaders/circuits.wgsl"),
+            include_str!("shaders/circuits.wgsl"),
             config,
         );
 
         // Enable hot reload
         if let Err(e) = compute_shader.enable_hot_reload(
             core.device.clone(),
-            std::path::PathBuf::from("shaders/circuits.wgsl"),
+            std::path::PathBuf::from("examples/shaders/circuits.wgsl"),
             core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Circuits Hot Reload"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/circuits.wgsl").into()),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/circuits.wgsl").into()),
             }),
         ) {
             eprintln!("Failed to enable hot reload for circuits shader: {}", e);

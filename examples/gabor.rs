@@ -81,7 +81,7 @@ impl ShaderManager for GaborShader {
             dof_focal_dist: 0.5,
         };
         
-        let base = RenderKit::new(core, include_str!("../shaders/vertex.wgsl"), include_str!("../shaders/blit.wgsl"), &[&texture_bind_group_layout], None);
+        let base = RenderKit::new(core, include_str!("shaders/vertex.wgsl"), include_str!("shaders/blit.wgsl"), &[&texture_bind_group_layout], None);
 
         let mut config = ComputeShader::builder()
             .with_entry_point("Splat")
@@ -97,17 +97,17 @@ impl ShaderManager for GaborShader {
 
         let mut compute_shader = ComputeShader::from_builder(
             core,
-            include_str!("../shaders/gabor.wgsl"),
+            include_str!("shaders/gabor.wgsl"),
             config,
         );
 
         // Enable hot reload
         if let Err(e) = compute_shader.enable_hot_reload(
             core.device.clone(),
-            std::path::PathBuf::from("shaders/gabor.wgsl"),
+            std::path::PathBuf::from("examples/shaders/gabor.wgsl"),
             core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Gabor Hot Reload"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/gabor.wgsl").into()),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/gabor.wgsl").into()),
             }),
         ) {
             eprintln!("Failed to enable hot reload for gabor shader: {}", e);

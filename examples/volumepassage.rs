@@ -70,7 +70,7 @@ impl ShaderManager for VolumeShader {
             _padding3: 0.0,
         };
         
-        let base = RenderKit::new(core, include_str!("../shaders/vertex.wgsl"), include_str!("../shaders/blit.wgsl"), &[&texture_bind_group_layout], None);
+        let base = RenderKit::new(core, include_str!("shaders/vertex.wgsl"), include_str!("shaders/blit.wgsl"), &[&texture_bind_group_layout], None);
 
         let config = ComputeShader::builder()
             .with_entry_point("main")
@@ -82,17 +82,17 @@ impl ShaderManager for VolumeShader {
 
         let mut compute_shader = ComputeShader::from_builder(
             core,
-            include_str!("../shaders/volumepassage.wgsl"),
+            include_str!("shaders/volumepassage.wgsl"),
             config,
         );
 
         // Enable hot reload
         if let Err(e) = compute_shader.enable_hot_reload(
             core.device.clone(),
-            std::path::PathBuf::from("shaders/volumepassage.wgsl"),
+            std::path::PathBuf::from("examples/shaders/volumepassage.wgsl"),
             core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Volumepassage Hot Reload"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/volumepassage.wgsl").into()),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/volumepassage.wgsl").into()),
             }),
         ) {
             eprintln!("Failed to enable hot reload for volumepassage shader: {}", e);

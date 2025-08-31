@@ -60,8 +60,8 @@ impl ShaderManager for FluidShader {
 
         let base = RenderKit::new(
             core,
-            include_str!("../shaders/vertex.wgsl"),
-            include_str!("../shaders/blit.wgsl"),
+            include_str!("shaders/vertex.wgsl"),
+            include_str!("shaders/blit.wgsl"),
             &[&texture_bind_group_layout],
             None,
         );
@@ -85,17 +85,17 @@ impl ShaderManager for FluidShader {
 
         let mut compute_shader = ComputeShader::from_builder(
             core,
-            include_str!("../shaders/fluid.wgsl"),
+            include_str!("shaders/fluid.wgsl"),
             config,
         );
 
         // Enable hot reload
         if let Err(e) = compute_shader.enable_hot_reload(
             core.device.clone(),
-            std::path::PathBuf::from("shaders/fluid.wgsl"),
+            std::path::PathBuf::from("examples/shaders/fluid.wgsl"),
             core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Fluid Hot Reload"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/fluid.wgsl").into()),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/fluid.wgsl").into()),
             }),
         ) {
             eprintln!("Failed to enable hot reload for fluid shader: {}", e);

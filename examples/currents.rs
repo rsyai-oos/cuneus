@@ -137,8 +137,8 @@ impl ShaderManager for CurrentsShader {
 
         let base = RenderKit::new(
             core,
-            include_str!("../shaders/vertex.wgsl"),
-            include_str!("../shaders/blit.wgsl"),
+            include_str!("shaders/vertex.wgsl"),
+            include_str!("shaders/blit.wgsl"),
             &[&texture_bind_group_layout],
             None,
         );
@@ -163,17 +163,17 @@ impl ShaderManager for CurrentsShader {
 
         let mut compute_shader = ComputeShader::from_builder(
             core,
-            include_str!("../shaders/currents.wgsl"),
+            include_str!("shaders/currents.wgsl"),
             config,
         );
 
         // Enable hot reload
         if let Err(e) = compute_shader.enable_hot_reload(
             core.device.clone(),
-            std::path::PathBuf::from("shaders/currents.wgsl"),
+            std::path::PathBuf::from("examples/shaders/currents.wgsl"),
             core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Currents Hot Reload"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/currents.wgsl").into()),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/currents.wgsl").into()),
             }),
         ) {
             eprintln!("Failed to enable hot reload for currents shader: {}", e);

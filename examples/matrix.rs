@@ -61,8 +61,8 @@ impl ShaderManager for MatrixShader {
 
         let base = RenderKit::new(
             core,
-            include_str!("../shaders/vertex.wgsl"),
-            include_str!("../shaders/blit.wgsl"),
+            include_str!("shaders/vertex.wgsl"),
+            include_str!("shaders/blit.wgsl"),
             &[&texture_bind_group_layout],
             None,
         );
@@ -85,7 +85,7 @@ impl ShaderManager for MatrixShader {
 
         let compute_shader = ComputeShader::from_builder(
             core,
-            include_str!("../shaders/matrix.wgsl"),
+            include_str!("shaders/matrix.wgsl"),
             config,
         );
 

@@ -64,8 +64,8 @@ impl ShaderManager for NeuronShader {
 
         let base = RenderKit::new(
             core,
-            include_str!("../shaders/vertex.wgsl"),
-            include_str!("../shaders/blit.wgsl"),
+            include_str!("shaders/vertex.wgsl"),
+            include_str!("shaders/blit.wgsl"),
             &[&texture_bind_group_layout],
             None,
         );
@@ -89,17 +89,17 @@ impl ShaderManager for NeuronShader {
 
         let mut compute_shader = ComputeShader::from_builder(
             core,
-            include_str!("../shaders/2dneuron.wgsl"),
+            include_str!("shaders/2dneuron.wgsl"),
             config,
         );
 
         // Enable hot reload
         if let Err(e) = compute_shader.enable_hot_reload(
             core.device.clone(),
-            std::path::PathBuf::from("shaders/2dneuron.wgsl"),
+            std::path::PathBuf::from("examples/shaders/2dneuron.wgsl"),
             core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("2dneuron Hot Reload"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/2dneuron.wgsl").into()),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/2dneuron.wgsl").into()),
             }),
         ) {
             eprintln!("Failed to enable hot reload for 2dneuron shader: {}", e);

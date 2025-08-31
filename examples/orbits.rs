@@ -77,8 +77,8 @@ impl ShaderManager for Shader {
 
         let base = RenderKit::new(
             core,
-            include_str!("../shaders/vertex.wgsl"),
-            include_str!("../shaders/blit.wgsl"),
+            include_str!("shaders/vertex.wgsl"),
+            include_str!("shaders/blit.wgsl"),
             &[&texture_bind_group_layout],
             None,
         );
@@ -91,7 +91,7 @@ impl ShaderManager for Shader {
 
         let mut compute_shader = ComputeShader::from_builder(
             core,
-            include_str!("../shaders/orbits.wgsl"),
+            include_str!("shaders/orbits.wgsl"),
             config,
         );
 
@@ -119,10 +119,10 @@ impl ShaderManager for Shader {
         // Enable hot reload
         if let Err(e) = compute_shader.enable_hot_reload(
             core.device.clone(),
-            std::path::PathBuf::from("shaders/orbits.wgsl"),
+            std::path::PathBuf::from("examples/shaders/orbits.wgsl"),
             core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Orbits Hot Reload"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/orbits.wgsl").into()),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/orbits.wgsl").into()),
             }),
         ) {
             eprintln!("Failed to enable hot reload for orbits shader: {}", e);

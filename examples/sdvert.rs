@@ -72,8 +72,8 @@ impl ShaderManager for Shader {
 
         let base = RenderKit::new(
             core,
-            include_str!("../shaders/vertex.wgsl"),
-            include_str!("../shaders/blit.wgsl"),
+            include_str!("shaders/vertex.wgsl"),
+            include_str!("shaders/blit.wgsl"),
             &[&texture_bind_group_layout],
             None,
         );
@@ -108,17 +108,17 @@ impl ShaderManager for Shader {
 
         let mut compute_shader = ComputeShader::from_builder(
             core,
-            include_str!("../shaders/sdvert.wgsl"),
+            include_str!("shaders/sdvert.wgsl"),
             config,
         );
 
         // Enable hot reload
         if let Err(e) = compute_shader.enable_hot_reload(
             core.device.clone(),
-            std::path::PathBuf::from("shaders/sdvert.wgsl"),
+            std::path::PathBuf::from("examples/shaders/sdvert.wgsl"),
             core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("SDVert Hot Reload"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/sdvert.wgsl").into()),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/sdvert.wgsl").into()),
             }),
         ) {
             eprintln!("Failed to enable hot reload for sdvert shader: {}", e);

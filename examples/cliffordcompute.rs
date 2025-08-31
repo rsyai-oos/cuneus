@@ -75,7 +75,7 @@ impl ShaderManager for CliffordShader {
             dof_focal_dist: 0.5,
         };
         
-        let base = RenderKit::new(core, include_str!("../shaders/vertex.wgsl"), include_str!("../shaders/blit.wgsl"), &[&texture_bind_group_layout], None);
+        let base = RenderKit::new(core, include_str!("shaders/vertex.wgsl"), include_str!("shaders/blit.wgsl"), &[&texture_bind_group_layout], None);
 
         let mut config = ComputeShader::builder()
             .with_entry_point("Splat")
@@ -90,17 +90,17 @@ impl ShaderManager for CliffordShader {
 
         let mut compute_shader = ComputeShader::from_builder(
             core,
-            include_str!("../shaders/cliffordcompute.wgsl"),
+            include_str!("shaders/cliffordcompute.wgsl"),
             config,
         );
 
         // Enable hot reload
         if let Err(e) = compute_shader.enable_hot_reload(
             core.device.clone(),
-            std::path::PathBuf::from("shaders/cliffordcompute.wgsl"),
+            std::path::PathBuf::from("examples/shaders/cliffordcompute.wgsl"),
             core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Clifford Compute Hot Reload"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/cliffordcompute.wgsl").into()),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/cliffordcompute.wgsl").into()),
             }),
         ) {
             eprintln!("Failed to enable hot reload for cliffordcompute shader: {}", e);
