@@ -71,7 +71,7 @@ impl ShaderManager for CircuitShader {
             _padding6: 0.0,
         };
         
-        let base = RenderKit::new(core, include_str!("shaders/vertex.wgsl"), include_str!("shaders/blit.wgsl"), &[&texture_bind_group_layout], None);
+        let base = RenderKit::new(core, &[&texture_bind_group_layout], None);
 
         let config = ComputeShader::builder()
             .with_entry_point("main")

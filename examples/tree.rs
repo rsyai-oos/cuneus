@@ -64,8 +64,6 @@ impl ShaderManager for TreeShader {
 
         let base = RenderKit::new(
             core,
-            include_str!("shaders/vertex.wgsl"),
-            include_str!("shaders/blit.wgsl"),
             &[&texture_bind_group_layout],
             None,
         );
