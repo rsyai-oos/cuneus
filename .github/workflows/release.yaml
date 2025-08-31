@@ -198,7 +198,7 @@ jobs:
           IFS=',' read -ra SHADERS <<< "${{ matrix.shader_config.shaders }}"
           for shader in "${SHADERS[@]}"; do
             echo "Building shader: $shader"
-            cargo build --release --bin "$shader" ${{ matrix.shader_config.features }}
+            cargo build --release --example "$shader" ${{ matrix.shader_config.features }}
           done
 
       # Bundle GStreamer files for media shaders
@@ -477,7 +477,7 @@ jobs:
             mkdir -p "release/$shader/shaders"
             
             # Copy the binary
-            cp "target/release/$shader${{ matrix.ext }}" "release/$shader/"
+            cp "target/release/examples/$shader${{ matrix.ext }}" "release/$shader/"
             
             # Copy shader files
             cp "shaders/$shader.wgsl" "release/$shader/shaders/"

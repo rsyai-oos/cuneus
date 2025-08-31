@@ -15,7 +15,7 @@
 git clone <repo-url>
 cd cuneus
 # Run a specific shader
-cargo run --release --bin audiovis 
+cargo run --release --example audiovis 
 ```
 
 ## Notes
