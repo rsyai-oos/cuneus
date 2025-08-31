@@ -65,10 +65,11 @@ pub struct RenderKit {
 }
 
 impl RenderKit {
+    const VERTEX_SHADER: &'static str = include_str!("../shaders/vertex.wgsl");
+    const BLIT_SHADER: &'static str = include_str!("../shaders/blit.wgsl");
+    
     pub fn new(
         core: &Core,
-        vs_source: &str,
-        fs_source: &str,
         bind_group_layouts: &[&wgpu::BindGroupLayout],
         fragment_entry: Option<&str>,
     ) -> Self {
@@ -123,11 +124,11 @@ impl RenderKit {
         );
         let vs_shader = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Vertex Shader"),
-            source: wgpu::ShaderSource::Wgsl(vs_source.into()),
+            source: wgpu::ShaderSource::Wgsl(Self::VERTEX_SHADER.into()),
         });
         let fs_shader = core.device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Fragment Shader"),
-            source: wgpu::ShaderSource::Wgsl(fs_source.into()),
+            source: wgpu::ShaderSource::Wgsl(Self::BLIT_SHADER.into()),
         });
         let texture_bind_group_layout = core.device.create_bind_group_layout(
             &wgpu::BindGroupLayoutDescriptor {
