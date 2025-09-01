@@ -205,7 +205,6 @@ impl ShaderManager for KuwaharaShader {
                             .default_open(true)
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.radius, 2.0..=16.0).text("Radius")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.q, 2.0..=12.0).text("Sharpness (q)")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.filter_strength, 0.0..=8.0).text("Filter Strength")).changed();
                                 
                                 if params.filter_mode == 1 {
