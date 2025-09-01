@@ -53,21 +53,23 @@ const BLUR_LOD: i32 = 2;
 const BLUR_SLOD: i32 = 4;
 const BLUR_SIGMA: f32 = 8.75;
 
-fn gaussian_weight(i: vec2f) -> f32 {
-    let sigma_i = i / BLUR_SIGMA;
-    return exp(-0.5 * dot(sigma_i, sigma_i)) / (6.28 * BLUR_SIGMA * BLUR_SIGMA);
+fn gaussian_weight(i: vec2f, sigma: f32) -> f32 {
+    let sigma_i = i / sigma;
+    return exp(-0.5 * dot(sigma_i, sigma_i)) / (6.28 * sigma * sigma);
 }
 
 fn blur_tensor(uv: vec2f, texel_size: vec2f) -> vec3f {
     var result = vec3f(0.0);
     var total_weight = 0.0;
     let s = BLUR_SAMPLES / BLUR_SLOD;
+    let effective_sigma = params.sigma_r * 2.5;
+    let blur_lod = max(0.0, params.sigma_d - 0.5);
     
     for (var i = 0; i < s * s; i++) {
         let d = vec2f(f32(i % s), f32(i / s)) * f32(BLUR_SLOD) - f32(BLUR_SAMPLES) / 2.0;
-        let weight = gaussian_weight(d);
+        let weight = gaussian_weight(d, effective_sigma);
         let sample_uv = clamp(uv + texel_size * d, vec2f(0.0), vec2f(1.0));
-        let tensor_data = textureSampleLevel(input_texture0, input_sampler0, sample_uv, f32(BLUR_LOD));
+        let tensor_data = textureSampleLevel(input_texture0, input_sampler0, sample_uv, blur_lod);
         
         result += tensor_data.xyz * weight;
         total_weight += weight;
@@ -145,8 +147,8 @@ fn structure_tensor(@builtin(global_invocation_id) id: vec3u) {
     let uv = (vec2f(id.xy) + 0.5) / vec2f(dims);
     let texel_size = 1.0 / vec2f(dims);
 
-    // Sobel gradient computation
-    let d = texel_size;
+    // Sobel gradient computation: sigma_d to control derivative kernel size
+    let d = texel_size * params.sigma_d;
     
     // Sobel X kernel: [-1,-2,-1; 0,0,0; 1,2,1] / 4
     let sobel_x = (
@@ -156,7 +158,7 @@ fn structure_tensor(@builtin(global_invocation_id) id: vec3u) {
         1.0 * get_input_color(clamp(uv + vec2f( d.x, -d.y), vec2f(0.0), vec2f(1.0))) +
         2.0 * get_input_color(clamp(uv + vec2f( d.x,  0.0), vec2f(0.0), vec2f(1.0))) + 
         1.0 * get_input_color(clamp(uv + vec2f( d.x,  d.y), vec2f(0.0), vec2f(1.0)))
-    ) / 4.0;
+    ) / (4.0;
 
     // Sobel Y kernel: [-1,0,1; -2,0,2; -1,0,1] / 4
     let sobel_y = (
@@ -278,8 +280,7 @@ fn kuwahara_filter(@builtin(global_invocation_id) id: vec3u) {
                 let mean_intensity = length(mean_color);
                 let variance = (quadrant_variance[q] / quadrant_mean[q].w) - (mean_intensity * mean_intensity);
                 
-                // Apply gentler sharpness parameter (like anisotropic)
-                let adjusted_variance = variance * params.q * 0.3;
+                let adjusted_variance = variance * params.q;
                 
                 if (adjusted_variance < min_variance) {
                     min_variance = adjusted_variance;
@@ -299,13 +300,15 @@ fn kuwahara_filter(@builtin(global_invocation_id) id: vec3u) {
         let orientation = tensor_data.xy;
         let anisotropy = tensor_data.w;
         
-        // Simple anisotropic transformation  
         let alpha = params.alpha;
         let radius = params.radius;
         
-        // Create simple elliptical sampling with orientation
-        let a = radius * (1.0 + anisotropy * 0.5);
-        let b = radius * (1.0 - anisotropy * 0.3);
+        // edge threshold to control anisotropic effect
+        let effective_anisotropy = select(0.0, anisotropy, anisotropy > params.edge_threshold);
+        
+        // elliptical sampling
+        let a = radius * (1.0 + effective_anisotropy * alpha * 0.8);
+        let b = radius * max(0.3, 1.0 - effective_anisotropy * alpha * 0.6);
         
         // 4 overlapping quadrants (classical Kuwahara approach)
         var quadrant_means: array<vec3f, 4>;
@@ -370,8 +373,7 @@ fn kuwahara_filter(@builtin(global_invocation_id) id: vec3u) {
                 let mean_intensity = length(mean_color);
                 let variance = (quadrant_variances[q] / quadrant_counts[q]) - (mean_intensity * mean_intensity);
                 
-                // Gentle sharpness application
-                let adjusted_variance = variance * params.q * 0.3;
+                let adjusted_variance = variance * params.q;
                 
                 if (adjusted_variance < min_variance) {
                     min_variance = adjusted_variance;

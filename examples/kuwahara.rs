@@ -212,27 +212,10 @@ impl ShaderManager for KuwaharaShader {
                                     ui.separator();
                                     ui.label("Anisotropic Controls:");
                                     changed |= ui.add(egui::Slider::new(&mut params.alpha, 0.1..=6.0).text("Anisotropy (α)")).changed();
-                                    changed |= ui.add(egui::Slider::new(&mut params.edge_threshold, 0.01..=0.99).text("Edge Threshold")).changed();
                                 }
                             });
 
 
-                        if params.filter_mode == 1 {
-                            egui::CollapsingHeader::new("Structure Tensor")
-                                .default_open(false)
-                                .show(ui, |ui| {
-                                    ui.label("Smoothing Parameters:");
-                                    changed |= ui.add(egui::Slider::new(&mut params.sigma_d, 0.5..=4.0).text("Derivative σ")).changed();
-                                    changed |= ui.add(egui::Slider::new(&mut params.sigma_r, 1.0..=6.0).text("Regularization σ")).changed();
-                                });
-                        }
-
-                        ui.separator();
-                        let mut show_tensors_bool = params.show_tensors == 1;
-                        if ui.checkbox(&mut show_tensors_bool, "Show Tensors").changed() {
-                            params.show_tensors = if show_tensors_bool { 1 } else { 0 };
-                            changed = true;
-                        }
 
                         egui::CollapsingHeader::new("Post-Processing")
                             .default_open(false)
@@ -248,7 +231,7 @@ impl ShaderManager for KuwaharaShader {
                                         filter_strength: 1.0,
                                         sigma_d: 1.0,
                                         sigma_r: 2.0,
-                                        edge_threshold: 0.1,
+                                        edge_threshold: 0.2,
                                         color_enhance: 1.0,
                                         filter_mode: params.filter_mode,
                                         show_tensors: 0,
