@@ -345,7 +345,7 @@ impl ShaderManager for KuwaharaShader {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     cuneus::gst::init()?;
     env_logger::init();
-    let (app, event_loop) = ShaderApp::new("Anisotropic Kuwahara Filter", 1024, 768);
+    let (app, event_loop) = ShaderApp::new("Anisotropic Kuwahara Filter", 800, 600);
     
     app.run(event_loop, |core| {
         KuwaharaShader::init(core)

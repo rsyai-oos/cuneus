@@ -79,7 +79,7 @@ fn blur_tensor(uv: vec2f, texel_size: vec2f) -> vec3f {
 // region calculation for classical Kuwahara
 fn calc_region_stats(uv: vec2f, lower: vec2i, upper: vec2i, texel_size: vec2f) -> vec2f {
     var color_sum = vec3f(0.0);
-    var variance_sum = 0.0;
+    var color_variance_sum = vec3f(0.0);
     var count = 0;
     
     for (var j = lower.y; j <= upper.y; j++) {
@@ -87,19 +87,24 @@ fn calc_region_stats(uv: vec2f, lower: vec2i, upper: vec2i, texel_size: vec2f) -
             let offset = vec2f(f32(i), f32(j)) * texel_size;
             let sample_uv = clamp(uv + offset, vec2f(0.0), vec2f(1.0));
             let sample_color = get_input_color(sample_uv);
-            let luminance = dot(sample_color, vec3f(0.299, 0.587, 0.114));
             
             color_sum += sample_color;
-            variance_sum += luminance * luminance;
+            color_variance_sum += sample_color * sample_color;
             count++;
         }
     }
     
     if (count > 0) {
         let mean_color = color_sum / f32(count);
+        
+        // RGB-based variance
+        let rgb_variance = color_variance_sum / f32(count) - (mean_color * mean_color);
+        let total_variance = rgb_variance.r + rgb_variance.g + rgb_variance.b;
+        
         let mean_luminance = dot(mean_color, vec3f(0.299, 0.587, 0.114));
-        let variance = (variance_sum / f32(count)) - (mean_luminance * mean_luminance);
-        return vec2f(mean_luminance, variance);
+        let combined_variance = total_variance * 0.7 + (rgb_variance.r * 0.299 + rgb_variance.g * 0.587 + rgb_variance.b * 0.114) * 0.3;
+        
+        return vec2f(mean_luminance, combined_variance);
     }
     return vec2f(0.0, 999999.0);
 }
@@ -139,7 +144,7 @@ fn structure_tensor(@builtin(global_invocation_id) id: vec3u) {
     
     let uv = (vec2f(id.xy) + 0.5) / vec2f(dims);
     let texel_size = 1.0 / vec2f(dims);
-    
+
     // Sobel gradient computation
     let d = texel_size;
     
@@ -163,16 +168,24 @@ fn structure_tensor(@builtin(global_invocation_id) id: vec3u) {
         1.0 * get_input_color(clamp(uv + vec2f( d.x,  d.y), vec2f(0.0), vec2f(1.0)))
     ) / 4.0;
     
-    // Convert to luminance gradients
-    let gx = dot(sobel_x, vec3f(0.299, 0.587, 0.114));
-    let gy = dot(sobel_y, vec3f(0.299, 0.587, 0.114));
+    // RGB gradient magnitudes (per-channel edge detection)
+    let grad_r = length(vec2f(sobel_x.r, sobel_y.r));
+    let grad_g = length(vec2f(sobel_x.g, sobel_y.g));
+    let grad_b = length(vec2f(sobel_x.b, sobel_y.b));
+    
+    // gradient using color-sensitive weighting
+    let color_weights = vec3f(0.299, 0.587, 0.114);
+    let weighted_grad = grad_r * color_weights.r + grad_g * color_weights.g + grad_b * color_weights.b;
+    
+    let gx = dot(sobel_x, color_weights) + (grad_r + grad_g + grad_b) * 0.1;
+    let gy = dot(sobel_y, color_weights) + (grad_r + grad_g + grad_b) * 0.1;
     
     // Structure tensor components
-    let Jxx = gx * gx;
-    let Jyy = gy * gy;
+    let Jxx = gx * gx + weighted_grad * 0.05;
+    let Jyy = gy * gy + weighted_grad * 0.05;
     let Jxy = gx * gy;
     
-    textureStore(output, id.xy, vec4f(Jxx, Jyy, Jxy, 1.0));
+    textureStore(output, id.xy, vec4f(Jxx, Jyy, Jxy, weighted_grad));
 }
 
 // Tensor Field Computation (Pass 2)
@@ -242,7 +255,6 @@ fn kuwahara_filter(@builtin(global_invocation_id) id: vec3u) {
                 let offset = vec2f(f32(dx), f32(dy)) * texel_size;
                 let sample_uv = clamp(uv + offset, vec2f(0.0), vec2f(1.0));
                 let sample_color = get_input_color(sample_uv);
-                let luminance = dot(sample_color, vec3f(0.299, 0.587, 0.114));
                 
                 // Determine quadrant (0=top-left, 1=top-right, 2=bottom-left, 3=bottom-right)
                 var quadrant = 0;
@@ -251,7 +263,8 @@ fn kuwahara_filter(@builtin(global_invocation_id) id: vec3u) {
                 else if (dx >= 0 && dy >= 0) { quadrant = 3; }   // bottom-right
                 
                 quadrant_mean[quadrant] += vec4f(sample_color, 1.0);
-                quadrant_variance[quadrant] += luminance * luminance;
+                let rgb_intensity = length(sample_color);
+                quadrant_variance[quadrant] += rgb_intensity * rgb_intensity;
             }
         }
         
@@ -262,8 +275,8 @@ fn kuwahara_filter(@builtin(global_invocation_id) id: vec3u) {
         for (var q = 0; q < 4; q++) {
             if (quadrant_mean[q].w > 0.0) {
                 let mean_color = quadrant_mean[q].rgb / quadrant_mean[q].w;
-                let mean_luminance = dot(mean_color, vec3f(0.299, 0.587, 0.114));
-                let variance = (quadrant_variance[q] / quadrant_mean[q].w) - (mean_luminance * mean_luminance);
+                let mean_intensity = length(mean_color);
+                let variance = (quadrant_variance[q] / quadrant_mean[q].w) - (mean_intensity * mean_intensity);
                 
                 // Apply gentler sharpness parameter (like anisotropic)
                 let adjusted_variance = variance * params.q * 0.3;
@@ -320,27 +333,27 @@ fn kuwahara_filter(@builtin(global_invocation_id) id: vec3u) {
                 if (ellipse_dist <= 1.0) {
                     let sample_uv = clamp(uv + offset * texel_size, vec2f(0.0), vec2f(1.0));
                     let sample_color = get_input_color(sample_uv);
-                    let luminance = dot(sample_color, vec3f(0.299, 0.587, 0.114));
+                    let rgb_intensity = length(sample_color);
                     
                     // Simple quadrant assignment (overlapping like classical)
                     if (i <= 0 && j <= 0) { // Top-left
                         quadrant_means[0] += sample_color;
-                        quadrant_variances[0] += luminance * luminance;
+                        quadrant_variances[0] += rgb_intensity * rgb_intensity;
                         quadrant_counts[0] += 1.0;
                     }
                     if (i >= 0 && j <= 0) { // Top-right  
                         quadrant_means[1] += sample_color;
-                        quadrant_variances[1] += luminance * luminance;
+                        quadrant_variances[1] += rgb_intensity * rgb_intensity;
                         quadrant_counts[1] += 1.0;
                     }
                     if (i <= 0 && j >= 0) { // Bottom-left
                         quadrant_means[2] += sample_color;
-                        quadrant_variances[2] += luminance * luminance;
+                        quadrant_variances[2] += rgb_intensity * rgb_intensity;
                         quadrant_counts[2] += 1.0;
                     }
                     if (i >= 0 && j >= 0) { // Bottom-right
                         quadrant_means[3] += sample_color;
-                        quadrant_variances[3] += luminance * luminance;  
+                        quadrant_variances[3] += rgb_intensity * rgb_intensity;  
                         quadrant_counts[3] += 1.0;
                     }
                 }
@@ -354,8 +367,8 @@ fn kuwahara_filter(@builtin(global_invocation_id) id: vec3u) {
         for (var q = 0; q < 4; q++) {
             if (quadrant_counts[q] > 0.0) {
                 let mean_color = quadrant_means[q] / quadrant_counts[q];
-                let mean_luminance = dot(mean_color, vec3f(0.299, 0.587, 0.114));
-                let variance = (quadrant_variances[q] / quadrant_counts[q]) - (mean_luminance * mean_luminance);
+                let mean_intensity = length(mean_color);
+                let variance = (quadrant_variances[q] / quadrant_counts[q]) - (mean_intensity * mean_intensity);
                 
                 // Gentle sharpness application
                 let adjusted_variance = variance * params.q * 0.3;
