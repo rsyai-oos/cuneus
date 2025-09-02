@@ -267,7 +267,9 @@ fn kuwahara_filter(@builtin(global_invocation_id) id: vec3u) {
         
         if (qmean[selq].w > 0.0) {
             let sc = qmean[selq].rgb / qmean[selq].w;
-            result = vec4f(mix(orig, sc, params.filter_strength), 1.0);
+
+            let soft_strength = min(params.filter_strength, 2.0) / 2.0;
+            result = vec4f(mix(orig, sc, soft_strength), 1.0);
         }
     } else {
         // anisotropic mode
@@ -348,7 +350,8 @@ fn kuwahara_filter(@builtin(global_invocation_id) id: vec3u) {
             }
         }
         
-        result = vec4f(mix(orig, best, params.filter_strength), 1.0);
+        let soft_strength = min(params.filter_strength, 2.0) / 2.0;
+        result = vec4f(mix(orig, best, soft_strength), 1.0);
     }
     
     // color enhance
