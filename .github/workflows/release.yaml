@@ -508,7 +508,8 @@ jobs:
                   otool -L "$BINARY" 2>/dev/null | grep -E "(@rpath|/Library/Frameworks/GStreamer.framework)" | awk '{print $1}' | while read dep; do
                     if [[ -n "$dep" ]]; then
                       lib_name=$(basename "$dep")
-                      new_path="@loader_path/gstreamer/lib/$lib_name"
+                      # Use the correct relative path from binary to bundled libraries
+                      new_path="@executable_path/gstreamer/lib/$lib_name"
                       echo "  Changing: $dep -> $new_path"
                       install_name_tool -change "$dep" "$new_path" "$BINARY" 2>/dev/null || true
                     fi
@@ -751,6 +752,10 @@ jobs:
                 # Set plugin scanner for macOS and Linux
                 if [[ "${{ runner.os }}" == "macOS" ]]; then
                   echo 'export GST_PLUGIN_SCANNER="$SCRIPT_DIR/gstreamer/libexec/gstreamer-1.0/gst-plugin-scanner"' >> "release/$shader/run_$shader.sh"
+                  echo '# Disable system GStreamer to prevent conflicts' >> "release/$shader/run_$shader.sh"
+                  echo 'export DYLD_LIBRARY_PATH="$SCRIPT_DIR/gstreamer/lib:$DYLD_LIBRARY_PATH"' >> "release/$shader/run_$shader.sh"
+                  echo 'export DYLD_FALLBACK_LIBRARY_PATH="$SCRIPT_DIR/gstreamer/lib"' >> "release/$shader/run_$shader.sh"
+                  echo 'unset PKG_CONFIG_PATH' >> "release/$shader/run_$shader.sh"
                 elif [[ "${{ runner.os }}" == "Linux" ]]; then
                   echo 'export GST_PLUGIN_SCANNER="$SCRIPT_DIR/gstreamer/libexec/gstreamer-1.0/gst-plugin-scanner"' >> "release/$shader/run_$shader.sh"
                 fi
