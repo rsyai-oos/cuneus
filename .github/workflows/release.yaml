@@ -53,7 +53,7 @@ jobs:
         if: runner.os == 'macOS' && matrix.shader_config.gstreamer_required
         run: |
           # Download and install official GStreamer packages
-          GSTREAMER_VERSION="1.26.4"
+          GSTREAMER_VERSION="1.26.5"
           curl -L "https://gstreamer.freedesktop.org/data/pkg/osx/$GSTREAMER_VERSION/gstreamer-1.0-$GSTREAMER_VERSION-universal.pkg" -o gstreamer.pkg
           curl -L "https://gstreamer.freedesktop.org/data/pkg/osx/$GSTREAMER_VERSION/gstreamer-1.0-devel-$GSTREAMER_VERSION-universal.pkg" -o gstreamer-devel.pkg
           
@@ -90,7 +90,7 @@ jobs:
         shell: pwsh
         run: |
           Write-Host "Starting GStreamer installation process..."
-          $gstVer = "1.26.4"
+          $gstVer = "1.26.5"
           $tempDir = "C:\gst-temp"
           $installDir = "C:\gstreamer"
           
@@ -403,8 +403,18 @@ jobs:
             if [[ -f "$GSTREAMER_ROOT/lib/gstreamer-1.0/$plugin" ]]; then
               cp "$GSTREAMER_ROOT/lib/gstreamer-1.0/$plugin" "$BUNDLE_DIR/lib/gstreamer-1.0/" 2>/dev/null || true
               echo "  ✅ Copied plugin: $plugin"
+              
+              # Special check for critical macOS camera plugin
+              if [[ "$plugin" == "libgstapplemedia.dylib" ]]; then
+                echo "  🎥 CRITICAL: macOS camera plugin copied successfully"
+              fi
             else
               echo "  ❌ MISSING plugin: $plugin (checked: $GSTREAMER_ROOT/lib/gstreamer-1.0/$plugin)"
+              
+              # Special warning for critical macOS camera plugin
+              if [[ "$plugin" == "libgstapplemedia.dylib" ]]; then
+                echo "  🚨 CRITICAL ERROR: macOS camera plugin NOT FOUND - webcam will not work!"
+              fi
             fi
           done
           
@@ -505,7 +515,7 @@ jobs:
                 # Fix main binary
                 echo "Fixing main binary: $BINARY"
                 if [[ -f "$BINARY" ]]; then
-                  otool -L "$BINARY" 2>/dev/null | grep -E "(@rpath|/Library/Frameworks/GStreamer.framework)" | awk '{print $1}' | while read dep; do
+                  otool -L "$BINARY" 2>/dev/null | grep -E "(@rpath.*gst|@rpath.*glib|@rpath.*gio|/Library/Frameworks/GStreamer.framework)" | awk '{print $1}' | while read dep; do
                     if [[ -n "$dep" ]]; then
                       lib_name=$(basename "$dep")
                       # Use the correct relative path from binary to bundled libraries
@@ -543,7 +553,7 @@ jobs:
                         echo "    Successfully modified ID for $lib_name"
                         
                         # Fix dependencies
-                        otool -L "$lib" 2>/dev/null | grep -E "(@rpath|/Library/Frameworks/GStreamer.framework)" | awk '{print $1}' | while read dep; do
+                        otool -L "$lib" 2>/dev/null | grep -E "(@rpath.*gst|@rpath.*glib|@rpath.*gio|/Library/Frameworks/GStreamer.framework)" | awk '{print $1}' | while read dep; do
                           if [[ -n "$dep" ]]; then
                             dep_lib_name=$(basename "$dep")
                             new_dep_path="@loader_path/$dep_lib_name"
@@ -580,7 +590,7 @@ jobs:
                         echo "    Successfully modified ID for $plugin_name"
                         
                         # Fix dependencies
-                        otool -L "$plugin" 2>/dev/null | grep -E "(@rpath|/Library/Frameworks/GStreamer.framework)" | awk '{print $1}' | while read dep; do
+                        otool -L "$plugin" 2>/dev/null | grep -E "(@rpath.*gst|@rpath.*glib|@rpath.*gio|/Library/Frameworks/GStreamer.framework)" | awk '{print $1}' | while read dep; do
                           if [[ -n "$dep" ]]; then
                             dep_lib_name=$(basename "$dep")
                             new_dep_path="@loader_path/../$dep_lib_name"
