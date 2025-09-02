@@ -196,7 +196,9 @@ jobs:
         run: |
           echo "Building ${{ matrix.shader_config.group }} shaders with features: ${{ matrix.shader_config.features }}"
           
-          # Set linker flags for macOS to allow install_name_tool modifications
+          # CRITICAL: Set linker flags for macOS to allow install_name_tool modifications
+          # Without this flag, install_name_tool silently fails due to insufficient header padding
+          # This enables fixing @rpath entries to point to bundled GStreamer libraries
           if [[ "${{ runner.os }}" == "macOS" ]]; then
             export RUSTFLAGS="$RUSTFLAGS -C link-arg=-Wl,-headerpad_max_install_names"
           fi
