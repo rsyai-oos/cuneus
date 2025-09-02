@@ -195,6 +195,12 @@ jobs:
         shell: bash
         run: |
           echo "Building ${{ matrix.shader_config.group }} shaders with features: ${{ matrix.shader_config.features }}"
+          
+          # Set linker flags for macOS to allow install_name_tool modifications
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            export RUSTFLAGS="$RUSTFLAGS -C link-arg=-Wl,-headerpad_max_install_names"
+          fi
+          
           IFS=',' read -ra SHADERS <<< "${{ matrix.shader_config.shaders }}"
           for shader in "${SHADERS[@]}"; do
             echo "Building shader: $shader"
@@ -515,14 +521,26 @@ jobs:
                 # Fix main binary
                 echo "Fixing main binary: $BINARY"
                 if [[ -f "$BINARY" ]]; then
-                  otool -L "$BINARY" 2>/dev/null | grep -E "(@rpath|/Library/Frameworks/GStreamer.framework)" | awk '{print $1}' | while read dep; do
+                  echo "Before fixing:"
+                  otool -L "$BINARY" | grep -E "(@rpath|/Library/Frameworks/GStreamer.framework)" || echo "No problematic paths found"
+                  
+                  # Create a temporary file with the dependencies to fix
+                  TEMP_DEPS="/tmp/deps_to_fix_$$"
+                  otool -L "$BINARY" 2>/dev/null | grep -E "(@rpath|/Library/Frameworks/GStreamer.framework)" | awk '{print $1}' > "$TEMP_DEPS"
+                  
+                  while read -r dep; do
                     if [[ -n "$dep" ]]; then
                       lib_name=$(basename "$dep")
                       new_path="@executable_path/gstreamer/lib/$lib_name"
                       echo "  Changing: $dep -> $new_path"
-                      install_name_tool -change "$dep" "$new_path" "$BINARY" 2>/dev/null || true
+                      install_name_tool -change "$dep" "$new_path" "$BINARY" 2>/dev/null || echo "  Failed to change $dep"
                     fi
-                  done
+                  done < "$TEMP_DEPS"
+                  
+                  rm -f "$TEMP_DEPS"
+                  
+                  echo "After fixing:"
+                  otool -L "$BINARY" | grep -E "(@rpath|/Library/Frameworks/GStreamer.framework)" || echo "All paths fixed!"
                 else
                   echo "❌ Binary not found: $BINARY"
                 fi
