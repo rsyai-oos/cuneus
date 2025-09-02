@@ -184,7 +184,7 @@ impl ShaderManager for KuwaharaShader {
                     style.text_styles.get_mut(&egui::TextStyle::Button).unwrap().size = 10.0;
                 });
                 
-                egui::Window::new("Anisotropic Kuwahara Filter")
+                egui::Window::new("Filter")
                     .collapsible(true)
                     .resizable(true)
                     .default_width(320.0)
@@ -220,9 +220,6 @@ impl ShaderManager for KuwaharaShader {
                                     changed |= ui.add(egui::Slider::new(&mut params.alpha, 0.1..=16.0).text("Anisotropy")).changed();
                                 }
                             });
-
-
-
                         egui::CollapsingHeader::new("Blur Settings")
                             .default_open(false)
                             .show(ui, |ui| {
@@ -252,7 +249,7 @@ impl ShaderManager for KuwaharaShader {
                                         blur_slod: 4.0,
                                         filter_mode: params.filter_mode,
                                         show_tensors: 0,
-            _padding: [0; 3],
+                                        _padding: [0; 3],
                                     };
                                     changed = true;
                                 }
@@ -345,7 +342,7 @@ impl ShaderManager for KuwaharaShader {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     cuneus::gst::init()?;
     env_logger::init();
-    let (app, event_loop) = ShaderApp::new("Anisotropic Kuwahara Filter", 800, 600);
+    let (app, event_loop) = ShaderApp::new("Kuwahara Filter", 800, 600);
     
     app.run(event_loop, |core| {
         KuwaharaShader::init(core)
