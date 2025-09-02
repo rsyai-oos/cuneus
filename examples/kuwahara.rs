@@ -16,10 +16,14 @@ struct KuwaharaParams {
     edge_threshold: f32,
     color_enhance: f32,
     
+    blur_samples: f32,
+    blur_lod: f32,
+    blur_slod: f32,
+    
     filter_mode: i32,
     show_tensors: i32,
 
-    _padding: [u32; 6],
+    _padding: [u32; 3],
 }
 
 impl UniformProvider for KuwaharaParams {
@@ -45,9 +49,12 @@ impl ShaderManager for KuwaharaShader {
             sigma_r: 1.2,
             edge_threshold: 0.2,
             color_enhance: 1.0,
+            blur_samples: 15.0,
+            blur_lod: 2.0,
+            blur_slod: 4.0,
             filter_mode: 1,
             show_tensors: 0,
-            _padding: [0; 6],
+            _padding: [0; 3],
         };
 
         let texture_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -205,21 +212,29 @@ impl ShaderManager for KuwaharaShader {
                             .default_open(true)
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.radius, 2.0..=16.0).text("Radius")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.filter_strength, 0.0..=8.0).text("Filter Strength")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.filter_strength, 0.0..=16.0).text("Filter Strength")).changed();
                                 
                                 if params.filter_mode == 1 {
                                     ui.separator();
                                     ui.label("Anisotropic Controls:");
-                                    changed |= ui.add(egui::Slider::new(&mut params.alpha, 0.1..=6.0).text("Anisotropy (α)")).changed();
+                                    changed |= ui.add(egui::Slider::new(&mut params.alpha, 0.1..=16.0).text("Anisotropy")).changed();
                                 }
                             });
 
 
 
+                        egui::CollapsingHeader::new("Blur Settings")
+                            .default_open(false)
+                            .show(ui, |ui| {
+                                changed |= ui.add(egui::Slider::new(&mut params.blur_samples, 5.0..=25.0).text("Samples")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.blur_lod, 0.0..=5.0).text("LOD")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.blur_slod, 2.0..=5.0).text("Step")).changed();
+                            });
+
                         egui::CollapsingHeader::new("Post-Processing")
                             .default_open(false)
                             .show(ui, |ui| {
-                                changed |= ui.add(egui::Slider::new(&mut params.color_enhance, 0.5..=2.0).text("Color Enhancement")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.color_enhance, 0.5..=2.0).text("Color Filter")).changed();
                                 
                                 ui.separator();
                                 if ui.button("Reset to Defaults").clicked() {
@@ -232,9 +247,12 @@ impl ShaderManager for KuwaharaShader {
                                         sigma_r: 2.0,
                                         edge_threshold: 0.2,
                                         color_enhance: 1.0,
+                                        blur_samples: 35.0,
+                                        blur_lod: 2.0,
+                                        blur_slod: 4.0,
                                         filter_mode: params.filter_mode,
                                         show_tensors: 0,
-            _padding: [0; 6],
+            _padding: [0; 3],
                                     };
                                     changed = true;
                                 }

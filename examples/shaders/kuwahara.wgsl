@@ -29,21 +29,18 @@ struct KuwaharaParams {
     sigma_r: f32,
     edge_threshold: f32,
     color_enhance: f32,
+    blur_samples: f32,
+    blur_lod: f32,
+    blur_slod: f32,
     filter_mode: i32,
     show_tensors: i32,
     _pad1: u32,
     _pad2: u32, 
     _pad3: u32,
-    _pad4: u32,
-    _pad5: u32,
-    _pad6: u32,
 }
 
 const PI: f32 = 3.14159265359;
 
-const BLUR_SAMPLES: i32 = 35;
-const BLUR_LOD: i32 = 2; 
-const BLUR_SLOD: i32 = 4;
 
 fn gaussian_weight(i: vec2f, sigma: f32) -> f32 {
     let si = i / sigma;
@@ -53,12 +50,14 @@ fn gaussian_weight(i: vec2f, sigma: f32) -> f32 {
 fn blur_tensor(uv: vec2f, ts: vec2f) -> vec3f {
     var result = vec3f(0.0);
     var tw = 0.0;
-    let s = BLUR_SAMPLES / BLUR_SLOD;
+    let samples = i32(params.blur_samples);
+    let slod = i32(params.blur_slod);
+    let s = samples / slod;
     let sig = params.sigma_r * 2.5;
-    let lod = max(0.0, params.sigma_d - 0.5);
+    let lod = params.blur_lod;
     
     for (var i = 0; i < s * s; i++) {
-        let d = vec2f(f32(i % s), f32(i / s)) * f32(BLUR_SLOD) - f32(BLUR_SAMPLES) / 2.0;
+        let d = vec2f(f32(i % s), f32(i / s)) * f32(slod) - f32(samples) / 2.0;
         let w = gaussian_weight(d, sig);
         let suv = clamp(uv + ts * d, vec2f(0.0), vec2f(1.0));
         let td = textureSampleLevel(input_texture0, input_sampler0, suv, lod);
@@ -99,19 +98,11 @@ fn calc_region_stats(uv: vec2f, lower: vec2i, upper: vec2i, ts: vec2f) -> vec2f 
     return vec2f(0.0, 999999.0);
 }
 
-fn ACESFilm(color: vec3f) -> vec3f {
-    let a = 2.51;
-    let b = 0.03;
-    let c = 2.43;
-    let d = 0.59;
-    let e = 0.14;
-    return clamp((color * (a * color + b)) / (color * (c * color + d) + e), vec3f(0.0), vec3f(1.0));
-}
-
-fn saturate(rgb: vec3f, adj: f32) -> vec3f {
-    let W = vec3f(0.2125, 0.7154, 0.0721);
-    let intensity = vec3f(dot(rgb, W));
-    return mix(intensity, rgb, adj);
+// ACES tone mapping for anisotropic areas
+fn aces_aniso(color: vec3f, strength: f32) -> vec3f {
+    let a = 2.51; let b = 0.03; let c = 2.43; let d = 0.59; let e = 0.14;
+    let aces = (color * (a * color + b)) / (color * (c * color + d) + e);
+    return mix(color, clamp(aces, vec3f(0.0), vec3f(1.0)), strength * 0.3);
 }
 
 fn get_input_color(uv: vec2f) -> vec3f {
@@ -225,8 +216,8 @@ fn kuwahara_filter(@builtin(global_invocation_id) id: vec3u) {
     var result = vec4f(orig, 1.0);
     
     if (params.filter_mode == 0) {
-        // classic mode
-        let r = i32(params.radius);
+        // classic mode with adaptive radius
+        let r = i32(min(params.radius, 8.0));
         
         var qmean: array<vec4f, 4>;
         var qvar: array<f32, 4>;
@@ -295,7 +286,7 @@ fn kuwahara_filter(@builtin(global_invocation_id) id: vec3u) {
             qcnts[k] = 0.0;
         }
         
-        let maxr = i32(min(radius + 2.0, 10.0));
+        let maxr = i32(min(radius + 1.0, 8.0));
         for (var j = -maxr; j <= maxr; j++) {
             for (var i = -maxr; i <= maxr; i++) {
                 let off = vec2f(f32(i), f32(j));
@@ -354,16 +345,23 @@ fn kuwahara_filter(@builtin(global_invocation_id) id: vec3u) {
         result = vec4f(mix(orig, best, soft_strength), 1.0);
     }
     
-    // color enhance
+
     var fc = result.rgb;
     
     if (abs(params.color_enhance - 1.0) > 0.01) {
         let enh = params.color_enhance;
+        
+        // JUST FOR FEELING
+        if (params.filter_mode == 1) {
+            let td = textureSampleLevel(input_texture1, input_sampler1, uv, 0.0);
+            let anis = td.w;
+            fc = aces_aniso(fc, anis);
+        }
+        
         let lum = dot(fc, vec3f(0.299, 0.587, 0.114));
         let sat_factor = mix(1.0, enh * 1.2, 0.5);
         fc = mix(vec3f(lum), fc, sat_factor);
-        let contrast_factor = 0.9 + (enh - 1.0) * 0.1;
-        fc = (fc - 0.5) * contrast_factor + 0.5;
+        
         fc = clamp(fc, vec3f(0.0), vec3f(1.0));
     }
     
