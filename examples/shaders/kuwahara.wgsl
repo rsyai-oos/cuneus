@@ -117,6 +117,7 @@ fn get_input_color(uv: vec2f) -> vec3f {
 }
 
 // structure tensor pass
+// Sobel approach inspired by sofiene71: https://www.shadertoy.com/view/td3BzX
 @compute @workgroup_size(16, 16, 1)
 fn structure_tensor(@builtin(global_invocation_id) id: vec3u) {
     let dims = textureDimensions(output);
@@ -179,9 +180,12 @@ fn tensor_field(@builtin(global_invocation_id) id: vec3u) {
     let Jyy = st.y;
     let Jxy = st.z;
 
-    // eigenvalues
-    let l1 = 0.5 * (Jyy + Jxx + sqrt(Jyy * Jyy - 2.0 * Jxx * Jyy + Jxx * Jxx + 4.0 * Jxy * Jxy));
-    let l2 = 0.5 * (Jyy + Jxx - sqrt(Jyy * Jyy - 2.0 * Jxx * Jyy + Jxx * Jxx + 4.0 * Jxy * Jxy));
+    let trace = Jxx + Jyy;
+    let det = Jxx * Jyy - Jxy * Jxy;
+    let disc = trace * trace - 4.0 * det;
+    let sqrt_disc = sqrt(max(disc, 0.0));
+    let l1 = 0.5 * (trace + sqrt_disc);
+    let l2 = 0.5 * (trace - sqrt_disc);
 
     // eigenvector
     var v = vec2f(l1 - Jxx, -Jxy);
