@@ -518,14 +518,9 @@ jobs:
                   otool -L "$BINARY" 2>/dev/null | grep -E "(@rpath|/Library/Frameworks/GStreamer.framework)" | awk '{print $1}' | while read dep; do
                     if [[ -n "$dep" ]]; then
                       lib_name=$(basename "$dep")
-                      # Only fix if this library exists in our bundle
-                      if [[ -f "$BUNDLE_LIB_DIR/$lib_name" ]]; then
-                        new_path="@executable_path/gstreamer/lib/$lib_name"
-                        echo "  Changing: $dep -> $new_path"
-                        install_name_tool -change "$dep" "$new_path" "$BINARY" 2>/dev/null || true
-                      else
-                        echo "  Skipping $dep (not in bundle)"
-                      fi
+                      new_path="@executable_path/gstreamer/lib/$lib_name"
+                      echo "  Changing: $dep -> $new_path"
+                      install_name_tool -change "$dep" "$new_path" "$BINARY" 2>/dev/null || true
                     fi
                   done
                 else
