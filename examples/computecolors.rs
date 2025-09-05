@@ -4,18 +4,18 @@ use winit::event::WindowEvent;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct ColorProjectionParams {
-    rotation_speed: f32,
+struct SplattingParams {
+    animation_speed: f32,
+    splat_size: f32,
+    particle_spread: f32,
     intensity: f32,
-    rot_x: f32,
-    rot_y: f32,
-    rot_z: f32,
-    rot_w: f32,
-    scale: f32,
+    particle_density: f32,
+    brightness: f32,
+    physics_strength: f32,
     _padding: u32,
 }
 
-impl UniformProvider for ColorProjectionParams {
+impl UniformProvider for SplattingParams {
     fn as_bytes(&self) -> &[u8] {
         bytemuck::bytes_of(self)
     }
@@ -24,7 +24,7 @@ impl UniformProvider for ColorProjectionParams {
 struct ColorProjection {
     base: RenderKit,
     compute_shader: ComputeShader,
-    current_params: ColorProjectionParams,
+    current_params: SplattingParams,
 }
 
 impl ColorProjection {
@@ -63,14 +63,14 @@ impl ShaderManager for ColorProjection {
             None,
         );
         
-        let initial_params = ColorProjectionParams {
-            rotation_speed: 0.3,
-            intensity: 1.2,
-            rot_x: 0.0,
-            rot_y: 0.0,
-            rot_z: 0.0,
-            rot_w: 1.0,
-            scale: 1.0,
+        let initial_params = SplattingParams {
+            animation_speed: 1.0,
+            splat_size: 0.8,
+            particle_spread: 0.3,
+            intensity: 2.0,
+            particle_density: 0.4,
+            brightness: 24.0,
+            physics_strength: 0.5,
             _padding: 0,
         };
         
@@ -85,11 +85,11 @@ impl ShaderManager for ColorProjection {
             .with_entry_point("clear_buffer") 
             .with_multi_pass(&passes)
             .with_input_texture() // Enable input texture support
-            .with_custom_uniforms::<ColorProjectionParams>()
+            .with_custom_uniforms::<SplattingParams>()
             .with_storage_buffer(StorageBufferSpec::new("atomic_buffer", (core.size.width * core.size.height * 4 * 4) as u64)) 
             .with_workgroup_size([16, 16, 1])
             .with_texture_format(COMPUTE_TEXTURE_FORMAT_RGBA16)
-            .with_label("Color Projection Multi-Pass")
+            .with_label("Particle Splatting Multi-Pass")
             .build();
 
         let mut compute_shader = ComputeShader::from_builder(
@@ -172,7 +172,7 @@ impl ShaderManager for ColorProjection {
                     style.text_styles.get_mut(&egui::TextStyle::Button).unwrap().size = 10.0;
                 });
                 
-                egui::Window::new("color projection")
+                egui::Window::new("Particle Splatting")
                     .collapsible(true)
                     .resizable(true)
                     .default_width(250.0)
@@ -190,34 +190,21 @@ impl ShaderManager for ColorProjection {
                         
                         ui.separator();
                         
-                        egui::CollapsingHeader::new("Visual Settings")
-                            .default_open(false)
+                        egui::CollapsingHeader::new("Particle Splatting")
+                            .default_open(true)
                             .show(ui, |ui| {
-                                changed |= ui.add(egui::Slider::new(&mut params.intensity, 0.1..=12.0).text("Intensity")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.scale, 0.5..=4.0).text("Scale")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.rotation_speed, 0.0..=1.0).text("Rotation Speed")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.rot_w, 0.0..=1.0).text("bg intensity")).changed();
-
-                                if ui.button("Reset Visual").clicked() {
-                                    params.intensity = 1.2;
-                                    params.scale = 1.0;
-                                    params.rotation_speed = 0.3;
-                                    changed = true;
-                                }
+                                changed |= ui.add(egui::Slider::new(&mut params.particle_density, 0.1..=1.0).text("Particle Density")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.splat_size, 0.1..=2.0).text("Splat Size")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.intensity, 0.1..=3.0).text("Particle Intensity")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.brightness, 20.0..=36.0).text("Brightness")).changed();
                             });
                         
-                        egui::CollapsingHeader::new("Rotation Axes")
-                            .default_open(false)
+                        egui::CollapsingHeader::new("Artistic Effects")
+                            .default_open(true)
                             .show(ui, |ui| {
-                                changed |= ui.add(egui::Slider::new(&mut params.rot_x, -3.14..=3.14).text("X Rotation")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.rot_y, -3.14..=3.14).text("Y Rotation")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.rot_z, -3.14..=3.14).text("Z Rotation")).changed();
-                                if ui.button("Reset Rotation").clicked() {
-                                    params.rot_x = 0.0;
-                                    params.rot_y = 0.0;
-                                    params.rot_z = 0.0;
-                                    changed = true;
-                                }
+                                changed |= ui.add(egui::Slider::new(&mut params.animation_speed, 0.0..=3.0).text("Animation Speed")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.particle_spread, 0.0..=1.0).text("Scramble Amount")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.physics_strength, 0.0..=1.0).text("Return Force")).changed();
                             });
                         
                         ui.separator();
@@ -323,7 +310,7 @@ impl ShaderManager for ColorProjection {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     cuneus::gst::init()?;
     env_logger::init();
-    let (app, event_loop) = cuneus::ShaderApp::new("Color Projection", 800, 600);
+    let (app, event_loop) = cuneus::ShaderApp::new("Particle Splatting", 800, 600);
     app.run(event_loop, |core| {
         ColorProjection::init(core)
     })
