@@ -70,12 +70,12 @@ impl ShaderManager for ColorProjection {
         let initial_params = SplattingParams {
             animation_speed: 1.0,
             splat_size: 0.8,
-            particle_spread: 0.3,
+            particle_spread: 0.0,
             intensity: 2.0,
             particle_density: 0.4,
-            brightness: 24.0,
+            brightness: 36.0,
             physics_strength: 0.5,
-            trail_length: 0.8,
+            trail_length: 0.0,
             trail_decay: 0.95,
             flow_strength: 1.0,
             _padding1: 0.0,
@@ -203,8 +203,8 @@ impl ShaderManager for ColorProjection {
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.particle_density, 0.1..=1.0).text("Particle Density")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.splat_size, 0.1..=2.0).text("Splat Size")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.intensity, 0.1..=3.0).text("Particle Intensity")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.brightness, 20.0..=36.0).text("Brightness")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.intensity, 0.1..=6.0).text("Particle Intensity")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.brightness, 36.0..=48.0).text("Brightness")).changed();
                             });
                         
                         egui::CollapsingHeader::new("Artistic Effects")
@@ -212,7 +212,7 @@ impl ShaderManager for ColorProjection {
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.animation_speed, 0.0..=3.0).text("Animation Speed")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.particle_spread, 0.0..=1.0).text("Scramble Amount")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.physics_strength, 0.0..=1.0).text("Return Force")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.physics_strength, 0.0..=4.0).text("Return Force")).changed();
                             });
                         
                         egui::CollapsingHeader::new("Flow Trails")
