@@ -83,7 +83,7 @@ fn projParticle(_p: v3) -> v3{
     
     p += sin(v3(1.8, 2.9, 1.4) + time_data.time*0.5)*0.08;
     
-    p.z += 0.99;
+    p.z += 1.4;
     p /= p.z*0.315;
     p.z = _p.z;
     p.x /= R.x/R.y;
@@ -104,10 +104,10 @@ fn Splat(@builtin(global_invocation_id) id: vec3<u32>) {
     var env = t + sin(t*0.4);
 
     var p = (hash_v3() - 0.5)*1.2;
-    
+
     var charge: f32;
     if hash_f() < 0.5 {
-        charge = 3.0;
+        charge = 12.0;
     } else {
         charge = -1.0;
     }
@@ -116,10 +116,10 @@ fn Splat(@builtin(global_invocation_id) id: vec3<u32>) {
     
     for(var i = 0; i < iters; i++){
         let r = hash_f();
-        if(r < 0.1){
+        if(r < 0.4){
             let field_strength = 1.4 + custom.a*1.2;
             p = p/(dot(p,p)*field_strength*charge + 0.2);
-            if(hash_f() < 0.3){
+            if(hash_f() < 0.1){
                 charge = -charge;
                 p += v3(sin(env), cos(env*1.2), sin(env*0.8))*1.1;
             }
@@ -129,19 +129,19 @@ fn Splat(@builtin(global_invocation_id) id: vec3<u32>) {
             p = p/(dot(p,p)*gradient_factor + 0.25); 
             
             let field_dir = normalize(p + v3(0.001, 0.001, 0.001));
-            p += field_dir * charge * 1.15;
+            p += field_dir * charge * .15;
         }
         else {
             p += v3(custom.c*charge, 1.2, 0.1*charge);
             
             if(length(p) > 1.2){
-                p *= 0.1;
+                p *= 1.1;
                 charge = -charge;
             } else if(length(p) < 1.3){
                 p *= 1.8;
             }
             if(hash_f() < 0.1){
-                p += (hash_v3() - 0.5)*0.3*abs(charge);
+                p += (hash_v3() - 0.1)*0.01*abs(charge);
             }
         }
         
@@ -160,9 +160,9 @@ fn Splat(@builtin(global_invocation_id) id: vec3<u32>) {
             ){     
             let field_intensity = abs(charge) + length(p) * 0.5;
             if (charge > 0.0) {
-                atomicAdd(&atomic_buffer[idx], u32(field_intensity * 100.0));
+                atomicAdd(&atomic_buffer[idx], u32(field_intensity * 200.0));
             } else {
-                atomicAdd(&atomic_buffer[idx + Ru.x*Ru.y], u32(field_intensity * 100.0));
+                atomicAdd(&atomic_buffer[idx + Ru.x*Ru.y], u32(field_intensity * 200.0));
             }
         }
     }
@@ -184,7 +184,7 @@ fn main_image(@builtin(global_invocation_id) id: vec3<u32>) {
     col = log(col*custom.brightness*10000.0 + 1.0)/ log(sc);
     col = smoothstep(v3(0.),v3(1.),col);
 
-    col = pow(col, v3(1./0.1));
+    col = pow(col, v3(3./0.1));
     
     textureStore(output, vec2<i32>(id.xy), v4(col, 1.));
     
