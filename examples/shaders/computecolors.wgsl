@@ -38,21 +38,8 @@ fn getPhysPosAtTime(op: vec2<f32>, col: vec3<f32>, sz: vec2<f32>, custom_time: f
     let hi = vec4<f32>(op, col.r, col.g);
     let rnd = hash(hi);
     
-    // 8 second cycle: 3s scramble -> 3s settle -> 2s breathe
-    let ct = 8.0;
-    let pt = fract(t / ct) * ct;
-    
-    var si: f32;
-    if (pt < 3.0) {
-        let p = pt / 3.0;
-        si = 2.5 * (1.0 - smoothstep(0.0, 1.0, p));
-    } else if (pt < 6.0) {
-        let up = (pt - 3.0) / 3.0;
-        si = 0.8 * smoothstep(1.0, 0.0, up);
-    } else {
-        let lp = (pt - 6.0) / 2.0;
-        si = sin(lp * 3.14159) * 0.05;
-    }
+    let wave = sin(t * 0.785398) * 0.5 + 0.5;
+    let si = wave * 1.5; 
     
     // create 3D position from 2D image coordinates  
     var p = vec3<f32>(
@@ -109,21 +96,8 @@ fn getPhysPos(op: vec2<f32>, col: vec3<f32>, sz: vec2<f32>) -> vec2<f32> {
     let hi = vec4<f32>(op, col.r, col.g);
     let rnd = hash(hi);
     
-    // 8 second cycle: 3s scramble -> 3s settle -> 2s breathe
-    let ct = 8.0;
-    let pt = fract(t / ct) * ct;
-    
-    var si: f32;
-    if (pt < 3.0) {
-        let p = pt / 3.0;
-        si = 2.5 * (1.0 - smoothstep(0.0, 1.0, p));
-    } else if (pt < 6.0) {
-        let up = (pt - 3.0) / 3.0;
-        si = 0.8 * smoothstep(1.0, 0.0, up);
-    } else {
-        let lp = (pt - 6.0) / 2.0;
-        si = sin(lp * 3.14159) * 0.05;
-    }
+    let wave = sin(t * 0.785398) * 0.5 + 0.5; 
+    let si = wave * 1.5;
     
     var p = vec3<f32>(
         (op.x / sz.x - 0.5) * 2.0,
