@@ -12,7 +12,11 @@ struct SplattingParams {
     particle_density: f32,
     brightness: f32,
     physics_strength: f32,
-    _padding: u32,
+    trail_length: f32,
+    trail_decay: f32,
+    flow_strength: f32,
+    _padding1: f32,
+    _padding2: u32,
 }
 
 impl UniformProvider for SplattingParams {
@@ -71,7 +75,11 @@ impl ShaderManager for ColorProjection {
             particle_density: 0.4,
             brightness: 24.0,
             physics_strength: 0.5,
-            _padding: 0,
+            trail_length: 0.8,
+            trail_decay: 0.95,
+            flow_strength: 1.0,
+            _padding1: 0.0,
+            _padding2: 0,
         };
         
         // Define the multi-stage passes  
@@ -205,6 +213,14 @@ impl ShaderManager for ColorProjection {
                                 changed |= ui.add(egui::Slider::new(&mut params.animation_speed, 0.0..=3.0).text("Animation Speed")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.particle_spread, 0.0..=1.0).text("Scramble Amount")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.physics_strength, 0.0..=1.0).text("Return Force")).changed();
+                            });
+                        
+                        egui::CollapsingHeader::new("Flow Trails")
+                            .default_open(true)
+                            .show(ui, |ui| {
+                                changed |= ui.add(egui::Slider::new(&mut params.trail_length, 0.0..=2.0).text("Trail Length")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.trail_decay, 0.8..=0.99).text("Trail Decay")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.flow_strength, 0.0..=3.0).text("Flow Strength")).changed();
                             });
                         
                         ui.separator();
