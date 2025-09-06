@@ -22,7 +22,7 @@ struct SystemParams {
     color2_r: f32,           
     color2_g: f32,           
     color2_b: f32,           
-    _padding: u32,
+    zoom: f32,
 }
 @group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
 @group(1) @binding(1) var<uniform> custom: SystemParams;
@@ -84,7 +84,7 @@ fn projParticle(_p: v3) -> v3{
     p += sin(v3(1.8, 2.9, 1.4) + time_data.time*0.5)*0.08;
     
     p.z += 1.4;
-    p /= p.z*0.315;
+    p /= p.z*0.315*custom.zoom;
     p.z = _p.z;
     p.x /= R.x/R.y;
     return p;

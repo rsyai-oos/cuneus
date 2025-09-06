@@ -17,7 +17,7 @@ struct SystemParams {
     color2_r: f32,           
     color2_g: f32,           
     color2_b: f32,           
-    _padding: u32,
+    zoom: f32,
 }
 
 impl UniformProvider for SystemParams {
@@ -75,7 +75,7 @@ impl ShaderManager for SystemShader {
             color2_r: 1.0,            
             color2_g: 0.4,            
             color2_b: 0.1,            
-            _padding: 0,
+            zoom: 1.0,
         };
 
         let base = RenderKit::new(
@@ -183,6 +183,7 @@ impl ShaderManager for SystemShader {
                             .default_open(false)
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.brightness, 0.00001..=0.0002).logarithmic(true).text("Brightness")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.zoom, 0.1..=5.0).text("Zoom")).changed();
                                 ui.separator();
                             });
                         
