@@ -198,28 +198,28 @@ impl ShaderManager for ColorProjection {
                         
                         ui.separator();
                         
-                        egui::CollapsingHeader::new("Particle Splatting")
+                        egui::CollapsingHeader::new("Particles")
                             .default_open(true)
                             .show(ui, |ui| {
-                                changed |= ui.add(egui::Slider::new(&mut params.particle_density, 0.1..=1.0).text("Particle Density")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.particle_density, 0.1..=1.0).text("Density")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.splat_size, 0.1..=2.0).text("Splat Size")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.intensity, 0.1..=6.0).text("Particle Intensity")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.intensity, 0.1..=6.0).text("Intensity")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.brightness, 36.0..=48.0).text("Brightness")).changed();
                             });
                         
-                        egui::CollapsingHeader::new("Artistic Effects")
+                        egui::CollapsingHeader::new("Effects")
                             .default_open(true)
                             .show(ui, |ui| {
-                                changed |= ui.add(egui::Slider::new(&mut params.animation_speed, 0.0..=3.0).text("Animation Speed")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.animation_speed, 0.0..=3.0).text("Speed")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.particle_spread, 0.0..=1.0).text("Scramble Amount")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.physics_strength, 0.0..=4.0).text("Return Force")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.physics_strength, 0.0..=12.0).text("Return Force")).changed();
                             });
                         
                         egui::CollapsingHeader::new("Flow Trails")
                             .default_open(true)
                             .show(ui, |ui| {
                                 changed |= ui.add(egui::Slider::new(&mut params.trail_length, 0.0..=2.0).text("Trail Length")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.trail_decay, 0.8..=0.99).text("Trail Decay")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.trail_decay, 0.8..=1.0).text("Trail Decay")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.flow_strength, 0.0..=3.0).text("Flow Strength")).changed();
                             });
                         
