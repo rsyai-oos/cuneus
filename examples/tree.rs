@@ -40,33 +40,8 @@ impl ShaderManager for TreeShader {
             decay: 0.96,
         };
 
-        let texture_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-            label: Some("Texture Bind Group Layout"),
-        });
-
-        let base = RenderKit::new(
-            core,
-            &[&texture_bind_group_layout],
-            None,
-        );
+        let texture_bind_group_layout = RenderKit::create_standard_texture_layout(&core.device);
+        let base = RenderKit::new(core, &texture_bind_group_layout, None);
 
         // Create multipass system: buffer_a -> buffer_b -> buffer_c -> main_image
         let passes = vec![

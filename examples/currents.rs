@@ -112,34 +112,8 @@ impl CurrentsShader {
 
 impl ShaderManager for CurrentsShader {
     fn init(core: &Core) -> Self {
-        // Create texture display layout
-        let texture_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Texture Bind Group Layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
-
-        let base = RenderKit::new(
-            core,
-            &[&texture_bind_group_layout],
-            None,
-        );
+        let texture_bind_group_layout = RenderKit::create_standard_texture_layout(&core.device);
+        let base = RenderKit::new(core, &texture_bind_group_layout, None);
 
         // Define the 5 passes
         let passes = vec![
