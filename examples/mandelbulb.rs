@@ -105,34 +105,8 @@ impl ShaderManager for MandelbulbShader {
             fog_color_r: 0.1, fog_color_g: 0.1, fog_color_b: 0.15,
             glow_color_r: 0.5, glow_color_g: 0.7, glow_color_b: 1.0,
         };
-        // Create texture bind group layout for displaying compute shader output  
-        let texture_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-            label: Some("Mandelbulb Texture Bind Group Layout"),
-        });
-        
-        let base = RenderKit::new(
-            core,
-            &[&texture_bind_group_layout],
-            None,
-        );
+        let texture_bind_group_layout = RenderKit::create_standard_texture_layout(&core.device);
+        let base = RenderKit::new(core, &texture_bind_group_layout, None);
         
         let config = ComputeShader::builder()
             .with_entry_point("main")

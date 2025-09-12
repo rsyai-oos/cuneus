@@ -64,33 +64,8 @@ impl RorschachShader {
 impl ShaderManager for RorschachShader {
     fn init(core: &Core) -> Self {
         // Create texture bind group layout for displaying compute shader output
-        let texture_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-            label: Some("Rorschach Texture Bind Group Layout"),
-        });
-        
-        let mut base = RenderKit::new(
-            core,
-            &[&texture_bind_group_layout],
-            None,
-        );
+        let texture_bind_group_layout = RenderKit::create_standard_texture_layout(&core.device);
+        let mut base = RenderKit::new(core, &texture_bind_group_layout, None);
         base.setup_mouse_uniform(core);
 
         let initial_params = RorschachParams {

@@ -49,13 +49,7 @@ impl GaborShader {
 
 impl ShaderManager for GaborShader {
     fn init(core: &Core) -> Self {
-        let texture_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                wgpu::BindGroupLayoutEntry { binding: 0, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Texture { multisampled: false, sample_type: wgpu::TextureSampleType::Float { filterable: true }, view_dimension: wgpu::TextureViewDimension::D2 }, count: None },
-                wgpu::BindGroupLayoutEntry { binding: 1, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None },
-            ],
-            label: Some("texture_bind_group_layout"),
-        });
+        let texture_bind_group_layout = RenderKit::create_standard_texture_layout(&core.device);
         
         let initial_params = GaborParams {
             frequency: 5.0,
@@ -81,7 +75,7 @@ impl ShaderManager for GaborShader {
             dof_focal_dist: 0.5,
         };
         
-        let base = RenderKit::new(core, &[&texture_bind_group_layout], None);
+        let base = RenderKit::new(core, &texture_bind_group_layout, None);
 
         let mut config = ComputeShader::builder()
             .with_entry_point("Splat")
