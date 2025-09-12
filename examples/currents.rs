@@ -102,6 +102,7 @@ impl UniformProvider for CurrentsParams {
 struct CurrentsShader {
     base: RenderKit,
     compute_shader: ComputeShader,
+    current_params: CurrentsParams,
 }
 
 impl CurrentsShader {
@@ -151,13 +152,15 @@ impl ShaderManager for CurrentsShader {
             eprintln!("Failed to enable hot reload for currents shader: {}", e);
         }
 
+        let initial_params = CurrentsParams::default();
         let shader = Self { 
             base,
             compute_shader,
+            current_params: initial_params,
         };
         
         // Initialize custom uniform with default parameters
-        shader.compute_shader.set_custom_params(CurrentsParams::default(), &core.queue);
+        shader.compute_shader.set_custom_params(initial_params, &core.queue);
         
         shader
     }
@@ -188,8 +191,8 @@ impl ShaderManager for CurrentsShader {
         let mut controls_request = self.base.controls.get_ui_request(&self.base.start_time, &core.size);
         controls_request.current_fps = Some(self.base.fps_tracker.fps());
 
-        // Handle UI and controls
-        let mut params = CurrentsParams::default();
+        // Handle UI and controls  
+        let mut params = self.current_params;
         let mut changed = false;
         let mut should_start_export = false;
         let mut export_request = self.base.export_manager.get_ui_request();
@@ -347,6 +350,7 @@ impl ShaderManager for CurrentsShader {
         self.base.apply_control_request(controls_request);
 
         if changed {
+            self.current_params = params;
             self.compute_shader.set_custom_params(params, &core.queue);
             // Reset frame counter for proper photon accumulation restart
             self.compute_shader.current_frame = 0;
