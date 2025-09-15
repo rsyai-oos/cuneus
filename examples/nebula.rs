@@ -70,12 +70,12 @@ impl ShaderManager for NebulaShader {
         let base = RenderKit::new(core, &texture_bind_group_layout, None);
 
         let initial_params = NebulaParams {
-            iterations: 20,
-            formuparam: 0.47,
-            volsteps: 8,
+            iterations: 17,
+            formuparam: 0.52,
+            volsteps: 6,
             stepsize: 0.31,
-            zoom: 3.0,
-            tile: 0.8,
+            zoom: 5.0,
+            tile: 0.35,
             speed: 0.020,
             brightness: 0.00062,
             dust_intensity: 1.0,
