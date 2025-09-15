@@ -75,17 +75,17 @@ impl ShaderManager for NebulaShader {
         let base = RenderKit::new(core, &texture_bind_group_layout, None);
 
         let initial_params = NebulaParams {
-            iterations: 21,
-            formuparam: 0.55,
-            volsteps: 10,
-            stepsize: 0.21,
-            zoom: 1.85,
+            iterations: 20,
+            formuparam: 0.47,
+            volsteps: 8,
+            stepsize: 0.31,
+            zoom: 3.0,
             tile: 0.8,
             speed: 0.020,
             brightness: 0.00062,
-            dust_intensity: 0.3,
-            distfading: 1.0,
-            color_variation: 1.5,
+            dust_intensity: 1.0,
+            distfading: 0.95,
+            color_variation: 0.51,
             n_boxes: 10.0,
             rotation: 1,
             depth: 5.0,
@@ -99,7 +99,7 @@ impl ShaderManager for NebulaShader {
             
             dof_amount: 0.0,
             dof_focal_dist: 0.5,
-            exposure: 1.65,
+            exposure: 1.6,
             gamma: 0.400,
             
             _padding4: 0.0,
@@ -222,17 +222,17 @@ impl ShaderManager for NebulaShader {
                                 changed |= ui.add(egui::Slider::new(&mut params.volsteps, 1..=20).text("Volume Steps")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.stepsize, 0.05..=0.5).text("Step Size")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.zoom, 0.1..=112.0).text("Zoom")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.tile, 0.1..=2.0).text("Tile")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.tile, 0.1..=3.0).text("Tile")).changed();
                             });
 
                         egui::CollapsingHeader::new("Appearance")
                             .default_open(false)
                             .show(ui, |ui| {
-                                changed |= ui.add(egui::Slider::new(&mut params.brightness, 0.0005..=0.015).logarithmic(true).text("Brightness")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.dust_intensity, 0.0..=1.0).text("Dust Intensity")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.brightness, 0.0001..=0.015).logarithmic(true).text("Brightness")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.dust_intensity, 0.0..=2.0).text("Dust Intensity")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.distfading, 0.1..=3.0).text("Distance Fading")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.color_variation, 0.5..=5.0).text("Color Variation")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.exposure, 0.5..=3.0).text("Exposure")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.color_variation, 0.2..=5.0).text("Color Variation")).changed();
+                                changed |= ui.add(egui::Slider::new(&mut params.exposure, 0.2..=3.0).text("Exposure")).changed();
                                 changed |= ui.add(egui::Slider::new(&mut params.gamma, 0.1..=1.2).text("Gamma")).changed();
                             });
 
@@ -265,14 +265,6 @@ impl ShaderManager for NebulaShader {
                                 }
                                 
                             });
-
-                        egui::CollapsingHeader::new("Depth of Field")
-                            .default_open(false)
-                            .show(ui, |ui| {
-                                changed |= ui.add(egui::Slider::new(&mut params.dof_amount, 0.0..=3.0).text("DOF Amount")).changed();
-                                changed |= ui.add(egui::Slider::new(&mut params.dof_focal_dist, 0.0..=2.0).text("Focal Distance")).changed();
-                            });
-
                         egui::CollapsingHeader::new("Animation")
                             .default_open(false)
                             .show(ui, |ui| {
