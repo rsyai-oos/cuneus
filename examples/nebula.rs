@@ -27,23 +27,18 @@ struct NebulaParams {
     click_state: i32,
     scale: f32,
     
-    dof_amount: f32,
-    dof_focal_dist: f32,
     exposure: f32,
     gamma: f32,
-    
+
     _padding4: f32,
     _padding5: f32,
     _padding6: f32,
     _padding7: f32,
     _padding8: f32,
     _padding9: f32,
-    
+    _padding10: f32,
+
     time_scale: f32,
-    
-    spiral_mode: i32,
-    spiral_strength: f32,
-    spiral_speed: f32,
     visual_mode: i32,
     _padding2: f32,
     _padding3: f32,
@@ -97,23 +92,18 @@ impl ShaderManager for NebulaShader {
             click_state: 0,
             scale: 1.0,
             
-            dof_amount: 0.0,
-            dof_focal_dist: 0.5,
             exposure: 1.6,
             gamma: 0.400,
-            
+
             _padding4: 0.0,
             _padding5: 0.0,
             _padding6: 0.0,
             _padding7: 0.0,
             _padding8: 0.0,
             _padding9: 0.0,
-            
+            _padding10: 0.0,
+
             time_scale: 1.0,
-            
-            spiral_mode: 0,
-            spiral_strength: 2.0,
-            spiral_speed: 0.02,
             visual_mode: 0,
             _padding2: 0.0,
             _padding3: 0.0,
@@ -236,35 +226,6 @@ impl ShaderManager for NebulaShader {
                                 changed |= ui.add(egui::Slider::new(&mut params.gamma, 0.1..=1.2).text("Gamma")).changed();
                             });
 
-                        egui::CollapsingHeader::new("Visual Modes")
-                            .default_open(false)
-                            .show(ui, |ui| {
-                                ui.horizontal(|ui| {
-                                    if ui.selectable_label(params.spiral_mode == 0, "Normal").clicked() {
-                                        params.spiral_mode = 0;
-                                        changed = true;
-                                    }
-                                    if ui.selectable_label(params.spiral_mode == 1, "Spiral").clicked() {
-                                        params.spiral_mode = 1;
-                                        changed = true;
-                                    }
-                                    if ui.selectable_label(params.spiral_mode == 2, "Hole").clicked() {
-                                        params.spiral_mode = 2;
-                                        changed = true;
-                                    }
-                                    if ui.selectable_label(params.spiral_mode == 3, "Tunnel").clicked() {
-                                        params.spiral_mode = 3;
-                                        changed = true;
-                                    }
-                                });
-                                
-                                if params.spiral_mode != 0 {
-                                    ui.separator();
-                                    changed |= ui.add(egui::Slider::new(&mut params.spiral_strength, 0.5..=4.0).text("Spiral Strength")).changed();
-                                    changed |= ui.add(egui::Slider::new(&mut params.spiral_speed, -0.1..=0.1).text("Spiral Speed")).changed();
-                                }
-                                
-                            });
                         egui::CollapsingHeader::new("Animation")
                             .default_open(false)
                             .show(ui, |ui| {

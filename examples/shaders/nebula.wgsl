@@ -33,23 +33,18 @@ struct NebulaParams {
     click_state: i32,
     scale: f32,
     
-    dof_amount: f32,
-    dof_focal_dist: f32,
     exposure: f32,
     gamma: f32,
-    
+
     _padding4: f32,
     _padding5: f32,
     _padding6: f32,
     _padding7: f32,
     _padding8: f32,
     _padding9: f32,
-    
+    _padding10: f32,
+
     time_scale: f32,
-    
-    spiral_mode: i32,
-    spiral_strength: f32,
-    spiral_speed: f32,
     visual_mode: i32,
     _padding2: f32,
     _padding3: f32,
@@ -78,23 +73,6 @@ fn mainVR(fragCoord: vec2<f32>, res: vec2<f32>, ro: vec3<f32>, rd: vec3<f32>, ti
     var uv = fragCoord.xy / res.xy - 0.5;
     uv.y *= res.y / res.x;
     
-    if (params.spiral_mode == 1) {
-        let radius = length(uv);
-        let angle = atan2(uv.y, uv.x);
-        let spiral_angle = angle + log(radius + 0.1) * params.spiral_strength + time * params.spiral_speed;
-        let spiral_radius = radius * (1.0 + sin(spiral_angle * 3.0) * 0.3);
-        uv = vec2<f32>(cos(spiral_angle) * spiral_radius, sin(spiral_angle) * spiral_radius);
-    } else if (params.spiral_mode == 2) {
-        let radius = length(uv);
-        let hole_factor = smoothstep(0.0, 0.5, radius);
-        uv *= hole_factor * params.spiral_strength * 0.5;
-    } else if (params.spiral_mode == 3) {
-        let radius = length(uv);
-        let angle = atan2(uv.y, uv.x);
-        let tunnel_depth = 1.0 / (radius * params.spiral_strength + 0.1) + time * params.spiral_speed;
-        let tunnel_radius = radius * tunnel_depth * 0.3;
-        uv = vec2<f32>(cos(angle) * tunnel_radius, sin(angle) * tunnel_radius);
-    }
     
     var dir = vec3<f32>(uv * params.zoom, 1.0);
     let time_scaled = time * params.speed + 0.25;
@@ -112,10 +90,10 @@ fn mainVR(fragCoord: vec2<f32>, res: vec2<f32>, ro: vec3<f32>, rd: vec3<f32>, ti
     ray_origin = vec3<f32>(rot2 * ray_origin.xy, ray_origin.z);
     
     let depth_from_center = length(dir.xy);
-    let focal_distance = params.dof_focal_dist * 2.0;
+    let focal_distance = 0.0 * 2.0;
     let depth_diff = abs(depth_from_center - focal_distance);
-    let dof_blur = 1.0 - smoothstep(0.0, params.dof_amount * 1.5, depth_diff * depth_diff);
-    
+    let dof_blur = 1.0 - smoothstep(0.0, 0.0 * 1.5, depth_diff * depth_diff);
+
     var s = 0.1;
     var fade = 1.0;
     var v = vec3<f32>(0.0);
@@ -123,22 +101,6 @@ fn mainVR(fragCoord: vec2<f32>, res: vec2<f32>, ro: vec3<f32>, rd: vec3<f32>, ti
     for (var r = 0; r < params.volsteps; r++) {
         var p = ray_origin + s * dir * 0.5;
         
-        if (params.spiral_mode == 1) {
-            let p_radius = length(p.xy);
-            let p_angle = atan2(p.y, p.x);
-            let spiral_p_angle = p_angle + log(p_radius + 0.1) * params.spiral_strength * 0.5 + time * params.spiral_speed * 0.3;
-            let spiral_p_radius = p_radius * (1.0 + sin(spiral_p_angle * 2.0 + p.z * 0.5) * 0.4);
-            p.x = cos(spiral_p_angle) * spiral_p_radius;
-            p.y = sin(spiral_p_angle) * spiral_p_radius;
-        } else if (params.spiral_mode == 2) {
-            let p_radius = length(p.xy);
-            let hole_factor = smoothstep(0.0, 0.6, p_radius);
-            p.z *= hole_factor * params.spiral_strength * 0.5;
-        } else if (params.spiral_mode == 3) {
-            let p_radius = length(p.xy);
-            let tunnel_factor = 1.0 / (p_radius * params.spiral_strength * 0.5 + 0.1);
-            p.z *= tunnel_factor * 0.5;
-        }
         
         p = abs(vec3<f32>(params.tile) - (p* (vec3<f32>(params.tile) * 1.0)));
         
