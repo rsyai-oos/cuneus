@@ -193,8 +193,14 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     for (var i = 0; i < 64; i++) {
         let bX = (f32(i) + 1.0) * bW;  // band X position
         let fT = f32(i) / 64.0;  // frequency factor
-        let rawA = gAV(fT);  // raw audio value
-        let bA = min(pow(rawA, mix(0.85, 0.6, fT)) * mix(0.95, 1.3, fT), mix(0.9, 0.65, fT));
+        // Frequency smoothing 
+        let rawA = (gAV(max(0.0, fT - 0.01)) + gAV(fT) * 2.0 + gAV(min(1.0, fT + 0.01))) * 0.25;
+        //  adaptive curve
+        let adaptFactor = smoothstep(0.2, 0.7, rawA);
+        let adaptMult = mix(mix(0.95, 1.3, fT), 1.0, adaptFactor);
+        let enhanced = pow(rawA, mix(0.85, 0.6, fT)) * adaptMult;
+        let softLimit = mix(0.9, 0.65, fT);
+        let bA = softLimit * (1.0 - exp(-enhanced / softLimit * 1.5));
 
         let bH = bA * eH;  // bar height
         let bB = 1.0 - eB - bH;  // bar bottom
@@ -239,10 +245,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     
     // Waveform visualization
     let wY = 0.1;  // waveform Y position
-    let wH = 0.05 + tE * 0.03;  // waveform height
+    let wH = 0.06;  // waveform height
     let wX = tc.x;  // waveform X
     let wV = gAV(wX) * 0.8;  // waveform value
-    let wP = wY + sin(wX * 100.0) * wV * wH;  // wave position
+    let wP = wY + sin(wX * 100.0) * wV * wH * (0.8 + tE * 0.4);  // wave
     let dW = abs(tc.y - wP);  // distance to wave
     if (tc.y < wY + wH * 2.0 && tc.y > 0.0) {
         let bI = abs(1.0 / (30.0 * dW * (1.0 + mE * 2.0)));
