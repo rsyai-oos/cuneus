@@ -192,8 +192,10 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // Draw frequency bars
     for (var i = 0; i < 64; i++) {
         let bX = (f32(i) + 1.0) * bW;  // band X position
-        let bA = gAV(f32(i) / 64.0);  // band audio value
-        
+        let fT = f32(i) / 64.0;  // frequency factor
+        let rawA = gAV(fT);  // raw audio value
+        let bA = min(pow(rawA, mix(0.85, 0.6, fT)) * mix(0.95, 1.3, fT), mix(0.9, 0.65, fT));
+
         let bH = bA * eH;  // bar height
         let bB = 1.0 - eB - bH;  // bar bottom
         let bT = 1.0 - eB;  // bar top
@@ -207,7 +209,6 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         
         // Draw bar
         if (inX && inY) {
-            let fT = f32(i) / 64.0;  // frequency factor
             let hT = (bT - tc.y) / max(bH, 0.001);  // height factor
             
             let tE = smoothstep(0.5, 0.0, length(v2(
@@ -222,9 +223,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
             fc = nG(nC, bA) * fl;
         }
         // Outer glow
-        else if (eD < 0.01 && ((tc.x >= bX - 0.01 && tc.x < bX + bW - bS + 0.01) && 
+        else if (eD < 0.01 && ((tc.x >= bX - 0.01 && tc.x < bX + bW - bS + 0.01) &&
                 (tc.y <= bT + 0.01 && tc.y >= bB - 0.01))) {
-            let fT = f32(i) / 64.0;
             let gS = smoothstep(0.01, 0.0, eD) * bA;
             fc += hsv2rgb(fT, 0.9, 0.9) * gS * 0.5;
         }
@@ -232,7 +232,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
         if (inX && tc.y > rF && tc.y < rF + rD) {
             let rDist = (tc.y - rF) / rD;
             let rInt = (1.0 - rDist) * 3.2 * bA;
-            let rCol = hsv2rgb(f32(i) / 64.0, 0.9, 0.8) * rInt;
+            let rCol = hsv2rgb(fT, 0.9, 0.8) * rInt;
             fc = mix(fc, rCol, smoothstep(rD, 0.0, tc.y - rF) * 0.5);
         }
     }
