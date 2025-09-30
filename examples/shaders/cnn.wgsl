@@ -38,20 +38,63 @@ struct CNNParams {
 @group(1) @binding(1) var<uniform> params: CNNParams;
 
 // Group 2: Engine Resources (Mouse & Fonts)
+// note that, WebGPU only supports a maximum of 4 groups (0-3). But you can use more bindings :)
 @group(2) @binding(0) var<uniform> mouse: MouseUniform;
-@group(2) @binding(1) var<uniform> font_uniform: FontUniforms;
-@group(2) @binding(2) var font_texture: texture_2d<f32>;
-@group(2) @binding(3) var font_sampler: sampler;
+@group(2) @binding(1) var<uniform> font_texture_uniform: FontUniforms;
+@group(2) @binding(2) var t_font_texture_atlas: texture_2d<f32>;
 
 @group(3) @binding(0) var<storage, read_write> canvas_data: array<f32>;      
 @group(3) @binding(1) var<storage, read_write> conv1_data: array<f32>;       
 @group(3) @binding(2) var<storage, read_write> conv2_data: array<f32>;       
 @group(3) @binding(3) var<storage, read_write> fc_data: array<f32>;
 
+// Font utilities
+const CHAR_0: u32 = 48u;  // ASCII '0'
+
+// render single character
+fn ch(pp: vec2<f32>, pos: vec2<f32>, code: u32, size: f32) -> f32 {
+    let char_size_pixels = vec2<f32>(size, size);
+    let relative_pos = pp - pos;
+
+    // Check bounds
+    if (relative_pos.x < 0.0 || relative_pos.x >= char_size_pixels.x ||
+        relative_pos.y < 0.0 || relative_pos.y >= char_size_pixels.y) {
+        return 0.0;
+    }
+
+    // Calculate UV coordinates within the character cell
+    let local_uv = relative_pos / char_size_pixels;
+
+    // calc char pos in atlas grid (16x16)
+    let grid_x = code % 16u;
+    let grid_y = code / 16u;
+
+    // padding to avoid cell bleeding
+    let padding = 0.05;
+    let padded_uv = local_uv * (1.0 - 2.0 * padding) + vec2<f32>(padding);
+
+    // atlas UV coords
+    let cell_size_uv = vec2<f32>(1.0 / 16.0, 1.0 / 16.0);
+    let cell_offset = vec2<f32>(f32(grid_x), f32(grid_y)) * cell_size_uv;
+    let final_uv = cell_offset + padded_uv * cell_size_uv;
+
+    // sample font atlas with textureLoad
+    let atlas_coord = vec2<i32>(
+        i32(final_uv.x * font_texture_uniform.atlas_size.x),
+        i32(final_uv.y * font_texture_uniform.atlas_size.y)
+    );
+    let sample = textureLoad(t_font_texture_atlas, atlas_coord, 0);
+
+    // red channel font data + anti-alias
+    let font_alpha = sample.r * 0.8;
+    return smoothstep(0.1, 0.9, font_alpha);
+}
+
 struct FontUniforms {
-    font_tex_size: vec2<f32>,
+    atlas_size: vec2<f32>,
     char_size: vec2<f32>,
-    color: vec4<f32>,
+    screen_size: vec2<f32>,
+    grid_size: vec2<f32>,
 };
 
 struct MouseUniform {
@@ -669,30 +712,7 @@ fn normalize_input(value: f32) -> f32 {
 }
 
 fn render_digit(pos: vec2<f32>, char_pos: vec2<f32>, digit: u32, size: f32) -> f32 {
-    let local_pos = pos - char_pos;
-    if (local_pos.x < 0.0 || local_pos.x >= size || 
-        local_pos.y < 0.0 || local_pos.y >= size) {
-        return 0.0;
-    }
-    
-    let uv = local_pos / size;
-    
-
-    let ascii_code = digit + 48u;
-    
-    let grid_size = 16u;
-    let grid_x = ascii_code % grid_size;
-    let grid_y = ascii_code / grid_size;
-    
-    let atlas_uv = vec2<f32>(
-        (f32(grid_x) + uv.x) / f32(grid_size),
-        (f32(grid_y) + uv.y) / f32(grid_size)
-    );
-    
-    let atlas_dimensions = textureDimensions(font_texture);
-    let pixel_coord = vec2<i32>(atlas_uv * vec2<f32>(atlas_dimensions));
-    let font_sample = textureLoad(font_texture, pixel_coord, 0);
-    return font_sample.a;
+    return ch(pos, char_pos, digit + CHAR_0, size);
 }
 
 
