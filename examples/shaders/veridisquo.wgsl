@@ -33,8 +33,7 @@ struct FontUniforms {
 };
 @group(2) @binding(0) var<uniform> u_font: FontUniforms;
 @group(2) @binding(1) var t_font_atlas: texture_2d<f32>;
-@group(2) @binding(2) var s_font_atlas: sampler;
-@group(2) @binding(3) var<storage, read_write> audio_buffer: array<f32>;
+@group(2) @binding(2) var<storage, read_write> audio_buffer: array<f32>;
 
 const PI=3.14159265;
 const F5=698.46;
