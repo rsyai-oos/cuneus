@@ -63,7 +63,7 @@ pub mod prelude {
         UniformProvider, UniformBinding, 
         RenderKit, ShaderControls, ExportManager, ShaderHotReload,
         TextureManager, Renderer, AtomicBuffer,
-        KeyInputHandler, ControlsRequest, FontSystem, FontUniforms,
+        KeyInputHandler, ControlsRequest, FontSystem, FontUniforms, CharInfo,
         save_frame,
         compute::MultiPassManager, compute::ComputeShader, compute::ComputeShaderBuilder
     };

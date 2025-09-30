@@ -25,12 +25,224 @@ struct FontUniforms {
     atlas_size: vec2<f32>,
     char_size: vec2<f32>,
     screen_size: vec2<f32>,
-    _padding: vec2<f32>,
+    grid_size: vec2<f32>,
 };
-@group(2) @binding(1) var<uniform> u_font: FontUniforms;
-@group(2) @binding(2) var t_font_atlas: texture_2d<f32>;
-@group(2) @binding(3) var s_font_atlas: sampler;
-@group(2) @binding(4) var<storage, read_write> game_data: array<f32>;
+@group(2) @binding(1) var<uniform> font_texture_uniform: FontUniforms;
+@group(2) @binding(2) var t_font_texture_atlas: texture_2d<f32>;
+@group(2) @binding(3) var<storage, read_write> game_data: array<f32>;
+
+const FONT_SPACING: f32 = 2.0;
+
+// Character definitions (Direct ASCII values)
+const CHAR_SPACE: u32 = 32u;        // ASCII space
+const CHAR_EXCLAMATION: u32 = 33u;  // ASCII 33
+const CHAR_COLON: u32 = 58u;        // ASCII 58
+const CHAR_EQUAL: u32 = 61u;        // ASCII 61
+
+// Numbers 0-9 (ASCII 48-57)
+const CHAR_0: u32 = 48u;
+const CHAR_1: u32 = 49u;
+const CHAR_2: u32 = 50u;
+const CHAR_3: u32 = 51u;
+const CHAR_4: u32 = 52u;
+const CHAR_5: u32 = 53u;
+const CHAR_6: u32 = 54u;
+const CHAR_7: u32 = 55u;
+const CHAR_8: u32 = 56u;
+const CHAR_9: u32 = 57u;
+
+// Uppercase letters (ASCII 65-90)
+const CHAR_A: u32 = 65u;
+const CHAR_B: u32 = 66u;
+const CHAR_C: u32 = 67u;
+const CHAR_D: u32 = 68u;
+const CHAR_E: u32 = 69u;
+const CHAR_F: u32 = 70u;
+const CHAR_G: u32 = 71u;
+const CHAR_H: u32 = 72u;
+const CHAR_I: u32 = 73u;
+const CHAR_J: u32 = 74u;
+const CHAR_K: u32 = 75u;
+const CHAR_L: u32 = 76u;
+const CHAR_M: u32 = 77u;
+const CHAR_N: u32 = 78u;
+const CHAR_O: u32 = 79u;
+const CHAR_P: u32 = 80u;
+const CHAR_Q: u32 = 81u;
+const CHAR_R: u32 = 82u;
+const CHAR_S: u32 = 83u;
+const CHAR_T: u32 = 84u;
+const CHAR_U: u32 = 85u;
+const CHAR_V: u32 = 86u;
+const CHAR_W: u32 = 87u;
+const CHAR_X: u32 = 88u;
+const CHAR_Y: u32 = 89u;
+const CHAR_Z: u32 = 90u;
+
+// render single character
+fn ch(pp: vec2<f32>, pos: vec2<f32>, code: u32, size: f32) -> f32 {
+    let char_size_pixels = vec2<f32>(size, size);
+    let relative_pos = pp - pos;
+
+    // Check bounds
+    if (relative_pos.x < 0.0 || relative_pos.x >= char_size_pixels.x ||
+        relative_pos.y < 0.0 || relative_pos.y >= char_size_pixels.y) {
+        return 0.0;
+    }
+
+    // Calculate UV coordinates within the character cell
+    let local_uv = relative_pos / char_size_pixels;
+
+    // calc char pos in atlas grid (16x16)
+    let grid_x = code % 16u;
+    let grid_y = code / 16u;
+
+
+    let padding = 0.05;
+    let padded_uv = local_uv * (1.0 - 2.0 * padding) + vec2<f32>(padding);
+
+    // atlas UV coords
+    let cell_size_uv = vec2<f32>(1.0 / 16.0, 1.0 / 16.0);
+    let cell_offset = vec2<f32>(f32(grid_x), f32(grid_y)) * cell_size_uv;
+    let final_uv = cell_offset + padded_uv * cell_size_uv;
+
+    // sample font atlas with textureLoad
+    let atlas_coord = vec2<i32>(
+        i32(final_uv.x * font_texture_uniform.atlas_size.x),
+        i32(final_uv.y * font_texture_uniform.atlas_size.y)
+    );
+    let sample = textureLoad(t_font_texture_atlas, atlas_coord, 0);
+
+    // red channel font data + anti-alias
+    let font_alpha = sample.r * 0.8;
+    return smoothstep(0.1, 0.9, font_alpha);
+}
+
+// char spacing
+fn adv(size: f32) -> f32 {
+    return size * (1.0 / FONT_SPACING);
+}
+
+// render number
+fn num(pp: vec2<f32>, pos: vec2<f32>, number: u32, size: f32) -> f32 {
+    let char_advance = adv(size);
+    var alpha = 0.0;
+    var temp_num = number;
+    var digit_count = 0u;
+
+    // Count digits
+    if (temp_num == 0u) {
+        digit_count = 1u;
+    } else {
+        var count_temp = temp_num;
+        while (count_temp > 0u) {
+            count_temp = count_temp / 10u;
+            digit_count++;
+        }
+    }
+
+    // Render digits from right to left
+    temp_num = number;
+    for (var i = 0u; i < digit_count; i++) {
+        let digit = temp_num % 10u;
+        let digit_char_code = CHAR_0 + digit;
+        let digit_pos = pos + vec2<f32>(f32(digit_count - 1u - i) * char_advance, 0.0);
+        let char_alpha = ch(pp, digit_pos, digit_char_code, size);
+        alpha = max(alpha, char_alpha);
+        temp_num = temp_num / 10u;
+    }
+
+    return alpha;
+}
+
+// word rendering functions
+fn word_perfect(pp: vec2<f32>, pos: vec2<f32>, size: f32) -> f32 {
+    let chars = array<u32, 8>(CHAR_P, CHAR_E, CHAR_R, CHAR_F, CHAR_E, CHAR_C, CHAR_T, CHAR_EXCLAMATION);
+    let char_advance = adv(size);
+    var alpha = 0.0;
+    for (var i = 0u; i < 8u; i++) {
+        let char_pos = pos + vec2<f32>(f32(i) * char_advance, 0.0);
+        alpha = max(alpha, ch(pp, char_pos, chars[i], size));
+    }
+    return alpha;
+}
+
+fn word_block_tower(pp: vec2<f32>, pos: vec2<f32>, size: f32) -> f32 {
+    let chars = array<u32, 11>(CHAR_B, CHAR_L, CHAR_O, CHAR_C, CHAR_K, CHAR_SPACE, CHAR_T, CHAR_O, CHAR_W, CHAR_E, CHAR_R);
+    let char_advance = adv(size);
+    var alpha = 0.0;
+    for (var i = 0u; i < 11u; i++) {
+        let char_pos = pos + vec2<f32>(f32(i) * char_advance, 0.0);
+        alpha = max(alpha, ch(pp, char_pos, chars[i], size));
+    }
+    return alpha;
+}
+
+fn word_click_to_start(pp: vec2<f32>, pos: vec2<f32>, size: f32) -> f32 {
+    let chars = array<u32, 14>(CHAR_C, CHAR_L, CHAR_I, CHAR_C, CHAR_K, CHAR_SPACE, CHAR_T, CHAR_O, CHAR_SPACE, CHAR_S, CHAR_T, CHAR_A, CHAR_R, CHAR_T);
+    let char_advance = adv(size);
+    var alpha = 0.0;
+    for (var i = 0u; i < 14u; i++) {
+        let char_pos = pos + vec2<f32>(f32(i) * char_advance, 0.0);
+        alpha = max(alpha, ch(pp, char_pos, chars[i], size));
+    }
+    return alpha;
+}
+
+fn word_perfect_match_equals(pp: vec2<f32>, pos: vec2<f32>, size: f32) -> f32 {
+    let chars = array<u32, 15>(CHAR_P, CHAR_E, CHAR_R, CHAR_F, CHAR_E, CHAR_C, CHAR_T, CHAR_SPACE, CHAR_M, CHAR_A, CHAR_T, CHAR_C, CHAR_H, CHAR_SPACE, CHAR_EQUAL);
+    let char_advance = adv(size);
+    var alpha = 0.0;
+    for (var i = 0u; i < 15u; i++) {
+        let char_pos = pos + vec2<f32>(f32(i) * char_advance, 0.0);
+        alpha = max(alpha, ch(pp, char_pos, chars[i], size));
+    }
+    return alpha;
+}
+
+fn word_more_points(pp: vec2<f32>, pos: vec2<f32>, size: f32) -> f32 {
+    let chars = array<u32, 11>(CHAR_M, CHAR_O, CHAR_R, CHAR_E, CHAR_SPACE, CHAR_P, CHAR_O, CHAR_I, CHAR_N, CHAR_T, CHAR_S);
+    let char_advance = adv(size);
+    var alpha = 0.0;
+    for (var i = 0u; i < 11u; i++) {
+        let char_pos = pos + vec2<f32>(f32(i) * char_advance, 0.0);
+        alpha = max(alpha, ch(pp, char_pos, chars[i], size));
+    }
+    return alpha;
+}
+
+fn word_score(pp: vec2<f32>, pos: vec2<f32>, size: f32) -> f32 {
+    let chars = array<u32, 6>(CHAR_S, CHAR_C, CHAR_O, CHAR_R, CHAR_E, CHAR_COLON);
+    let char_advance = adv(size);
+    var alpha = 0.0;
+    for (var i = 0u; i < 6u; i++) {
+        let char_pos = pos + vec2<f32>(f32(i) * char_advance, 0.0);
+        alpha = max(alpha, ch(pp, char_pos, chars[i], size));
+    }
+    return alpha;
+}
+
+fn word_game_over(pp: vec2<f32>, pos: vec2<f32>, size: f32) -> f32 {
+    let chars = array<u32, 9>(CHAR_G, CHAR_A, CHAR_M, CHAR_E, CHAR_SPACE, CHAR_O, CHAR_V, CHAR_E, CHAR_R);
+    let char_advance = adv(size);
+    var alpha = 0.0;
+    for (var i = 0u; i < 9u; i++) {
+        let char_pos = pos + vec2<f32>(f32(i) * char_advance, 0.0);
+        alpha = max(alpha, ch(pp, char_pos, chars[i], size));
+    }
+    return alpha;
+}
+
+fn word_click_to_restart(pp: vec2<f32>, pos: vec2<f32>, size: f32) -> f32 {
+    let chars = array<u32, 16>(CHAR_C, CHAR_L, CHAR_I, CHAR_C, CHAR_K, CHAR_SPACE, CHAR_T, CHAR_O, CHAR_SPACE, CHAR_R, CHAR_E, CHAR_S, CHAR_T, CHAR_A, CHAR_R, CHAR_T);
+    let char_advance = adv(size);
+    var alpha = 0.0;
+    for (var i = 0u; i < 16u; i++) {
+        let char_pos = pos + vec2<f32>(f32(i) * char_advance, 0.0);
+        alpha = max(alpha, ch(pp, char_pos, chars[i], size));
+    }
+    return alpha;
+}
 
 // game indices
 const O = array<u32,9>(0,1,2,3,4,5,6,7,8); // state,score,block,click,cam_y,cam_h,cam_a,cam_s,perf_time
@@ -42,51 +254,6 @@ struct Block { p: vec3<f32>, s: vec3<f32>, c: vec3<f32>, perf: f32, };
 struct Mat { alb: vec3<f32>, r: f32, m: f32, f: f32, }; // material
 struct Light { p: vec3<f32>, c: vec3<f32>, i: f32, }; // light
 
-// sdf sampling
-fn sdf(p: vec2<f32>, sz: vec2<f32>, a: u32, size: f32) -> f32 {
-    let uv = p / sz;
-    let c = vec2<u32>(a % 16u, a / 16u);
-    let fuv = (vec2<f32>(c) * 64. + 4. + uv * 56.) / 1024.;
-    
-    if (any(fuv < vec2(0.)) || any(fuv >= vec2(1.))) { return 0.; }
-    return textureLoad(t_font_atlas, vec2<i32>(fuv * 1024.), 0).a;
-}
-
-fn ch(pos: vec2<f32>, cpos: vec2<f32>, a: u32, sz: f32) -> f32 { // char
-    let lp = pos - cpos;
-    let s = vec2(sz);
-    return select(0., sdf(lp, s, a, sz), all(lp >= vec2(0.)) && all(lp < s));
-}
-
-fn adv(sz: f32) -> f32 { return sz * .9; } // char advance
-
-fn word(p: vec2<f32>, wp: vec2<f32>, w: array<u32, 16>, len: u32, sz: f32) -> f32 {
-    let a = adv(sz);
-    var alpha = 0.;
-    for (var i = 0u; i < len && i < 16u; i++) {
-        alpha = max(alpha, ch(p, wp + vec2(f32(i) * a, 0.), w[i], sz));
-    }
-    return alpha;
-}
-
-fn num(p: vec2<f32>, np: vec2<f32>, n: u32, sz: f32) -> f32 { // number
-    let a = adv(sz);
-    var alpha = 0.;
-    var tn = n;
-    var dc = select(1u, 0u, n == 0u);
-    
-    // count digits
-    var ct = tn;
-    while (ct > 0u) { ct /= 10u; dc++; }
-    
-    tn = n;
-    for (var i = 0u; i < dc; i++) {
-        let digit = tn % 10u;
-        alpha = max(alpha, ch(p, np + vec2(f32(dc-1u-i) * a, 0.), digit + 48u, sz));
-        tn /= 10u;
-    }
-    return alpha;
-}
 
 // get block material
 fn mat(id: u32) -> Mat {
@@ -404,41 +571,41 @@ fn txt(pp: vec2<f32>, ss: vec2<f32>) -> vec3<f32> {
     if (dt < 2. && dt > 0. && pt > 0. && state == 1u) {
         let fade = 1. - dt / 2.;
         let scale_factor = 1. + sin(dt * 8.) * .2 * fade;
-        let perfect_text = array<u32, 16>(80u, 69u, 82u, 70u, 69u, 67u, 84u, 33u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u);
         let text_size = 80. * scale_factor;
         let text_pos = vec2(ss.x * .5 - 200., ss.y * .3);
-        if (word(pp, text_pos, perfect_text, 8u, text_size) > .01) { 
-            tc = vec3(0.1, 0.05, 0.0) * fade; 
+        if (word_perfect(pp, text_pos, text_size) > 0.01) {
+            tc = vec3(0.1, 0.05, 0.0) * fade;
         }
     }
     
     if (state == 0u) {
-        // menu
-        let title = array<u32, 16>(66u, 76u, 79u, 67u, 75u, 32u, 84u, 79u, 87u, 69u, 82u, 0u, 0u, 0u, 0u, 0u);
-        if (word(pp, vec2(ss.x * .5 - 280., 100.), title, 11u, 64.) > .01) { tc = vec3(1., 1., 0.); }
-        
-        let sub = array<u32, 16>(67u, 76u, 73u, 67u, 75u, 32u, 84u, 79u, 32u, 83u, 84u, 65u, 82u, 84u, 0u, 0u);
-        if (word(pp, vec2(ss.x * .5 - 200., 200.), sub, 14u, 32.) > .01) { tc = vec3(0.8, 0.1, 0.0); }
-        
-        let inst1 = array<u32, 16>(80u, 69u, 82u, 70u, 69u, 67u, 84u, 32u, 77u, 65u, 84u, 67u, 72u, 32u, 61u, 32u); // "PERFECT MATCH = "
-        if (word(pp, vec2(ss.x * .5 - 160., 270.), inst1, 16u, 24.) > .01) { tc = vec3(0.1, 0.05, 0.0); }
-        
-        let inst2 = array<u32, 16>(77u, 79u, 82u, 69u, 32u, 80u, 79u, 73u, 78u, 84u, 83u, 0u, 0u, 0u, 0u, 0u); // "MORE POINTS"
-        if (word(pp, vec2(ss.x * .5 - 110., 300.), inst2, 11u, 24.) > .01) { tc = vec3(0.1, 0.05, 0.0); }
+        // menu - properly centered text
+        // "BLOCK TOWER" (11 chars, size 64)
+        let block_tower_width = 11.0 * adv(64.0);
+        if (word_block_tower(pp, vec2(ss.x * 0.5 - block_tower_width * 0.5, 100.), 64.) > 0.01) { tc = vec3(1., 1., 0.); }
+
+        // "CLICK TO START" (14 chars, size 32)
+        let click_to_start_width = 14.0 * adv(32.0);
+        if (word_click_to_start(pp, vec2(ss.x * 0.5 - click_to_start_width * 0.5, 200.), 32.) > 0.01) { tc = vec3(0.8, 0.1, 0.0); }
+
+        // "PERFECT MATCH =" (15 chars, size 24)
+        let perfect_match_width = 15.0 * adv(24.0);
+        if (word_perfect_match_equals(pp, vec2(ss.x * 0.5 - perfect_match_width * 0.5, 270.), 24.) > 0.01) { tc = vec3(0.1, 0.05, 0.0); }
+
+        // "MORE POINTS" (11 chars, size 24)
+        let more_points_width = 11.0 * adv(24.0);
+        if (word_more_points(pp, vec2(ss.x * 0.5 - more_points_width * 0.5, 300.), 24.) > 0.01) { tc = vec3(0.1, 0.05, 0.0); }
         
     } else if (state == 1u) {
         // playing
-        let scl = array<u32, 16>(83u, 67u, 79u, 82u, 69u, 58u, 32u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u);
-        if (word(pp, vec2(50., 50.), scl, 7u, 48.) > .01) { tc = vec3(1.); }
-        if (num(pp, vec2(50. + 7. * adv(48.), 50.), gsc(), 48.) > .01) { tc = vec3(.01, .01, .01); }
+        if (word_score(pp, vec2(50., 50.), 48.) > 0.01) { tc = vec3(1.); }
+        if (num(pp, vec2(50. + 7. * 40., 50.), gsc(), 48.) > 0.01) { tc = vec3(.01, .01, .01); }
         
     } else if (state == 2u) {
         // game over
-        let go = array<u32, 16>(71u, 65u, 77u, 69u, 32u, 79u, 86u, 69u, 82u, 0u, 0u, 0u, 0u, 0u, 0u, 0u);
-        if (word(pp, vec2(ss.x * .5 - 240., ss.y * .5), go, 9u, 60.) > .01) { tc = vec3(1., .2, .2); }
-        
-        let rst = array<u32, 16>(67u, 76u, 73u, 67u, 75u, 32u, 84u, 79u, 32u, 82u, 69u, 83u, 84u, 65u, 82u, 84u);
-        if (word(pp, vec2(ss.x * .5 - 220., ss.y * .5 + 100.), rst, 16u, 32.) > .01) { tc = vec3(.1); }
+        if (word_game_over(pp, vec2(ss.x * .5 - 240., ss.y * .5), 60.) > 0.01) { tc = vec3(1., .2, .2); }
+
+        if (word_click_to_restart(pp, vec2(ss.x * .5 - 220., ss.y * .5 + 100.), 32.) > 0.01) { tc = vec3(.1); }
     }
     
     return tc;

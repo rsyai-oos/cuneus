@@ -212,11 +212,10 @@ impl ResourceLayout {
     }
     
     pub fn add_font_resources(&mut self) {
-        self.add_resource(2, "font_uniform", ResourceType::UniformBuffer { 
-            size: std::mem::size_of::<crate::FontUniforms>() as u64 
+        self.add_resource(2, "font_texture_uniform", ResourceType::UniformBuffer {
+            size: std::mem::size_of::<crate::FontUniforms>() as u64
         });
-        self.add_resource(2, "font_texture", ResourceType::InputTexture);
-        self.add_resource(2, "font_sampler", ResourceType::Sampler);
+        self.add_resource(2, "font_texture_atlas", ResourceType::InputTexture);
     }
     
     pub fn add_audio_buffer(&mut self, size: usize) {

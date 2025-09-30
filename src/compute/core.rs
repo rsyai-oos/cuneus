@@ -108,10 +108,8 @@ impl ComputeShader {
         }
         if config.has_fonts {
             resource_layout.add_font_resources();
-            if config.has_audio {
-                resource_layout.add_audio_buffer(config.audio_buffer_size);
-            }
-        } else if config.has_audio {
+        }
+        if config.has_audio {
             resource_layout.add_audio_buffer(config.audio_buffer_size);
         }
         if config.has_atomic_buffer {
@@ -226,7 +224,7 @@ impl ComputeShader {
         
         
         // Step 6: Create engine resources (Group 2) if needed
-        let (font_system, atomic_buffer_raw, audio_buffer, audio_staging_buffer, audio_spectrum_buffer, mouse_uniform, group2_bind_group) = 
+        let (font_system, atomic_buffer_raw, audio_buffer, audio_staging_buffer, audio_spectrum_buffer, mouse_uniform, group2_bind_group) =
             Self::create_engine_resources(core, &bind_group_layouts, &config);
         
         // Step 7: Create user storage buffers (Group 3) if needed
@@ -557,11 +555,11 @@ impl ComputeShader {
         
         // Create font system if needed
         let font_system = if config.has_fonts {
-            let font_data = include_bytes!("../../assets/fonts/Courier Prime Bold.ttf");
-            Some(FontSystem::new(core, font_data))
+            Some(FontSystem::new(core))
         } else {
             None
         };
+
         
         // Create atomic buffer if needed (raw buffer, not old AtomicBuffer struct)
         // buffer size: 3 u32s * 4 bytes per pixel 
@@ -732,23 +730,19 @@ impl ComputeShader {
             binding_counter += 1;
         }
         
-        // Add font resources (bindings 1, 2, 3)
-        if let Some(fonts) = font_system {
+        // Add font texture resources (Shadertoy-style)
+        if let Some(font_tex) = font_system {
             entries.extend_from_slice(&[
                 wgpu::BindGroupEntry {
                     binding: binding_counter,
-                    resource: fonts.font_uniforms.buffer.as_entire_binding(),
+                    resource: font_tex.font_uniforms.buffer.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: binding_counter + 1,
-                    resource: wgpu::BindingResource::TextureView(&fonts.atlas_texture.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: binding_counter + 2,
-                    resource: wgpu::BindingResource::Sampler(&fonts.atlas_texture.sampler),
+                    resource: wgpu::BindingResource::TextureView(&font_tex.atlas_texture.view),
                 },
             ]);
-            binding_counter += 3;
+            binding_counter += 2;
         }
         
         // Add audio buffer

@@ -1,12 +1,8 @@
 use crate::{Core, UniformProvider, UniformBinding, TextureManager};
-use fontdue::{Font, FontSettings};
 use std::collections::HashMap;
 use bytemuck::{Pod, Zeroable};
 
-//note that: I always use following:
-// _ATLAS_SIZE: u32 = 1024;
-// _CELL_SIZE: u32 = 64;
-// _GRID_SIZE: u32 = 16;
+// font system using texture atlas
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
@@ -14,7 +10,7 @@ pub struct FontUniforms {
     pub atlas_size: [f32; 2],
     pub char_size: [f32; 2],
     pub screen_size: [f32; 2],
-    pub _padding: [f32; 2],
+    pub grid_size: [f32; 2],
 }
 
 impl UniformProvider for FontUniforms {
@@ -23,98 +19,42 @@ impl UniformProvider for FontUniforms {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct CharInfo {
     pub uv_min: [f32; 2],
     pub uv_max: [f32; 2],
-    pub size: [f32; 2],
-    pub bearing: [f32; 2],
-    pub advance: f32,
+    pub char_code: u8,
 }
 
 pub struct FontSystem {
-    pub font: Font,
     pub atlas_texture: TextureManager,
     pub char_map: HashMap<char, CharInfo>,
     pub font_uniforms: UniformBinding<FontUniforms>,
     pub font_bind_group_layout: wgpu::BindGroupLayout,
+    pub atlas_width: u32,
+    pub atlas_height: u32,
+    pub grid_size: u32,
+    pub char_size: u32,
 }
 
-
 impl FontSystem {
-    fn generate_simple_atlas(font: &Font) -> (Vec<u8>, u32, u32) {
-        let atlas_size = 1024u32;  
-        let cell_size = 64u32;
+    pub fn new(core: &Core) -> Self {
+        //note that: I always use following:
+        // _ATLAS_SIZE: u32 = 1024;
+        // _CELL_SIZE: u32 = 64;
+        // _GRID_SIZE: u32 = 16;
+        let font_texture_bytes = include_bytes!("../assets/fonts/fonttexture.png");
+        let font_image = image::load_from_memory(font_texture_bytes)
+            .expect("Failed to load font texture")
+            .into_rgba8();
+
+        let atlas_width = font_image.width();
+        let atlas_height = font_image.height();
         let grid_size = 16u32;
-        let mut atlas_data = vec![0u8; (atlas_size * atlas_size * 4) as usize];
-        
-        
-        for ascii_code in 32u32..127u32 {
-            let ch = char::from(ascii_code as u8);
-            let grid_x = ascii_code % grid_size;
-            let grid_y = ascii_code / grid_size;
-            let cell_x = grid_x * cell_size;
-            let cell_y = grid_y * cell_size;
-            //note: larger, more quality:
-            let font_size = 48.0;
-            let (metrics, bitmap) = font.rasterize(ch, font_size);
-            
-            if bitmap.is_empty() {
-                continue;
-            }
-            
-            let padding = 4u32;
-            let available_width = cell_size - padding * 2;
-            let available_height = cell_size - padding * 2;
-            
-            let scale_x = available_width as f32 / metrics.width as f32;
-            let scale_y = available_height as f32 / metrics.height as f32;
-            let scale = scale_x.min(scale_y).min(1.0);
-            
-            let scaled_width = (metrics.width as f32 * scale) as u32;
-            let scaled_height = (metrics.height as f32 * scale) as u32;
-            
-            let offset_x = cell_x + padding + (available_width - scaled_width) / 2;
-            let offset_y = cell_y + padding + (available_height - scaled_height) / 2;
-            
-            for y in 0..scaled_height {
-                for x in 0..scaled_width {
-                    let src_x = (x as f32 / scale) as usize;
-                    let src_y = (y as f32 / scale) as usize;
-                    
-                    if src_x < metrics.width && src_y < metrics.height {
-                        let atlas_x = offset_x + x;
-                        let atlas_y = offset_y + y;
-                        
-                        if atlas_x < atlas_size && atlas_y < atlas_size {
-                            let atlas_idx = ((atlas_y * atlas_size + atlas_x) * 4) as usize;
-                            let src_idx = src_y * metrics.width + src_x;
-                            
-                            if atlas_idx + 3 < atlas_data.len() && src_idx < bitmap.len() {
-                                let alpha = bitmap[src_idx];
+        let char_size = atlas_width / grid_size;
 
-                                let corrected_alpha = ((alpha as f32 / 255.0).powf(0.8) * 255.0) as u8;
-                                atlas_data[atlas_idx] = 255;     // R
-                                atlas_data[atlas_idx + 1] = 255; // G
-                                atlas_data[atlas_idx + 2] = 255; // B
-                                atlas_data[atlas_idx + 3] = corrected_alpha; // A
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        
-        (atlas_data, atlas_size, atlas_size)
-    }
-
-
-    pub fn new(core: &Core, font_data: &[u8]) -> Self {
-        let font = Font::from_bytes(font_data, FontSettings::default()).unwrap();
-        
         let font_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
-                // Font uniforms
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::COMPUTE,
@@ -125,7 +65,6 @@ impl FontSystem {
                     },
                     count: None,
                 },
-                // Font atlas texture
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
                     visibility: wgpu::ShaderStages::COMPUTE,
@@ -136,25 +75,17 @@ impl FontSystem {
                     },
                     count: None,
                 },
-                // Font atlas sampler
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
             ],
             label: Some("Font Bind Group Layout"),
         });
 
         let font_uniforms_data = FontUniforms {
-            atlas_size: [512.0, 512.0],
-            char_size: [32.0, 32.0],
+            atlas_size: [atlas_width as f32, atlas_height as f32],
+            char_size: [char_size as f32, char_size as f32],
             screen_size: [core.size.width as f32, core.size.height as f32],
-            _padding: [0.0, 0.0],
+            grid_size: [grid_size as f32, grid_size as f32],
         };
 
-        //separate uniform layout for just the font uniforms buffer
         let font_uniform_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -179,47 +110,26 @@ impl FontSystem {
             0,
         );
 
-        let (atlas_texture, char_map, atlas_width, atlas_height) = Self::create_font_atlas(core, &font);
-        
-        //font uniforms update with actual atlas dimensions
-        let mut font_system = Self {
-            font,
+        let atlas_texture = Self::create_font_texture(core, &font_image);
+        let char_map = Self::generate_character_map(grid_size);
+
+        Self {
             atlas_texture,
             char_map,
             font_uniforms,
             font_bind_group_layout,
-        };
-        
-        font_system.font_uniforms.data.atlas_size = [atlas_width as f32, atlas_height as f32];
-        font_system.font_uniforms.data.char_size = [atlas_width as f32 / 16.0, atlas_height as f32 / 16.0];
-        font_system.font_uniforms.update(&core.queue);
-        
-        font_system
+            atlas_width,
+            atlas_height,
+            grid_size,
+            char_size,
+        }
     }
 
-    fn create_font_atlas(core: &Core, font: &Font) -> (TextureManager, HashMap<char, CharInfo>, u32, u32) {
-        let (atlas_data, width, height) = Self::generate_simple_atlas(font);
-        let mut char_map = HashMap::new();
-        
-        let grid_size = 16;
-        for ascii_code in 32u32..127u32 {
-            let ch = char::from(ascii_code as u8);
-            let grid_x = ascii_code % grid_size;
-            let grid_y = ascii_code / grid_size;
-            
-            let char_info = CharInfo {
-                uv_min: [grid_x as f32 / grid_size as f32, grid_y as f32 / grid_size as f32],
-                uv_max: [(grid_x + 1) as f32 / grid_size as f32, (grid_y + 1) as f32 / grid_size as f32],
-                size: [width as f32 / grid_size as f32, height as f32 / grid_size as f32],
-                bearing: [0.0, 0.0],
-                advance: width as f32 / grid_size as f32,
-            };
-            
-            char_map.insert(ch, char_info);
-        }
-        
+    fn create_font_texture(core: &Core, font_image: &image::RgbaImage) -> TextureManager {
+        let (width, height) = font_image.dimensions();
+
         let texture = core.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Shadertoy Font Atlas"),
+            label: Some("Shadertoy Font Texture"),
             size: wgpu::Extent3d {
                 width,
                 height,
@@ -232,7 +142,7 @@ impl FontSystem {
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
-        
+
         core.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &texture,
@@ -240,7 +150,7 @@ impl FontSystem {
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            &atlas_data,
+            font_image.as_raw(),
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(width * 4),
@@ -252,7 +162,7 @@ impl FontSystem {
                 depth_or_array_layers: 1,
             },
         );
-        
+
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let sampler = core.device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -263,7 +173,7 @@ impl FontSystem {
             mipmap_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         });
-        
+
         let texture_bind_group_layout = core.device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Font Texture Display Layout"),
             entries: &[
@@ -285,7 +195,7 @@ impl FontSystem {
                 },
             ],
         });
-        
+
         let bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &texture_bind_group_layout,
             entries: &[
@@ -298,17 +208,45 @@ impl FontSystem {
                     resource: wgpu::BindingResource::Sampler(&sampler),
                 },
             ],
-            label: Some("Font Atlas Bind Group"),
+            label: Some("Font Texture Atlas Bind Group"),
         });
-        
-        let atlas_texture = TextureManager {
+
+        TextureManager {
             texture,
             view,
             sampler,
             bind_group,
-        };
-        
-        (atlas_texture, char_map, width, height)
+        }
+    }
+
+    fn generate_character_map(grid_size: u32) -> HashMap<char, CharInfo> {
+        let mut char_map = HashMap::new();
+
+        for ascii_code in 32..127 {
+            let char = ascii_code as u8 as char;
+            let grid_index = ascii_code as usize;
+
+            if grid_index >= 256 { break; }
+
+            let grid_x = grid_index % (grid_size as usize);
+            let grid_y = grid_index / (grid_size as usize);
+
+            let char_info = CharInfo {
+                uv_min: [
+                    grid_x as f32 / grid_size as f32,
+                    grid_y as f32 / grid_size as f32,
+                ],
+                uv_max: [
+                    (grid_x + 1) as f32 / grid_size as f32,
+                    (grid_y + 1) as f32 / grid_size as f32,
+                ],
+                char_code: ascii_code as u8,
+            };
+
+            char_map.insert(char, char_info);
+        }
+
+        char_map
     }
 
     pub fn update_screen_size(&mut self, width: u32, height: u32, queue: &wgpu::Queue) {
@@ -332,13 +270,20 @@ impl FontSystem {
                     binding: 1,
                     resource: wgpu::BindingResource::TextureView(&self.atlas_texture.view),
                 },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&self.atlas_texture.sampler),
-                },
             ],
             label: Some("Font Bind Group"),
         })
     }
-}
 
+    pub fn get_atlas_dimensions(&self) -> (u32, u32) {
+        (self.atlas_width, self.atlas_height)
+    }
+
+    pub fn get_char_size(&self) -> u32 {
+        self.char_size
+    }
+
+    pub fn get_grid_size(&self) -> u32 {
+        self.grid_size
+    }
+}
