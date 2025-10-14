@@ -210,9 +210,7 @@ impl RenderKit {
         let egui_renderer = egui_wgpu::Renderer::new(
             &core.device,
             core.config.format,
-            None,
-            1,
-            false,
+            egui_wgpu::RendererOptions::default(),
         );
 
         //  default texture manager
@@ -349,22 +347,13 @@ impl RenderKit {
         );
 
         {
-            let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Egui Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
-
-            let mut render_pass = render_pass.forget_lifetime();
+            let render_pass = crate::Renderer::begin_render_pass(
+                encoder,
+                view,
+                wgpu::LoadOp::Load,
+                Some("Egui Render Pass"),
+            );
+            let mut render_pass = render_pass.into_inner().forget_lifetime();
             self.egui_renderer.render(
                 &mut render_pass,
                 &clipped_primitives,
