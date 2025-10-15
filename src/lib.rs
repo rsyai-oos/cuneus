@@ -134,6 +134,7 @@ impl Core {
                 required_features: wgpu::Features::empty(),
                 required_limits: wgpu::Limits::default(),
                 memory_hints: Default::default(),
+                experimental_features: Default::default(),
                 trace: wgpu::Trace::default(),
             })
             .await

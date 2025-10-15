@@ -265,20 +265,12 @@ impl ShaderManager for KuwaharaShader {
         self.compute_shader.dispatch(&mut encoder, core);
 
         {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Kuwahara Display Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
+            let mut render_pass = cuneus::Renderer::begin_render_pass(
+                &mut encoder,
+                &view,
+                wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                Some("Kuwahara Display Pass"),
+            );
             
             let compute_texture = self.compute_shader.get_output_texture();
             render_pass.set_pipeline(&self.base.renderer.render_pipeline);

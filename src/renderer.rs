@@ -20,6 +20,16 @@ impl Vertex {
 pub struct RenderPassWrapper<'a> {
     render_pass: wgpu::RenderPass<'a>,
 }
+
+impl<'a> RenderPassWrapper<'a> {
+    /// Extract the inner RenderPass for special cases like egui's forget_lifetime()
+    ///
+    /// We need this because Deref gives us &RenderPass but some methods
+    /// (like forget_lifetime) need owned RenderPass to consume it.
+    pub fn into_inner(self) -> wgpu::RenderPass<'a> {
+        self.render_pass
+    }
+}
 pub struct Renderer {
     pub render_pipeline: wgpu::RenderPipeline,
     pub vertex_buffer: wgpu::Buffer,
@@ -110,6 +120,7 @@ impl Renderer {
                     load: load_op,
                     store: wgpu::StoreOp::Store,
                 },
+                depth_slice: None,
             })],
             depth_stencil_attachment: None,
             timestamp_writes: None,

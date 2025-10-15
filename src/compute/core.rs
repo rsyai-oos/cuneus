@@ -1466,7 +1466,7 @@ impl ComputeShader {
                 let _ = tx.send(result);
             });
             
-            let _ = device.poll(wgpu::PollType::Wait);
+            let _ = device.poll(wgpu::PollType::wait_indefinitely());
             
             match rx.recv() {
                 Ok(Ok(())) => {},
@@ -1561,20 +1561,12 @@ impl ComputeShader {
         }
         
         {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Export Capture Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &capture_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
+            let mut render_pass = crate::Renderer::begin_render_pass(
+                &mut encoder,
+                &capture_view,
+                wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                Some("Export Capture Pass"),
+            );
             
             render_pass.set_pipeline(&render_kit.renderer.render_pipeline);
             render_pass.set_vertex_buffer(0, render_kit.renderer.vertex_buffer.slice(..));
@@ -1617,7 +1609,7 @@ impl ComputeShader {
             tx.send(result).unwrap();
         });
         
-        let _ = core.device.poll(wgpu::PollType::Wait).unwrap();
+        let _ = core.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
         rx.recv().unwrap().unwrap();
         
         let padded_data = buffer_slice.get_mapped_range().to_vec();
