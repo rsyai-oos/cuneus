@@ -120,9 +120,14 @@ impl Core {
         let window_ptr = Box::into_raw(window_box);
         // SAFETY: window_ptr is valid as we just created it
         let surface = unsafe { instance.create_surface(&*window_ptr) }.unwrap();
+        let power_preference = instance.enumerate_adapters(wgpu::Backends::all())
+        .iter()
+        .find(|p| p.get_info().device_type == wgpu::DeviceType::DiscreteGpu)
+        .map(|_|wgpu::PowerPreference::HighPerformance )
+        .unwrap_or(wgpu::PowerPreference::default());
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::default(),
+                power_preference,
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
             })
@@ -145,7 +150,7 @@ impl Core {
             .formats
             .iter()
             .copied()
-            .find(|f| f.is_srgb())
+            .find(|f| f.is_srgb() && *f == CAPTURE_FORMAT)
             .unwrap_or(surface_caps.formats[0]);
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
