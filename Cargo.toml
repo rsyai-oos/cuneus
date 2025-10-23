@@ -28,6 +28,9 @@ gstreamer-app = { version = "0.24.0", optional = true }
 gstreamer-pbutils = { version = "0.24.0", optional = true }
 anyhow = "1.0.96"
 log = "0.4.25"
+tracing = "0.1.41"
+tracing-subscriber = {version = "0.3.20", features = ["env-filter"]}
+tracing-appender = "0.2.3"
 
 [features]
 default = ["media"]
