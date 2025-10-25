@@ -539,6 +539,7 @@ impl ComputeShader {
         input_texture_view: Option<&wgpu::TextureView>,
         input_sampler: Option<&wgpu::Sampler>,
     ) -> wgpu::BindGroup {
+        log::info!("ComputeShader::create_group1_bind_group");
         // Create a storage view for the compute shader
         let storage_view = output_texture
             .texture
@@ -595,6 +596,7 @@ impl ComputeShader {
         Option<UniformBinding<crate::MouseUniform>>,
         Option<wgpu::BindGroup>,
     ) {
+        log::info!("ComputeShader::create_engine_resources");
         let layout = layouts.get(&2);
         if layout.is_none() {
             return (None, None, None, None, None, None, None);
@@ -734,6 +736,7 @@ impl ComputeShader {
         channel_textures: &HashMap<u32, Option<(wgpu::TextureView, wgpu::Sampler)>>,
         num_channels: u32,
     ) -> Option<wgpu::BindGroup> {
+        log::info!("ComputeShader::create_group2_bind_group");
         // Create entries based on expected layout from ResourceLayout
         // Order must match ResourceLayout creation order:
         // 1. mouse (if has_mouse) -> binding 0
@@ -879,6 +882,10 @@ impl ComputeShader {
         layouts: &HashMap<u32, wgpu::BindGroupLayout>,
         config: &ComputeConfiguration,
     ) -> (Vec<wgpu::Buffer>, Option<wgpu::BindGroup>) {
+        log::info!(
+            "ComputeShader::create_user_storage_buffers, config.storage_buffers.len: {}",
+            config.storage_buffers.len()
+        );
         if config.storage_buffers.is_empty() {
             return (Vec::new(), None);
         }
@@ -928,6 +935,7 @@ impl ComputeShader {
         stage_index: usize,
         workgroup_count: [u32; 3],
     ) {
+        log::info!("ComputeShader::dispatch_stage_with_workgroups");
         if stage_index >= self.pipelines.len() {
             log::error!(
                 "Stage index {} out of bounds (max: {})",
@@ -986,6 +994,7 @@ impl ComputeShader {
         core: &Core,
         stage_index: usize,
     ) {
+        log::info!("ComputeShader::dispatch_stage, stage_idx: {}", stage_index);
         let workgroup_count = [
             core.size.width.div_ceil(self.workgroup_size[0]),
             core.size.height.div_ceil(self.workgroup_size[1]),
@@ -1554,6 +1563,7 @@ impl ComputeShader {
 
     /// Clear all buffers (atomic or multipass)
     pub fn clear_all_buffers(&mut self, core: &Core) {
+        log::info!("ComputeShader::clear_all_buffers");
         // Clear multipass buffers if present
         if let Some(multipass) = &mut self.multipass_manager {
             multipass.clear_all(core);
@@ -1568,6 +1578,7 @@ impl ComputeShader {
 
     /// Clear atomic buffer by recreating it (like old clear_all method)
     pub fn clear_atomic_buffer(&mut self, core: &Core) {
+        log::info!("ComputeShader::clear_atomic_buffer");
         if self.atomic_buffer_raw.is_some() {
             // Recreate the atomic buffer entirely (more thorough than just writing zeros)
             let buffer_size = (core.size.width * core.size.height * 3 * 4) as u64; // 3 u32s * 4 bytes per pixel
@@ -1602,12 +1613,14 @@ impl ComputeShader {
         mouse_uniform_data: &crate::MouseUniform,
         queue: &wgpu::Queue,
     ) {
+        log::info!("ComputeShader::update_mouse_uniform");
         if let Some(mouse_uniform) = &mut self.mouse_uniform {
             mouse_uniform.data = *mouse_uniform_data;
             mouse_uniform.update(queue);
         }
     }
     pub fn get_audio_buffer(&self) -> Option<&wgpu::Buffer> {
+        log::info!("ComputeShader::get_audio_buffer");
         self.audio_buffer.as_ref()
     }
 
@@ -1624,6 +1637,7 @@ impl ComputeShader {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Result<Vec<f32>, Box<dyn std::error::Error>> {
+        log::info!("ComputeShader::read_audio_buffer");
         if let (Some(audio_buffer), Some(staging_buffer)) =
             (&self.audio_buffer, &self.audio_staging_buffer)
         {
