@@ -1,3 +1,5 @@
+use egui::SetOpenCommand;
+
 #[cfg(feature = "media")]
 use crate::gst::video::VideoTextureManager;
 use crate::hdri::HdriMetadata;
@@ -256,18 +258,26 @@ impl ShaderControls {
                     }
 
                     if ui.button("Load").clicked() {
-                        if let Some(path) = rfd::FileDialog::new()
-                            .add_filter(
-                                "Media Files",
-                                &["png", "jpg", "jpeg", "mp4", "avi", "mkv", "webm", "mov"],
-                            )
-                            .add_filter("Images", &["png", "jpg", "jpeg", "webp", "bmp", "tiff"])
-                            .add_filter("Videos", &["mp4", "avi", "mkv", "webm", "mov"])
-                            .add_filter("HDRI", &["hdr", "exr"])
-                            .pick_file()
-                        {
-                            request.load_media_path = Some(path);
-                        }
+                        let (tx, rx) = std::sync::mpsc::channel();
+                        crossbeam::scope(|_| {
+                            if let Some(path) = rfd::FileDialog::new()
+                                .add_filter(
+                                    "Media Files",
+                                    &["png", "jpg", "jpeg", "mp4", "avi", "mkv", "webm", "mov"],
+                                )
+                                .add_filter(
+                                    "Images",
+                                    &["png", "jpg", "jpeg", "webp", "bmp", "tiff"],
+                                )
+                                .add_filter("Videos", &["mp4", "avi", "mkv", "webm", "mov"])
+                                .add_filter("HDRI", &["hdr", "exr"])
+                                .pick_file()
+                            {
+                                tx.send(path).unwrap();
+                            }
+                        })
+                        .unwrap();
+                        request.load_media_path = Some(rx.recv().unwrap());
                     }
                 });
             });
