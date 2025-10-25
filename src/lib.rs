@@ -127,6 +127,8 @@ impl Core {
             })
             .await
             .unwrap();
+        log::info!("adapter limits: {:#?}", adapter.limits());
+        log::info!("adapter features: {:#?}", adapter.features());
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: None,

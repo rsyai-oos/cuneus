@@ -361,7 +361,7 @@ impl ShaderManager for KuwaharaShader {
             let mut render_pass = cuneus::Renderer::begin_render_pass(
                 &mut encoder,
                 &view,
-                wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                wgpu::LoadOp::Clear(wgpu::Color::RED),
                 Some("Kuwahara Display Pass"),
             );
 
@@ -411,7 +411,7 @@ impl ShaderManager for KuwaharaShader {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     cuneus::gst::init()?;
     // env_logger::init();
-    init_tracing();
+    // init_tracing();
     let span = info_span!("[ShaderApp]");
     let _guard = span.enter();
     let (app, event_loop) = ShaderApp::new("Kuwahara Filter", 800, 600);

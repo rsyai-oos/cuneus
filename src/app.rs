@@ -61,6 +61,7 @@ struct ShaderAppHandler<S: ShaderManager> {
 
 impl<S: ShaderManager> ApplicationHandler for ShaderAppHandler<S> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        log::info!("ShaderAppHandler::resumed event");
         let window_attributes = WindowAttributes::default()
             .with_inner_size(LogicalSize::new(
                 self.app.window_size.0,

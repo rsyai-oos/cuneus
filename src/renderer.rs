@@ -123,6 +123,7 @@ impl Renderer {
         load_op: wgpu::LoadOp<wgpu::Color>,
         label: Option<&'a str>,
     ) -> RenderPassWrapper<'a> {
+        log::info!("Renderer::begin_render_pass");
         let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label,
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {

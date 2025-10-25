@@ -351,6 +351,7 @@ impl RenderKit {
         full_output: egui::FullOutput,
         encoder: &mut wgpu::CommandEncoder,
     ) {
+        log::info!("Renderkit::handle_render_output");
         let screen_descriptor = ScreenDescriptor {
             size_in_pixels: [core.config.width, core.config.height],
             pixels_per_point: core.window().scale_factor() as f32,
