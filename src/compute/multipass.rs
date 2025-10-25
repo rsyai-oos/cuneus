@@ -219,7 +219,10 @@ impl MultiPassManager {
 
     /// Get the write bind group for current frame
     pub fn get_write_bind_group(&self, buffer_name: &str) -> &wgpu::BindGroup {
-        log::info!("MultiPassManager::get_write_bind_group");
+        log::info!(
+            "MultiPassManager::get_write_bind_group, buffer_name: {}",
+            buffer_name
+        );
         let bind_groups = self.bind_groups.get(buffer_name).expect("Buffer not found");
         if self.frame_flip {
             &bind_groups.1
