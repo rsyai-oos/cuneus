@@ -1,3 +1,4 @@
+use tracing::info_span;
 use wgpu::util::DeviceExt;
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -5,8 +6,7 @@ pub struct Vertex {
     pub position: [f32; 2],
 }
 impl Vertex {
-    const ATTRIBS: [wgpu::VertexAttribute; 1] =
-        wgpu::vertex_attr_array![0 => Float32x2];
+    const ATTRIBS: [wgpu::VertexAttribute; 1] = wgpu::vertex_attr_array![0 => Float32x2];
 
     pub fn desc() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
@@ -43,18 +43,30 @@ impl Renderer {
         layout: &wgpu::PipelineLayout,
         fragment_entry: Option<&str>,
     ) -> Self {
+        let span = info_span!("[Renderer]");
+        let _guard = span.enter();
+        log::info!("Renderer::new");
         const VERTICES: &[Vertex] = &[
-            Vertex { position: [-1.0, -1.0] },
-            Vertex { position: [1.0, -1.0] },
-            Vertex { position: [-1.0, 1.0] },
-            Vertex { position: [1.0, 1.0] },
+            Vertex {
+                position: [-1.0, -1.0],
+            },
+            Vertex {
+                position: [1.0, -1.0],
+            },
+            Vertex {
+                position: [-1.0, 1.0],
+            },
+            Vertex {
+                position: [1.0, 1.0],
+            },
         ];
-        println!("Creating vertex buffer");
+        log::info!("create vertex buffer");
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Vertex Buffer"),
             contents: bytemuck::cast_slice(VERTICES),
             usage: wgpu::BufferUsages::VERTEX,
         });
+        log::info!("create color_target_state");
         let color_target_state = [Some(wgpu::ColorTargetState {
             format,
             blend: Some(wgpu::BlendState {
@@ -63,7 +75,7 @@ impl Renderer {
             }),
             write_mask: wgpu::ColorWrites::ALL,
         })];
-        println!("Creating render pipeline"); 
+        log::info!("create render pipeline_desc");
         let pipeline_desc = wgpu::RenderPipelineDescriptor {
             label: Some("Render Pipeline"),
             layout: Some(layout),
@@ -97,7 +109,7 @@ impl Renderer {
             multiview: None,
             cache: None,
         };
-
+        log::info!("create render_pipeline");
         let render_pipeline = device.create_render_pipeline(&pipeline_desc);
 
         Self {

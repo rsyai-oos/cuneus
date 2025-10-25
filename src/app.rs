@@ -1,10 +1,10 @@
 use crate::{Core, ShaderManager};
 use winit::{
-    event::*,
-    event_loop::{EventLoop, ActiveEventLoop},
-    window::WindowAttributes,
-    dpi::LogicalSize,
     application::ApplicationHandler,
+    dpi::LogicalSize,
+    event::*,
+    event_loop::{ActiveEventLoop, EventLoop},
+    window::WindowAttributes,
 };
 
 pub struct ShaderApp {
@@ -15,6 +15,7 @@ pub struct ShaderApp {
 
 impl ShaderApp {
     pub fn new(window_title: &str, width: u32, height: u32) -> (Self, EventLoop<()>) {
+        log::info!("ShaderApp::new");
         let event_loop = EventLoop::builder()
             .build()
             .expect("Failed to create event loop");
@@ -25,7 +26,8 @@ impl ShaderApp {
             window_size: (width, height),
             core: None,
         };
-        
+        log::info!("ShaderApp and event_loop init completed");
+
         (app, event_loop)
     }
 
@@ -40,7 +42,7 @@ impl ShaderApp {
             shader: None,
             first_render: true,
         };
-        
+
         Ok(event_loop.run_app(&mut handler)?)
     }
 
@@ -60,7 +62,10 @@ struct ShaderAppHandler<S: ShaderManager> {
 impl<S: ShaderManager> ApplicationHandler for ShaderAppHandler<S> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let window_attributes = WindowAttributes::default()
-            .with_inner_size(LogicalSize::new(self.app.window_size.0, self.app.window_size.1))
+            .with_inner_size(LogicalSize::new(
+                self.app.window_size.0,
+                self.app.window_size.1,
+            ))
             .with_title(&self.app.window_title)
             .with_resizable(true);
         let window = event_loop
@@ -73,7 +78,7 @@ impl<S: ShaderManager> ApplicationHandler for ShaderAppHandler<S> {
             let shader = shader_creator(&core);
             self.shader = Some(shader);
         }
-        
+
         self.app.core = Some(core);
     }
 
@@ -85,37 +90,35 @@ impl<S: ShaderManager> ApplicationHandler for ShaderAppHandler<S> {
     ) {
         // Only process events if core and shader are initialized
         if let (Some(core), Some(shader)) = (&self.app.core, &mut self.shader) {
-            if window_id == core.window().id() {
-                if !shader.handle_input(core, &event) {
-                    match event {
-                        WindowEvent::CloseRequested => {
-                            event_loop.exit();
-                        }
-                        WindowEvent::Resized(size) => {
-                            if let Some(core) = &mut self.app.core {
-                                core.resize(size);
-                                shader.resize(core);
-                            }
-                        }
-                        WindowEvent::RedrawRequested => {
-                            shader.update(core);
-                            match shader.render(core) {
-                                Ok(_) => {
-                                    if self.first_render {
-                                        self.first_render = false;
-                                    }
-                                }
-                                Err(wgpu::SurfaceError::Lost) => {
-                                    if let Some(core) = &mut self.app.core {
-                                        core.resize(core.size);
-                                    }
-                                }
-                                Err(wgpu::SurfaceError::OutOfMemory) => event_loop.exit(),
-                                Err(e) => eprintln!("Render error: {:?}", e),
-                            }
-                        }
-                        _ => {}
+            if window_id == core.window().id() && !shader.handle_input(core, &event) {
+                match event {
+                    WindowEvent::CloseRequested => {
+                        event_loop.exit();
                     }
+                    WindowEvent::Resized(size) => {
+                        if let Some(core) = &mut self.app.core {
+                            core.resize(size);
+                            shader.resize(core);
+                        }
+                    }
+                    WindowEvent::RedrawRequested => {
+                        shader.update(core);
+                        match shader.render(core) {
+                            Ok(_) => {
+                                if self.first_render {
+                                    self.first_render = false;
+                                }
+                            }
+                            Err(wgpu::SurfaceError::Lost) => {
+                                if let Some(core) = &mut self.app.core {
+                                    core.resize(core.size);
+                                }
+                            }
+                            Err(wgpu::SurfaceError::OutOfMemory) => event_loop.exit(),
+                            Err(e) => eprintln!("Render error: {:?}", e),
+                        }
+                    }
+                    _ => {}
                 }
             }
         }
@@ -126,7 +129,7 @@ impl<S: ShaderManager> ApplicationHandler for ShaderAppHandler<S> {
             core.window().request_redraw();
         }
     }
-    
+
     fn new_events(&mut self, _event_loop: &ActiveEventLoop, _cause: StartCause) {
         // No special handling needed for new events
     }

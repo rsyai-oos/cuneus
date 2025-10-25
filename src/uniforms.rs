@@ -1,3 +1,4 @@
+use tracing::info_span;
 use wgpu::util::DeviceExt;
 pub trait UniformProvider {
     fn as_bytes(&self) -> &[u8];
@@ -31,6 +32,9 @@ impl<T: UniformProvider> UniformBinding<T> {
         layout: &wgpu::BindGroupLayout,
         binding: u32,
     ) -> Self {
+        let span = info_span!("[UniformBinding]");
+        let _guard = span.enter();
+        log::info!("UniformBinding::new");
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some(label),
             contents: data.as_bytes(),
@@ -51,6 +55,9 @@ impl<T: UniformProvider> UniformBinding<T> {
         }
     }
     pub fn update(&self, queue: &wgpu::Queue) {
+        let span = info_span!("[UniformBinding]");
+        let _guard = span.enter();
+        log::info!("UniformBinding::update");
         queue.write_buffer(&self.buffer, 0, self.data.as_bytes());
     }
 }
