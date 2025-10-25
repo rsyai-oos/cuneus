@@ -120,6 +120,7 @@ impl MultiPassManager {
         format: wgpu::TextureFormat,
         label: &str,
     ) -> wgpu::Texture {
+        log::info!("MultiPassManager::create_storage_texture, width: {}, height: {}, format: {:?}, label: {}", width, height, format, label);
         device.create_texture(&wgpu::TextureDescriptor {
             label: Some(label),
             size: wgpu::Extent3d {
@@ -145,6 +146,10 @@ impl MultiPassManager {
         texture: &wgpu::Texture,
         label: &str,
     ) -> wgpu::BindGroup {
+        log::info!(
+            "MultiPassManager::create_storage_bind_group, label: {}",
+            label
+        );
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout,
@@ -214,6 +219,7 @@ impl MultiPassManager {
 
     /// Get the write bind group for current frame
     pub fn get_write_bind_group(&self, buffer_name: &str) -> &wgpu::BindGroup {
+        log::info!("MultiPassManager::get_write_bind_group");
         let bind_groups = self.bind_groups.get(buffer_name).expect("Buffer not found");
         if self.frame_flip {
             &bind_groups.1
@@ -224,6 +230,10 @@ impl MultiPassManager {
 
     /// Get the write texture for current frame
     pub fn get_write_texture(&self, buffer_name: &str) -> &wgpu::Texture {
+        log::info!(
+            "MultiPassManager::get_write_texture, buffer_name: {}",
+            buffer_name
+        );
         let textures = self.buffers.get(buffer_name).expect("Buffer not found");
         if self.frame_flip {
             &textures.1
@@ -234,6 +244,10 @@ impl MultiPassManager {
 
     /// Get the read texture for previous frame
     pub fn get_read_texture(&self, buffer_name: &str) -> &wgpu::Texture {
+        log::info!(
+            "MultiPassManager::get_read_texture, buffer_name: {}",
+            buffer_name
+        );
         let textures = self.buffers.get(buffer_name).expect("Buffer not found");
         if self.frame_flip {
             &textures.0
@@ -249,6 +263,10 @@ impl MultiPassManager {
         sampler: &wgpu::Sampler,
         input_buffers: &[String],
     ) -> wgpu::BindGroup {
+        log::info!(
+            "MultiPassManager::create_input_bind_group, input_buffers: {:?}",
+            input_buffers
+        );
         let mut views = Vec::new();
 
         // Create views for up to 3 input textures
@@ -304,21 +322,25 @@ impl MultiPassManager {
 
     /// Get output bind group
     pub fn get_output_bind_group(&self) -> &wgpu::BindGroup {
+        log::info!("MultiPassManager::get_output_bind_group");
         &self.output_bind_group
     }
 
     /// Get output texture
     pub fn get_output_texture(&self) -> &wgpu::Texture {
+        log::info!("MultiPassManager::get_output_texture");
         &self.output_texture
     }
 
     /// Flip ping-pong buffers
     pub fn flip_buffers(&mut self) {
+        log::info!("MultiPassManager::flip_buffers");
         self.frame_flip = !self.frame_flip;
     }
 
     /// Clear all buffers
     pub fn clear_all(&mut self, core: &Core) {
+        log::info!("MultiPassManager::clear_all");
         // Recreate all buffer textures
         for (name, textures) in &mut self.buffers {
             textures.0 = Self::create_storage_texture(
@@ -374,6 +396,7 @@ impl MultiPassManager {
 
     /// Resize all buffers
     pub fn resize(&mut self, core: &Core, width: u32, height: u32) {
+        log::info!("MultiPassManager::resize");
         self.width = width;
         self.height = height;
         self.clear_all(core);
@@ -381,11 +404,13 @@ impl MultiPassManager {
 
     /// Get the input layout for pipeline creation
     pub fn get_input_layout(&self) -> &wgpu::BindGroupLayout {
+        log::info!("MultiPassManager::get_input_layout");
         &self.input_layout
     }
 
     /// Get the storage layout for pipeline creation
     pub fn get_storage_layout(&self) -> &wgpu::BindGroupLayout {
+        log::info!("MultiPassManager::get_storage_layout");
         &self.storage_layout
     }
 }

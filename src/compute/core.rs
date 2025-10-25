@@ -89,16 +89,16 @@ impl ComputeShader {
         log::info!("ComputeShader::from_builder");
 
         log::info!(
-            "\n**********  Step 1: Create resource layout following 4-group convention **********"
+            "\n\n**********  Step 1: Create resource layout following 4-group convention **********"
         );
         let span = info_span!("[ResourceLayout]");
         let _guard = span.enter();
         // Step 1: Create resource layout following 4-group convention
         let mut resource_layout = ResourceLayout::new();
-        log::info!("\n <$$$$$$$$$$ add Group 0: Always has time uniform $$$$$$$$$$>");
+        log::info!("\n\n <$$$$$$$$$$ add Group 0: Always has time uniform $$$$$$$$$$>");
         // Group 0: Always has time uniform
         resource_layout.add_time_uniform();
-        log::info!("\n <$$$$$$$$$$ add Group 1: Primary I/O & Parameters $$$$$$$$$$>");
+        log::info!("\n\n <$$$$$$$$$$ add Group 1: Primary I/O & Parameters $$$$$$$$$$>");
         // Group 1: Primary I/O & Parameters
         resource_layout.add_output_texture(config.texture_format);
         if let Some(uniform_size) = config.custom_uniform_size {
@@ -107,7 +107,7 @@ impl ComputeShader {
         if config.has_input_texture {
             resource_layout.add_input_texture();
         }
-        log::info!("\n<$$$$$$$$$$ add Group 2: Engine Resources $$$$$$$$$$>");
+        log::info!("\n\n<$$$$$$$$$$ add Group 2: Engine Resources $$$$$$$$$$>");
         // Group 2: Engine Resources
         if config.has_mouse {
             resource_layout.add_mouse_uniform();
@@ -131,10 +131,14 @@ impl ComputeShader {
             resource_layout.add_channel_textures(num_channels);
         }
         log::info!(
-            "\n<$$$$$$$$$$ Added Group 3: User-defined storage buffers with optional multi-pass input textures $$$$$$$$$$"
+            "\n\n<$$$$$$$$$$ Added Group 3: User-defined storage buffers with optional multi-pass input textures $$$$$$$$$$"
         );
         // Group 3: User-defined storage buffers with optional multi-pass input textures
         if !config.storage_buffers.is_empty() {
+            log::info!(
+                " \n\n********** storage_buffers is not empty **********, len:{} \n",
+                config.storage_buffers.len()
+            );
             // Priority: User storage buffers (needed for FFT algorithm data, etc.) lemme think more generic things for future!
             for buffer_spec in &config.storage_buffers {
                 if buffer_spec.read_only {
@@ -145,15 +149,16 @@ impl ComputeShader {
                 }
             }
         } else if config.passes.is_some() {
+            log::info!("storage_buffers is empty, entering multi pass buffer creation");
             // Fallback: Multi-pass input textures only if no storage buffers requested
             resource_layout.add_multipass_input_textures();
         }
 
-        log::info!("\n********** Step 2: Create bind group layouts **********");
+        log::info!("\n\n********** Step 2: Create bind group layouts **********");
         // Step 2: Create bind group layouts
         let bind_group_layouts = resource_layout.create_bind_group_layouts(&core.device);
 
-        log::info!("\n********** Step 3: Create pipeline layout - WebGPU requires contiguous bind group indices **********");
+        log::info!("\n\n********** Step 3: Create pipeline layout - WebGPU requires contiguous bind group indices **********");
         // Step 3: Create pipeline layout - WebGPU requires contiguous bind group indices
         // I need to ensure all groups 0-3 are present, creating empty layouts if needed
         let mut layouts_vec: Vec<wgpu::BindGroupLayout> = Vec::new();
@@ -188,7 +193,7 @@ impl ComputeShader {
             "compute pipeline layout created: {:?}",
             compute_pipeline_layout
         );
-        log::info!("\n********** Step 4: Create time uniform (Group 0) **********");
+        log::info!("\n\n********** Step 4: Create time uniform (Group 0) **********");
         // Step 4: Create time uniform (Group 0)
         let time_bind_group_layout = bind_group_layouts.get(&0).unwrap();
         let time_uniform = UniformBinding::new(
@@ -204,7 +209,7 @@ impl ComputeShader {
             0,
         );
         let group0_bind_group = time_uniform.bind_group.clone();
-        log::info!("\n********** Step 5: Create output texture **********");
+        log::info!("\n\n********** Step 5: Create output texture **********");
         // Step 5: Create output texture
         let output_texture = Self::create_output_texture(
             &core.device,
@@ -213,7 +218,7 @@ impl ComputeShader {
             config.texture_format,
             &format!("{} Output Texture", config.label),
         );
-        log::info!("\n********** Step 5.5: Create custom uniform buffer if needed **********");
+        log::info!("\n\n********** Step 5.5: Create custom uniform buffer if needed **********");
         // Step 5.5: Create custom uniform buffer if needed
         let custom_uniform = if let Some(uniform_size) = config.custom_uniform_size {
             Some(core.device.create_buffer(&wgpu::BufferDescriptor {
@@ -245,7 +250,7 @@ impl ComputeShader {
             placeholder_input_texture.as_ref().map(|t| &t.view),
             placeholder_input_texture.as_ref().map(|t| &t.sampler),
         );
-        log::info!("\n********** Step 6: Create engine resources (Group 2) if needed **********");
+        log::info!("\n\n********** Step 6: Create engine resources (Group 2) if needed **********");
         // Step 6: Create engine resources (Group 2) if needed
         let (
             font_system,
@@ -257,20 +262,26 @@ impl ComputeShader {
             group2_bind_group,
         ) = Self::create_engine_resources(core, &bind_group_layouts, &config);
         log::info!(
-            "\n********** Step 7: Create user storage buffers (Group 3) if needed **********"
+            "\n\n********** Step 7: Create user storage buffers (Group 3) if needed **********"
         );
         // Step 7: Create user storage buffers (Group 3) if needed
         let (storage_buffers, group3_bind_group) = if !config.storage_buffers.is_empty() {
+            log::info!(
+                "storage_buffers is not empty, len: {}",
+                config.storage_buffers.len()
+            );
             // Create storage buffers (works for both single-pass and multi-pass with storage)
             Self::create_user_storage_buffers(core, &bind_group_layouts, &config)
         } else if config.passes.is_some() {
+            log::info!("config.passes is Some, creating empty storage buffers Vec::new()");
             // Pure multi-pass mode: Group 3 will be managed dynamically by MultiPassManager
             (Vec::new(), None)
         } else {
+            log::info!("No storage buffers needed");
             // No storage buffers needed
             (Vec::new(), None)
         };
-        log::info!("\n********** Step 7.5: Create empty bind groups for empty layouts (needed when we create contiguous layouts) **********");
+        log::info!("\n\n********** Step 7.5: Create empty bind groups for empty layouts (needed when we create contiguous layouts) **********");
         // Step 7.5: Create empty bind groups for empty layouts (needed when we create contiguous layouts)
         let mut empty_bind_groups: std::collections::HashMap<u32, wgpu::BindGroup> =
             std::collections::HashMap::new();
@@ -285,7 +296,7 @@ impl ComputeShader {
                 empty_bind_groups.insert(i, empty_bind_group);
             }
         }
-        log::info!("\n********** Step 8: Create multi-pass manager if needed (only for texture ping-pong, not storage buffers) **********");
+        log::info!("\n\n********** Step 8: Create multi-pass manager if needed (only for texture ping-pong, not storage buffers) **********");
         // Step 8: Create multi-pass manager if needed (only for texture ping-pong, not storage buffers)
         let (multipass_manager, pass_dependencies) = if let Some(passes) = &config.passes {
             if config.storage_buffers.is_empty() {
@@ -316,7 +327,7 @@ impl ComputeShader {
         } else {
             (None, None)
         };
-        log::info!("\n********** Step 9: Create compute pipelines **********");
+        log::info!("\n\n********** Step 9: Create compute pipelines **********");
         // Step 9: Create compute pipelines
         let shader_module = core
             .device
@@ -339,7 +350,7 @@ impl ComputeShader {
                 });
             pipelines.push(pipeline);
         }
-        log::info!(" \n==================== all compute pipelines for entry_points has been created ====================" );
+        log::info!(" \n\n==================== all compute pipelines for entry_points has been created ====================" );
         pipelines.iter().for_each(|p| log::info!("{:?}", p));
 
         Self {
