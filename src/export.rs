@@ -291,6 +291,7 @@ pub fn save_frame(
     frame: u32,
     settings: &ExportSettings,
 ) -> Result<(), ExportError> {
+    log::info!("export::saving_frame");
     let frame_path = settings.export_path.join(format!("frame_{:05}.png", frame));
 
     if let Some(parent) = frame_path.parent() {

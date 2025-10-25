@@ -1113,7 +1113,10 @@ impl ComputeShader {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
-        log::info!("ComputeShader::update_channel_texture");
+        log::info!(
+            "ComputeShader::update_channel_texture, channel_index: {}",
+            channel_index
+        );
         if channel_index >= self.num_channels {
             log::warn!(
                 "Attempted to update channel {} but only {} channels are configured",
@@ -1665,6 +1668,7 @@ impl ComputeShader {
 
     /// Automatic export - call from shader update() method
     pub fn handle_export(&mut self, core: &Core, render_kit: &mut crate::RenderKit) {
+        log::info!("ComputeShader::handle_export");
         if let Some((frame, time)) = render_kit.export_manager.try_get_next_frame() {
             match self.capture_export_frame(
                 core,
@@ -1694,6 +1698,7 @@ impl ComputeShader {
         render_kit: &mut crate::RenderKit,
         custom_dispatch: impl FnOnce(&mut Self, &mut wgpu::CommandEncoder, &Core),
     ) {
+        log::info!("ComputeShader::handle_export_dispatch");
         if let Some((frame, time)) = render_kit.export_manager.try_get_next_frame() {
             match self.capture_export_frame(core, time, render_kit, Some(custom_dispatch)) {
                 Ok(data) => {
@@ -1722,6 +1727,7 @@ impl ComputeShader {
     where
         F: FnOnce(&mut Self, &mut wgpu::CommandEncoder, &Core),
     {
+        log::info!("ComputeShader::capture_export_frame");
         let settings = render_kit.export_manager.settings();
         let (capture_texture, output_buffer) =
             render_kit.create_capture_texture(&core.device, settings.width, settings.height);

@@ -118,7 +118,10 @@ impl ShaderManager for KuwaharaShader {
     fn update(&mut self, core: &Core) {
         unsafe {
             UPDATE_COUNTER += 1;
-            log::info!("KuwaharaShader update: UPDATE_COUNTER: {}", UPDATE_COUNTER);
+            log::info!(
+                "[[[ KuwaharaShader update ]]]: UPDATE_COUNTER: {}",
+                UPDATE_COUNTER
+            );
             // if UPDATE_COUNTER > 10 {
             //     return;
             // }
