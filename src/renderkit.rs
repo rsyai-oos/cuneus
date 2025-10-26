@@ -99,6 +99,7 @@ impl RenderKit {
 
     /// Create RenderKit with standard texture layout
     pub fn new_with_standard_layout(core: &Core) -> Self {
+        log::info!("RenderKit::new_with_standard_layout");
         let layout = Self::create_standard_texture_layout(&core.device);
         Self::new(core, &layout, None)
     }
@@ -276,6 +277,7 @@ impl RenderKit {
     }
 
     pub fn update_time(&mut self, queue: &wgpu::Queue) {
+        log::info!("Renderkit::update_time");
         self.time_uniform.data.time = self.start_time.elapsed().as_secs_f32();
         self.time_uniform.update(queue);
     }
@@ -284,6 +286,7 @@ impl RenderKit {
         queue: &wgpu::Queue,
         new_size: winit::dpi::PhysicalSize<u32>,
     ) {
+        log::info!("Renderkit::update_resolution");
         self.resolution_uniform.data.dimensions = [new_size.width as f32, new_size.height as f32];
         self.resolution_uniform.update(queue);
     }
@@ -340,6 +343,7 @@ impl RenderKit {
     where
         F: FnMut(&egui::Context),
     {
+        log::info!("RenderKit::render_ui");
         let raw_input = self.egui_state.take_egui_input(core.window());
         self.context.run(raw_input, |ctx| ui_builder(ctx))
     }
@@ -391,6 +395,10 @@ impl RenderKit {
         }
     }
     pub fn load_media<P: AsRef<Path>>(&mut self, core: &Core, path: P) -> anyhow::Result<()> {
+        log::info!(
+            "RenderKit::load_media, media path: {}",
+            path.as_ref().display()
+        );
         let path_ref = path.as_ref();
         let extension = path_ref
             .extension()
@@ -487,7 +495,9 @@ impl RenderKit {
     }
     #[cfg(feature = "media")]
     pub fn update_video_texture(&mut self, core: &Core, queue: &wgpu::Queue) -> bool {
+        log::info!("RenderKit::render_ui");
         if self.using_video_texture {
+            log::info!("RenderKit::render_ui using_video_texture");
             if let Some(video_manager) = &mut self.video_texture_manager {
                 if let Ok(updated) = video_manager.update_texture(
                     &core.device,
@@ -502,6 +512,7 @@ impl RenderKit {
     }
     #[cfg(feature = "media")]
     pub fn play_video(&mut self) -> anyhow::Result<()> {
+        log::info!("RenderKit::play_video");
         if let Some(video_manager) = &mut self.video_texture_manager {
             video_manager.play()?;
         }
@@ -509,6 +520,7 @@ impl RenderKit {
     }
     #[cfg(feature = "media")]
     pub fn pause_video(&mut self) -> anyhow::Result<()> {
+        log::info!("RenderKit::pause_video");
         if let Some(video_manager) = &mut self.video_texture_manager {
             video_manager.pause()?;
         }
@@ -516,6 +528,7 @@ impl RenderKit {
     }
     #[cfg(feature = "media")]
     pub fn seek_video(&mut self, position_seconds: f64) -> anyhow::Result<()> {
+        log::info!("RenderKit::seek_video");
         if let Some(video_manager) = &mut self.video_texture_manager {
             let position = gstreamer::ClockTime::from_seconds(position_seconds as u64);
             video_manager.seek(position)?;
@@ -525,6 +538,7 @@ impl RenderKit {
 
     #[cfg(feature = "media")]
     pub fn set_video_loop(&mut self, should_loop: bool) {
+        log::info!("RenderKit::set_video_loop");
         if let Some(video_manager) = &mut self.video_texture_manager {
             video_manager.set_loop(should_loop);
         }
@@ -532,7 +546,7 @@ impl RenderKit {
 
     #[cfg(feature = "media")]
     pub fn start_webcam(&mut self, core: &Core, device_index: Option<u32>) -> anyhow::Result<()> {
-        info!("Starting webcam");
+        log::info!("RenderKit::start_webcam");
         let webcam_manager = WebcamTextureManager::new(
             &core.device,
             &core.queue,
@@ -554,7 +568,7 @@ impl RenderKit {
 
     #[cfg(feature = "media")]
     pub fn stop_webcam(&mut self) -> anyhow::Result<()> {
-        info!("Stopping webcam");
+        log::info!("RenderKit::stop_webcam");
         if let Some(webcam_manager) = &mut self.webcam_texture_manager {
             webcam_manager.stop()?;
         }
@@ -565,6 +579,7 @@ impl RenderKit {
 
     #[cfg(feature = "media")]
     pub fn update_webcam_texture(&mut self, core: &Core, queue: &wgpu::Queue) -> bool {
+        log::info!("RenderKit::update_webcam_texture");
         if self.using_webcam_texture {
             if let Some(webcam_manager) = &mut self.webcam_texture_manager {
                 if let Ok(updated) = webcam_manager.update_texture(
@@ -579,6 +594,7 @@ impl RenderKit {
         false
     }
     pub fn load_image(&mut self, core: &Core, path: std::path::PathBuf) {
+        log::info!("RenderKit::load_image");
         if let Ok(img) = image::open(path) {
             let rgba_image = img.into_rgba8();
             let new_texture_manager = TextureManager::new(
@@ -603,6 +619,11 @@ impl RenderKit {
         width: u32,
         height: u32,
     ) -> (wgpu::Texture, wgpu::Buffer) {
+        log::info!(
+            "RenderKit::create_capture_texture, width: {}, height: {}",
+            width,
+            height
+        );
         let capture_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Capture Texture"),
             size: wgpu::Extent3d {
@@ -631,6 +652,7 @@ impl RenderKit {
         (capture_texture, output_buffer)
     }
     pub fn apply_control_request(&mut self, request: ControlsRequest) {
+        log::info!("RenderKit::apply_control_request");
         if request.should_reset {
             self.start_time = Instant::now();
         }
@@ -638,6 +660,7 @@ impl RenderKit {
     }
     #[cfg(feature = "media")]
     pub fn update_audio_spectrum(&mut self, queue: &wgpu::Queue) {
+        log::info!("RenderKit::update_audio_spectrum");
         self.spectrum_analyzer.update_spectrum(
             queue,
             &mut self.resolution_uniform,
@@ -647,6 +670,7 @@ impl RenderKit {
     }
     #[cfg(feature = "media")]
     pub fn handle_video_requests(&mut self, core: &Core, request: &ControlsRequest) {
+        log::info!("RenderKit::handle_video_requests");
         if let Some(path) = &request.load_media_path {
             if let Err(e) = self.load_media(core, path) {
                 error!("Failed to load media: {}", e);
@@ -695,6 +719,7 @@ impl RenderKit {
 
     #[cfg(feature = "media")]
     pub fn handle_webcam_requests(&mut self, core: &Core, request: &ControlsRequest) {
+        log::info!("RenderKit::handle_webcam_requests");
         if request.start_webcam {
             if let Err(e) = self.start_webcam(core, request.webcam_device_index) {
                 error!("Failed to start webcam: {}", e);
@@ -708,6 +733,7 @@ impl RenderKit {
         }
     }
     pub fn handle_hdri_requests(&mut self, core: &Core, request: &ControlsRequest) -> bool {
+        log::info!("RenderKit::handle_hdri_requests");
         if !self.using_hdri_texture {
             return false;
         }
@@ -752,6 +778,7 @@ impl RenderKit {
     }
 
     pub fn get_hdri_info(&self) -> Option<HdriMetadata> {
+        log::info!("RenderKit::get_hdri_info");
         if self.using_hdri_texture {
             self.hdri_metadata.clone()
         } else {
@@ -767,6 +794,7 @@ impl RenderKit {
         _workgroup_count: Option<[u32; 3]>,
         _dispatch_once: bool,
     ) {
+        log::info!("RenderKit::create_compute_shader");
         // WIP untill I complete everything in compute folder
         self.compute_shader = Some(ComputeShader::new(core, shader_source));
     }
@@ -776,6 +804,7 @@ impl RenderKit {
         core: &Core,
         shader_path: &Path,
     ) -> Result<(), notify::Error> {
+        log::info!("RenderKit::enable_compute_hot_reload");
         if let Some(compute_shader) = &mut self.compute_shader {
             let shader_source = std::fs::read_to_string(shader_path)?;
             let shader_module = core
@@ -801,24 +830,28 @@ impl RenderKit {
     }
 
     pub fn dispatch_compute_shader(&mut self, encoder: &mut wgpu::CommandEncoder, core: &Core) {
+        log::info!("RenderKit::dispatch_compute_shader");
         if let Some(compute) = &mut self.compute_shader {
             compute.dispatch(encoder, core);
         }
     }
 
     pub fn get_compute_output_texture(&self) -> Option<&TextureManager> {
+        log::info!("RenderKit::get_compute_output_texture");
         self.compute_shader
             .as_ref()
             .map(|compute| compute.get_output_texture())
     }
 
     pub fn resize_compute_shader(&mut self, core: &Core) {
+        log::info!("RenderKit::resize_compute_shader");
         if let Some(compute) = &mut self.compute_shader {
             compute.resize(core, core.size.width, core.size.height);
         }
     }
 
     pub fn update_compute_shader_time(&mut self, elapsed: f32, delta: f32, queue: &wgpu::Queue) {
+        log::info!("RenderKit::update_compute_shader_time");
         if let Some(compute) = &mut self.compute_shader {
             compute.set_time(elapsed, delta, queue);
         }
@@ -838,6 +871,7 @@ impl RenderKit {
         f64,
         bool,
     )> {
+        log::info!("RenderKit::get_video_info");
         if self.using_video_texture {
             if let Some(vm) = &self.video_texture_manager {
                 Some((
@@ -860,6 +894,7 @@ impl RenderKit {
 
     #[cfg(feature = "media")]
     pub fn get_webcam_info(&self) -> Option<(u32, u32)> {
+        log::info!("RenderKit::get_webcam_info");
         if self.using_webcam_texture {
             if let Some(wm) = &self.webcam_texture_manager {
                 Some(wm.dimensions())

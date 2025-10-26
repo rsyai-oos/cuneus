@@ -151,6 +151,7 @@ impl ShaderManager for KuwaharaShader {
     }
 
     fn resize(&mut self, core: &Core) {
+        log::info!("KuwaharaShader::resize");
         self.base.update_resolution(&core.queue, core.size);
         self.compute_shader
             .resize(core, core.size.width, core.size.height);
@@ -354,8 +355,15 @@ impl ShaderManager for KuwaharaShader {
             self.current_params = params;
             self.compute_shader.set_custom_params(params, &core.queue);
         }
-
-        self.compute_shader.dispatch(&mut encoder, core);
+        if self.base.video_texture_manager.is_some() || self.base.webcam_texture_manager.is_some() {
+            log::info!("non-still media, continious dispatching");
+            self.compute_shader.dispatch(&mut encoder, core);
+            self.compute_shader.dispatch_once = false;
+        } else {
+            log::info!("still media, dispatching once");
+            // self.compute_shader.dispatch(&mut encoder, core);
+            self.compute_shader.dispatch_once = true;
+        }
 
         {
             let mut render_pass = cuneus::Renderer::begin_render_pass(

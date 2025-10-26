@@ -97,11 +97,10 @@ impl<S: ShaderManager> ApplicationHandler for ShaderAppHandler<S> {
                         event_loop.exit();
                     }
                     WindowEvent::Resized(size) => {
-                        // if size is not changed, do nothing
-                        if core.size == size {
-                            return;
-                        }
                         if let Some(core) = &mut self.app.core {
+                            if core.size == size {
+                                return;
+                            }
                             core.resize(size);
                             shader.resize(core);
                         }
