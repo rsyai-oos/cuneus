@@ -22,7 +22,7 @@ use crate::gst::video::VideoTextureManager;
 use crate::hdri::HdriMetadata;
 use std::{
     path::PathBuf,
-    sync::{atomic::AtomicBool, Arc, Mutex, RwLock},
+    sync::{Arc, RwLock},
 };
 #[derive(Clone)]
 pub struct ControlsRequest {

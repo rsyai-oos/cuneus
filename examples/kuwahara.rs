@@ -3,7 +3,6 @@ use std::sync::Arc;
 use cuneus::compute::*;
 use cuneus::init_tracing;
 use cuneus::prelude::*;
-use egui::SetOpenCommand;
 use tracing::info_span;
 use winit::event::WindowEvent;
 pub static mut UPDATE_COUNTER: u32 = 0;
