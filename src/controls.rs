@@ -1,9 +1,29 @@
-use egui::SetOpenCommand;
+#[cfg(feature = "media")]
+#[derive(Clone, Debug)]
+pub enum MediaType {
+    Still,
+    Stream,
+}
+
+impl MediaType {
+    pub fn from_ext(ext: &str) -> Option<Self> {
+        match ext {
+            "jpg" | "jpeg" | "png" | "bmp" | "tiff" | "webp" | "hdr" | "exr" => {
+                Some(MediaType::Still)
+            }
+            "mp4" | "mkv" | "avi" | "mov" | "wmv" | "flv" | "webm" => Some(MediaType::Stream),
+            _ => None,
+        }
+    }
+}
 
 #[cfg(feature = "media")]
 use crate::gst::video::VideoTextureManager;
 use crate::hdri::HdriMetadata;
-use std::path::PathBuf;
+use std::{
+    path::PathBuf,
+    sync::{atomic::AtomicBool, Arc, Mutex, RwLock},
+};
 #[derive(Clone)]
 pub struct ControlsRequest {
     pub is_paused: bool,
@@ -35,13 +55,20 @@ pub struct ControlsRequest {
     pub start_webcam: bool,
     pub stop_webcam: bool,
     pub webcam_device_index: Option<u32>,
+
+    // media change status
+    pub media_changed: Option<Arc<RwLock<bool>>>,
 }
 impl Default for ControlsRequest {
     fn default() -> Self {
+        log::info!("ControlRequest::default");
         let mut default_media = None;
         let mut should_play_video = false;
         if let Ok(media_dir) = std::env::var("CUNEUS_MEDIA") {
-            println!("CUNEUS_MEDIA: {}", media_dir);
+            log::info!(
+                "env var CUNEUS_MEDIA has been set. CUNEUS_MEDIA: {}",
+                media_dir
+            );
             if media_dir.starts_with('"') && media_dir.ends_with('"') {
                 let unquoted = &media_dir[1..media_dir.len() - 1];
                 default_media = Some(PathBuf::from(unquoted));
@@ -49,7 +76,8 @@ impl Default for ControlsRequest {
                 default_media = Some(PathBuf::from(media_dir));
             }
             should_play_video = true;
-        }
+        };
+        // let (still_status_sender, _) = crossbeam::channel::unbounded();
         Self {
             is_paused: false,
             should_reset: false,
@@ -80,10 +108,12 @@ impl Default for ControlsRequest {
             start_webcam: false,
             stop_webcam: false,
             webcam_device_index: None,
+            media_changed: None,
         }
     }
 }
 
+impl ControlsRequest {}
 /// VideoInfo type alias
 /// (duration, position, dimensions, framerate, is_looping, has_audio, volume, is_muted)
 pub type VideoInfo = (
@@ -119,10 +149,12 @@ impl Default for ShaderControls {
 
 impl ShaderControls {
     pub fn new() -> Self {
+        log::info!("ShaderControls::new");
         Self::default()
     }
 
     pub fn get_frame(&mut self) -> u32 {
+        log::info!("ShaderControls::get_frame");
         if !self.is_paused {
             self.current_frame = self.current_frame.wrapping_add(1);
         }
@@ -130,6 +162,7 @@ impl ShaderControls {
     }
 
     pub fn get_time(&self, start_time: &std::time::Instant) -> f32 {
+        log::info!("ShaderControls::get_time");
         let raw_time = start_time.elapsed().as_secs_f32();
         if self.is_paused {
             if let Some(pause_start) = self.pause_start {
@@ -147,11 +180,12 @@ impl ShaderControls {
         start_time: &std::time::Instant,
         size: &winit::dpi::PhysicalSize<u32>,
     ) -> ControlsRequest {
+        log::info!("ShaderControls::get_ui_request");
         let mut load_media_path = None;
         let mut play_video = false;
         if !self.media_loaded_once {
             if let Ok(media_dir) = std::env::var("CUNEUS_MEDIA") {
-                println!("CUNEUS_MEDIA: {}", media_dir);
+                log::info!("CUNEUS_MEDIA: {}", media_dir);
                 if media_dir.starts_with('"') && media_dir.ends_with('"') {
                     let unquoted = &media_dir[1..media_dir.len() - 1];
                     load_media_path = Some(PathBuf::from(unquoted));
@@ -186,10 +220,12 @@ impl ShaderControls {
             start_webcam: false,
             stop_webcam: false,
             webcam_device_index: None,
+            media_changed: Some(Arc::new(RwLock::new(false))),
         }
     }
 
     pub fn apply_ui_request(&mut self, request: ControlsRequest) {
+        log::info!("ShaderControls::apply_ui_request");
         if request.should_reset {
             self.is_paused = false;
             self.pause_start = None;
@@ -213,6 +249,7 @@ impl ShaderControls {
         using_video_texture: bool,
         video_manager: Option<&VideoTextureManager>,
     ) -> Option<VideoInfo> {
+        log::info!("ShaderControls::get_video_info");
         if using_video_texture {
             if let Some(vm) = video_manager {
                 Some((
@@ -243,6 +280,7 @@ impl ShaderControls {
         using_webcam_texture: bool,
         webcam_info: Option<(u32, u32)>,
     ) {
+        log::info!("ShaderControls::render_media_panel");
         ui.group(|ui| {
             ui.horizontal(|ui| {
                 ui.heading("Media");
@@ -259,7 +297,7 @@ impl ShaderControls {
 
                     if ui.button("Load").clicked() {
                         let (tx, rx) = std::sync::mpsc::channel();
-                        crossbeam::scope(|_| {
+                        match crossbeam::scope(|_| {
                             if let Some(path) = rfd::FileDialog::new()
                                 .add_filter(
                                     "Media Files",
@@ -273,11 +311,32 @@ impl ShaderControls {
                                 .add_filter("HDRI", &["hdr", "exr"])
                                 .pick_file()
                             {
-                                tx.send(path).unwrap();
+                                tx.send(Some(path)).unwrap();
+                                if let Some(gaurd) = &request.media_changed {
+                                    let guard_clone = Arc::clone(gaurd);
+                                    let mut locker = guard_clone.write().unwrap();
+                                    *locker = true;
+                                    drop(locker);
+                                }
+                            } else {
+                                tx.send(None).unwrap();
                             }
-                        })
-                        .unwrap();
-                        request.load_media_path = Some(rx.recv().unwrap());
+                        }) {
+                            Ok(_) => {}
+                            Err(_) => {
+                                // eprintln!("Error: {}", err);
+                            }
+                        };
+                        // request.load_media_path = Some(rx.recv().unwrap());
+                        match rx.recv() {
+                            Ok(path) => {
+                                request.load_media_path = path;
+                            }
+                            Err(err) => {
+                                request.load_media_path = None;
+                                eprintln!("Error loading media: {}", err);
+                            }
+                        }
                     }
                 });
             });
@@ -424,6 +483,7 @@ impl ShaderControls {
     }
 
     pub fn render_controls_widget(ui: &mut egui::Ui, request: &mut ControlsRequest) {
+        log::info!("ShaderControls::render_controls_widget");
         ui.vertical(|ui| {
             ui.horizontal(|ui| {
                 if ui

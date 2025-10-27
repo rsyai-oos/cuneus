@@ -34,7 +34,7 @@ mod texture;
 mod uniforms;
 pub use app::*;
 pub use atomic::AtomicBuffer;
-pub use controls::{ControlsRequest, ShaderControls};
+pub use controls::{ControlsRequest, MediaType, ShaderControls};
 pub use export::{save_frame, ExportError, ExportManager, ExportSettings, ExportUiState};
 pub use feedback::*;
 pub use font::{CharInfo, FontSystem, FontUniforms};
@@ -61,7 +61,7 @@ pub mod prelude {
     pub use crate::{
         compute::ComputeShader, compute::ComputeShaderBuilder, compute::MultiPassManager,
         save_frame, AtomicBuffer, CharInfo, ControlsRequest, Core, ExportManager, FontSystem,
-        FontUniforms, KeyInputHandler, RenderKit, Renderer, ShaderApp, ShaderControls,
+        FontUniforms, KeyInputHandler, MediaType, RenderKit, Renderer, ShaderApp, ShaderControls,
         ShaderHotReload, ShaderManager, TextureManager, UniformBinding, UniformProvider,
     };
 

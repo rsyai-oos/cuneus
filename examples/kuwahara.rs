@@ -1,6 +1,9 @@
+use std::sync::Arc;
+
 use cuneus::compute::*;
 use cuneus::init_tracing;
 use cuneus::prelude::*;
+use egui::SetOpenCommand;
 use tracing::info_span;
 use winit::event::WindowEvent;
 pub static mut UPDATE_COUNTER: u32 = 0;
@@ -355,15 +358,8 @@ impl ShaderManager for KuwaharaShader {
             self.current_params = params;
             self.compute_shader.set_custom_params(params, &core.queue);
         }
-        if self.base.video_texture_manager.is_some() || self.base.webcam_texture_manager.is_some() {
-            log::info!("non-still media, continious dispatching");
-            self.compute_shader.dispatch(&mut encoder, core);
-            self.compute_shader.dispatch_once = false;
-        } else {
-            log::info!("still media, dispatching once");
-            // self.compute_shader.dispatch(&mut encoder, core);
-            self.compute_shader.dispatch_once = true;
-        }
+
+        self.compute_shader.dispatch(&mut encoder, core);
 
         {
             let mut render_pass = cuneus::Renderer::begin_render_pass(
@@ -378,6 +374,29 @@ impl ShaderManager for KuwaharaShader {
             render_pass.set_vertex_buffer(0, self.base.renderer.vertex_buffer.slice(..));
             render_pass.set_bind_group(0, &compute_texture.bind_group, &[]);
             render_pass.draw(0..4, 0..1);
+        }
+
+        if let Some(guard) = &controls_request.media_changed {
+            // println!("has gaurd");
+            let guard_clone = Arc::clone(guard);
+            let mut guard_lock = guard_clone.write().unwrap();
+            let media_changed = guard_lock.clone();
+            // let mut locker = guard_clone.write().unwrap();
+            // *locker = true;
+            if media_changed
+                || changed
+                || self.base.video_texture_manager.is_some()
+                || self.base.webcam_texture_manager.is_some()
+            {
+                self.compute_shader.dispatch_once = false;
+                *guard_lock = false;
+            } else {
+                self.compute_shader.dispatch_once = true;
+            }
+            if media_changed {
+                self.compute_shader.current_frame = 0;
+            }
+            drop(guard_lock);
         }
 
         self.base

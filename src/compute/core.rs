@@ -1015,9 +1015,9 @@ impl ComputeShader {
     }
 
     pub fn dispatch(&mut self, encoder: &mut wgpu::CommandEncoder, core: &Core) {
-        log::info!("ComputeShader::dispatch");
+        // println!("ComputeShader::dispatch");
         if self.dispatch_once && self.current_frame > 0 {
-            log::warn!(
+            log::info!(
                 "ComputeShader::dispatch once and current frame >0, return, current frame: {}",
                 self.current_frame
             );
