@@ -5,11 +5,6 @@ use cuneus::init_tracing;
 use cuneus::prelude::*;
 use tracing::info_span;
 use winit::event::WindowEvent;
-pub static mut UPDATE_COUNTER: u32 = 0;
-pub static mut INIT_COUNTER: u32 = 0;
-pub static mut RESIZE_COUNTER: u32 = 0;
-pub static mut RENDER_COUNTER: u32 = 0;
-pub static mut HANDLE_INPUT_COUNTER: u32 = 0;
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct KuwaharaParams {
@@ -118,17 +113,6 @@ impl ShaderManager for KuwaharaShader {
     }
 
     fn update(&mut self, core: &Core) {
-        unsafe {
-            UPDATE_COUNTER += 1;
-            log::info!(
-                "[[[ KuwaharaShader update ]]]: UPDATE_COUNTER: {}",
-                UPDATE_COUNTER
-            );
-            // if UPDATE_COUNTER > 10 {
-            //     return;
-            // }
-        }
-
         let current_time = self.base.controls.get_time(&self.base.start_time);
         let delta = 1.0 / 60.0;
         self.compute_shader
@@ -160,13 +144,6 @@ impl ShaderManager for KuwaharaShader {
     }
 
     fn render(&mut self, core: &Core) -> Result<(), wgpu::SurfaceError> {
-        unsafe {
-            RENDER_COUNTER += 1;
-            log::info!("KuwaharaShader update: RENDER_COUNTER: {}", RENDER_COUNTER);
-            // if UPDATE_COUNTER > 10 {
-            //     return;
-            // }
-        }
         let output = core.surface.get_current_texture()?;
         let view = output
             .texture
@@ -437,7 +414,7 @@ impl ShaderManager for KuwaharaShader {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     cuneus::gst::init()?;
     // env_logger::init();
-    init_tracing();
+    // init_tracing();
     let span = info_span!("[ShaderApp]");
     let _guard = span.enter();
     let (app, event_loop) = ShaderApp::new("Kuwahara Filter", 800, 600);
