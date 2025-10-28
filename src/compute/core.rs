@@ -1136,6 +1136,9 @@ impl ComputeShader {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) {
+        if self.dispatch_once && self.current_frame > 0 {
+            return;
+        }
         log::info!(
             "ComputeShader::update_channel_texture, channel_index: {}",
             channel_index

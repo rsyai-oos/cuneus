@@ -238,6 +238,10 @@ impl MultiPassManager {
             buffer_name
         );
         let textures = self.buffers.get(buffer_name).expect("Buffer not found");
+        log::info!("self.buffers.len: {}", self.buffers.len());
+        for buf in self.buffers.clone() {
+            log::info!("buffer_name: {}", buf.0);
+        }
         if self.frame_flip {
             &textures.1
         } else {
