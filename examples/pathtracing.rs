@@ -256,9 +256,7 @@ impl ShaderManager for PathTracingShader {
                     ),
                 }),
         ) {
-            eprintln!(
-                "Failed to enable Path Tracing compute shader hot reload: {e}"
-            );
+            eprintln!("Failed to enable Path Tracing compute shader hot reload: {e}");
         }
 
         compute_shader.set_custom_params(initial_params, &core.queue);
@@ -595,10 +593,11 @@ impl ShaderManager for PathTracingShader {
 
         if let WindowEvent::MouseInput { state, button, .. } = event {
             if *button == winit::event::MouseButton::Right
-                && *state == winit::event::ElementState::Released {
-                    self.camera_movement.toggle_mouse_look();
-                    return true;
-                }
+                && *state == winit::event::ElementState::Released
+            {
+                self.camera_movement.toggle_mouse_look();
+                return true;
+            }
         }
 
         if let WindowEvent::DroppedFile(path) = event {

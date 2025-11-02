@@ -282,11 +282,10 @@ impl ShaderManager for MandelbulbShader {
                                 ui.separator();
                                 let old_mouse_enabled = self.mouse_enabled;
                                 ui.checkbox(&mut self.mouse_enabled, "Mouse Camera Control");
-                                if self.mouse_enabled != old_mouse_enabled
-                                    && !self.mouse_enabled {
-                                        // When disabling mouse, reset accumulation one more time
-                                        self.should_reset_accumulation = true;
-                                    }
+                                if self.mouse_enabled != old_mouse_enabled && !self.mouse_enabled {
+                                    // When disabling mouse, reset accumulation one more time
+                                    self.should_reset_accumulation = true;
+                                }
                                 if !self.mouse_enabled {
                                     ui.colored_label(
                                         egui::Color32::GRAY,

@@ -289,9 +289,7 @@ impl AudioSynthManager {
         // Not tied to a specific musical note
         voice.note = None;
 
-        info!(
-            "Playing frequency {frequency:.2} Hz on voice {voice_id}"
-        );
+        info!("Playing frequency {frequency:.2} Hz on voice {voice_id}");
         Ok(())
     }
 

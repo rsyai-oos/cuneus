@@ -73,9 +73,7 @@ impl ShaderManager for AudioVisCompute {
                     source: wgpu::ShaderSource::Wgsl(include_str!("shaders/audiovis.wgsl").into()),
                 }),
         ) {
-            eprintln!(
-                "Failed to enable audio visualizer compute shader hot reload: {e}"
-            );
+            eprintln!("Failed to enable audio visualizer compute shader hot reload: {e}");
         }
 
         // Initialize custom uniform with initial parameters

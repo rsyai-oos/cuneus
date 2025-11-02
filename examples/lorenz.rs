@@ -479,10 +479,11 @@ impl ShaderManager for LorenzShader {
         }
         if let WindowEvent::MouseInput { state, button, .. } = event {
             if *button == winit::event::MouseButton::Right
-                && *state == winit::event::ElementState::Released {
-                    self.mouse_look_enabled = !self.mouse_look_enabled;
-                    return true;
-                }
+                && *state == winit::event::ElementState::Released
+            {
+                self.mouse_look_enabled = !self.mouse_look_enabled;
+                return true;
+            }
         }
         if self.mouse_look_enabled && self.base.handle_mouse_input(core, event, false) {
             return true;

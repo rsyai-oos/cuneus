@@ -156,8 +156,7 @@ fn exr_to_rgba8(exr_data: &[u8], exposure: f32, gamma: Option<f32>) -> Result<Rg
     use image::codecs::openexr::OpenExrDecoder;
 
     let cursor = Cursor::new(exr_data);
-    let decoder =
-        OpenExrDecoder::new(cursor).map_err(|e| format!("Failed to decode EXR: {e}"))?;
+    let decoder = OpenExrDecoder::new(cursor).map_err(|e| format!("Failed to decode EXR: {e}"))?;
     let (width, height) = decoder.dimensions();
     let dynamic_img = image::DynamicImage::from_decoder(decoder)
         .map_err(|e| format!("Failed to create DynamicImage from EXR: {e}"))?;

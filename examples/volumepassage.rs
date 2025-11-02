@@ -89,9 +89,7 @@ impl ShaderManager for VolumeShader {
                     ),
                 }),
         ) {
-            eprintln!(
-                "Failed to enable hot reload for volumepassage shader: {e}"
-            );
+            eprintln!("Failed to enable hot reload for volumepassage shader: {e}");
         }
 
         compute_shader.set_custom_params(initial_params, &core.queue);

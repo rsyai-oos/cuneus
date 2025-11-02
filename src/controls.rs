@@ -212,7 +212,8 @@ impl ShaderControls {
         video_manager: Option<&VideoTextureManager>,
     ) -> Option<VideoInfo> {
         if using_video_texture {
-            video_manager.map(|vm| (
+            video_manager.map(|vm| {
+                (
                     vm.duration().map(|d| d.seconds() as f32),
                     vm.position().seconds() as f32,
                     vm.dimensions(),
@@ -221,7 +222,8 @@ impl ShaderControls {
                     vm.has_audio(),
                     vm.volume(),
                     vm.is_muted(),
-                ))
+                )
+            })
         } else {
             None
         }

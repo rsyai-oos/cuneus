@@ -313,9 +313,7 @@ impl WebcamTextureManager {
                 || self.frame_count <= 3;
 
             if should_recreate {
-                info!(
-                    "Creating new webcam texture with dimensions: {width}x{height}"
-                );
+                info!("Creating new webcam texture with dimensions: {width}x{height}");
 
                 // Create a completely new texture with the frame's dimensions
                 let new_texture_manager =

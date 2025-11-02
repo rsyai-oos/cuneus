@@ -95,9 +95,7 @@ impl ShaderManager for CliffordShader {
                     ),
                 }),
         ) {
-            eprintln!(
-                "Failed to enable hot reload for cliffordcompute shader: {e}"
-            );
+            eprintln!("Failed to enable hot reload for cliffordcompute shader: {e}");
         }
 
         compute_shader.set_custom_params(initial_params, &core.queue);

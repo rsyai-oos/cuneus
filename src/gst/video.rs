@@ -11,8 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use wgpu;
 
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct SpectrumData {
     /// Number of frequency bands
     pub bands: usize,
@@ -23,7 +22,6 @@ pub struct SpectrumData {
     /// Timestamp of the spectrum data
     pub timestamp: Option<gst::ClockTime>,
 }
-
 
 /// Here I created a struct to organize the video text mang.
 /// Manages a video texture that can be updated frame by frame
@@ -156,13 +154,8 @@ impl VideoTextureManager {
             .map_err(|_| anyhow!("Failed to add video elements to pipeline"))?;
 
         // Link elements that can be linked statically
-        gst::Element::link_many([
-            &videorate,
-            &videoconvert,
-            &capsfilter,
-            appsink.upcast_ref(),
-        ])
-        .map_err(|_| anyhow!("Failed to link video elements"))?;
+        gst::Element::link_many([&videorate, &videoconvert, &capsfilter, appsink.upcast_ref()])
+            .map_err(|_| anyhow!("Failed to link video elements"))?;
 
         gst::Element::link_many([&filesrc, &decodebin])
             .map_err(|_| anyhow!("Failed to link filesrc to decodebin"))?;
@@ -898,7 +891,8 @@ impl VideoTextureManager {
                                                         && bpm_val < current_bpm * 2.2
                                                     {
                                                         // Double tempo detected - stay in preferred range if possible
-                                                        let target = if (70.0..=150.0).contains(&current_bpm)
+                                                        let target = if (70.0..=150.0)
+                                                            .contains(&current_bpm)
                                                         {
                                                             current_bpm // Keep current if already in good range
                                                         } else if (70.0..=150.0).contains(&bpm_val)
@@ -914,7 +908,8 @@ impl VideoTextureManager {
                                                         && bpm_val < current_bpm * 0.55
                                                     {
                                                         // Half tempo detected - stay in preferred range if possible
-                                                        let target = if (70.0..=150.0).contains(&current_bpm)
+                                                        let target = if (70.0..=150.0)
+                                                            .contains(&current_bpm)
                                                         {
                                                             current_bpm // Keep current if already in good range
                                                         } else if (70.0..=150.0).contains(&bpm_val)
@@ -928,8 +923,8 @@ impl VideoTextureManager {
                                                         info!("Tempo halving corrected: {:.1} → {:.1}", bpm_val, *bpm_lock);
                                                     } else {
                                                         // Apply light smoothing to avoid jumps
-                                                        *bpm_lock = current_bpm * 0.8
-                                                            + bpm_val * 0.2;
+                                                        *bpm_lock =
+                                                            current_bpm * 0.8 + bpm_val * 0.2;
                                                     }
                                                 }
                                             }
@@ -1230,9 +1225,7 @@ impl VideoTextureManager {
         if let Some(spectrum_elem) = self.pipeline.by_name("spectrum") {
             spectrum_elem.set_property("bands", bands as u32);
             spectrum_elem.set_property("threshold", threshold);
-            info!(
-                "Configured spectrum: {bands} bands, {threshold}dB threshold"
-            );
+            info!("Configured spectrum: {bands} bands, {threshold}dB threshold");
             Ok(())
         } else {
             warn!("Spectrum element not found in pipeline");

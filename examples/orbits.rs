@@ -372,19 +372,21 @@ impl ShaderManager for Shader {
         }
         match event {
             WindowEvent::MouseInput { state, button, .. } => {
-                if button == &MouseButton::Left { match state {
-                    ElementState::Pressed => {
-                        let mouse_pos = self.base.mouse_tracker.uniform.position;
-                        self.mouse_dragging = true;
-                        self.drag_start = mouse_pos;
-                        self.drag_start_pos = [self.current_params.x, self.current_params.y];
-                        return true;
+                if button == &MouseButton::Left {
+                    match state {
+                        ElementState::Pressed => {
+                            let mouse_pos = self.base.mouse_tracker.uniform.position;
+                            self.mouse_dragging = true;
+                            self.drag_start = mouse_pos;
+                            self.drag_start_pos = [self.current_params.x, self.current_params.y];
+                            return true;
+                        }
+                        ElementState::Released => {
+                            self.mouse_dragging = false;
+                            return true;
+                        }
                     }
-                    ElementState::Released => {
-                        self.mouse_dragging = false;
-                        return true;
-                    }
-                } }
+                }
                 false
             }
             WindowEvent::CursorMoved { .. } => {

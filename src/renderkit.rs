@@ -822,7 +822,8 @@ impl RenderKit {
         bool,
     )> {
         if self.using_video_texture {
-            self.video_texture_manager.as_ref().map(|vm| (
+            self.video_texture_manager.as_ref().map(|vm| {
+                (
                     vm.duration().map(|d| d.seconds() as f32),
                     vm.position().seconds() as f32,
                     vm.dimensions(),
@@ -831,7 +832,8 @@ impl RenderKit {
                     vm.has_audio(),
                     vm.volume(),
                     vm.is_muted(),
-                ))
+                )
+            })
         } else {
             None
         }
@@ -840,7 +842,9 @@ impl RenderKit {
     #[cfg(feature = "media")]
     pub fn get_webcam_info(&self) -> Option<(u32, u32)> {
         if self.using_webcam_texture {
-            self.webcam_texture_manager.as_ref().map(|wm| wm.dimensions())
+            self.webcam_texture_manager
+                .as_ref()
+                .map(|wm| wm.dimensions())
         } else {
             None
         }

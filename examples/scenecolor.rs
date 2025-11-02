@@ -75,9 +75,7 @@ impl ShaderManager for SceneColorShader {
                     ),
                 }),
         ) {
-            eprintln!(
-                "Failed to enable Scene Color compute shader hot reload: {e}"
-            );
+            eprintln!("Failed to enable Scene Color compute shader hot reload: {e}");
         }
 
         compute_shader.set_custom_params(initial_params, &core.queue);
