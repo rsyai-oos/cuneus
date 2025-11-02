@@ -89,7 +89,7 @@ impl ShaderManager for KuwaharaShader {
                     source: wgpu::ShaderSource::Wgsl(include_str!("shaders/kuwahara.wgsl").into()),
                 }),
         ) {
-            eprintln!("Failed to enable hot reload for Kuwahara shader: {}", e);
+            eprintln!("Failed to enable hot reload for Kuwahara shader: {e}");
         }
 
         compute_shader.set_custom_params(initial_params, &core.queue);
@@ -301,7 +301,7 @@ impl ShaderManager for KuwaharaShader {
                             "Resolution: {}x{}",
                             core.size.width, core.size.height
                         ));
-                        ui.label(format!("FPS: {:.1}", current_fps));
+                        ui.label(format!("FPS: {current_fps:.1}"));
                     });
             })
         } else {
@@ -367,7 +367,7 @@ impl ShaderManager for KuwaharaShader {
 
         if let WindowEvent::DroppedFile(path) = event {
             if let Err(e) = self.base.load_media(core, path) {
-                eprintln!("Failed to load dropped file: {:?}", e);
+                eprintln!("Failed to load dropped file: {e:?}");
             }
             return true;
         }
@@ -381,5 +381,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let (app, event_loop) = ShaderApp::new("Kuwahara Filter", 800, 600);
 
-    app.run(event_loop, |core| KuwaharaShader::init(core))
+    app.run(event_loop, KuwaharaShader::init)
 }

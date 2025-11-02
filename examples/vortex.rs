@@ -93,7 +93,7 @@ impl ShaderManager for VortexShader {
                     source: wgpu::ShaderSource::Wgsl(include_str!("shaders/vortex.wgsl").into()),
                 }),
         ) {
-            eprintln!("Failed to enable hot reload for vortex shader: {}", e);
+            eprintln!("Failed to enable hot reload for vortex shader: {e}");
         }
 
         compute_shader.set_custom_params(initial_params, &core.queue);
@@ -386,5 +386,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let (app, event_loop) = cuneus::ShaderApp::new("Plasma Vortex", 800, 600);
 
-    app.run(event_loop, |core| VortexShader::init(core))
+    app.run(event_loop, VortexShader::init)
 }

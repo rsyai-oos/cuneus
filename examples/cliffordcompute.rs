@@ -96,8 +96,7 @@ impl ShaderManager for CliffordShader {
                 }),
         ) {
             eprintln!(
-                "Failed to enable hot reload for cliffordcompute shader: {}",
-                e
+                "Failed to enable hot reload for cliffordcompute shader: {e}"
             );
         }
 
@@ -400,5 +399,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let (app, event_loop) = cuneus::ShaderApp::new("Clifford", 800, 600);
 
-    app.run(event_loop, |core| CliffordShader::init(core))
+    app.run(event_loop, CliffordShader::init)
 }

@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 use wgpu;
 
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct SpectrumData {
     /// Number of frequency bands
     pub bands: usize,
@@ -23,16 +24,6 @@ pub struct SpectrumData {
     pub timestamp: Option<gst::ClockTime>,
 }
 
-impl Default for SpectrumData {
-    fn default() -> Self {
-        Self {
-            bands: 0,
-            magnitudes: Vec::new(),
-            phases: None,
-            timestamp: None,
-        }
-    }
-}
 
 /// Here I created a struct to organize the video text mang.
 /// Manages a video texture that can be updated frame by frame
@@ -100,7 +91,7 @@ impl VideoTextureManager {
             .ok_or_else(|| anyhow!("Invalid video path"))?
             .to_string();
 
-        info!("Creating video texture from: {}", path_str);
+        info!("Creating video texture from: {path_str}");
 
         let pipeline = gst::Pipeline::new();
 
@@ -154,26 +145,26 @@ impl VideoTextureManager {
 
         // video elements goes to the pipeline
         pipeline
-            .add_many(&[
+            .add_many([
                 &filesrc,
                 &decodebin,
                 &videorate,
                 &videoconvert,
                 &capsfilter,
-                &appsink.upcast_ref(),
+                appsink.upcast_ref(),
             ])
             .map_err(|_| anyhow!("Failed to add video elements to pipeline"))?;
 
         // Link elements that can be linked statically
-        gst::Element::link_many(&[
+        gst::Element::link_many([
             &videorate,
             &videoconvert,
             &capsfilter,
-            &appsink.upcast_ref(),
+            appsink.upcast_ref(),
         ])
         .map_err(|_| anyhow!("Failed to link video elements"))?;
 
-        gst::Element::link_many(&[&filesrc, &decodebin])
+        gst::Element::link_many([&filesrc, &decodebin])
             .map_err(|_| anyhow!("Failed to link filesrc to decodebin"))?;
 
         // Set up pad-added signal for dynamic linking from decodebin -> videorate
@@ -212,21 +203,21 @@ impl VideoTextureManager {
                         // Explicitly check for spectrum messages
                         if structure.name() == "spectrum" {
                             info!("SPECTRUM MESSAGE DETECTED ");
-                            info!("Full structure: {}", structure.to_string());
+                            info!("Full structure: {structure}");
                             
                             // Try ALL possible ways to extract spectrum data
                             let mut magnitude_values = Vec::new();
                             
                             // Method 1: Direct indexing
                             for i in 0..5 {  // Just try first 5 bands initially
-                                let field_name = format!("magnitude[{}]", i);
+                                let field_name = format!("magnitude[{i}]");
                                 match structure.get::<f32>(&field_name) {
                                     Ok(value) => {
-                                        info!("✅ Method 1 - Band {}: {} dB", i, value);
+                                        info!("✅ Method 1 - Band {i}: {value} dB");
                                         magnitude_values.push(value);
                                     },
                                     Err(e) => {
-                                        info!("❌ Method 1 failed: {:?}", e);
+                                        info!("❌ Method 1 failed: {e:?}");
                                         break;
                                     }
                                 }
@@ -241,14 +232,14 @@ impl VideoTextureManager {
                             
                             // Method 3: Parse from structure string
                             let struct_str = structure.to_string();
-                            info!("Structure string: {}", struct_str);
+                            info!("Structure string: {struct_str}");
                             
                             // If we found magnitude values through any method, process them
                             if !magnitude_values.is_empty() {
                                 // Continue extracting all magnitude values
                                 let mut i = magnitude_values.len();
                                 loop {
-                                    let field_name = format!("magnitude[{}]", i);
+                                    let field_name = format!("magnitude[{i}]");
                                     if let Ok(value) = structure.get::<f32>(&field_name) {
                                         magnitude_values.push(value);
                                         i += 1;
@@ -262,14 +253,14 @@ impl VideoTextureManager {
                                 
                                 // Calculate average magnitude
                                 let avg_magnitude = magnitude_values.iter().sum::<f32>() / magnitude_values.len() as f32;
-                                info!("Average magnitude: {:.2} dB", avg_magnitude);
+                                info!("Average magnitude: {avg_magnitude:.2} dB");
                                 
                                 // Find peak frequency
                                 if let Some((peak_idx, &peak_val)) = magnitude_values.iter()
                                     .enumerate()
                                     .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)) 
                                 {
-                                    info!("Peak frequency: band {} at {:.2} dB", peak_idx, peak_val);
+                                    info!("Peak frequency: band {peak_idx} at {peak_val:.2} dB");
                                 }
                                 
                                 // Update spectrum data
@@ -288,13 +279,13 @@ impl VideoTextureManager {
 
                         if structure.name() == "bpm" || structure.name().contains("bpm") {
                                     info!("BPM MESSAGE DETECTED");
-                                    info!("Full BPM structure: {}", structure.to_string());
+                                    info!("Full BPM structure: {structure}");
                                     // Try to extract BPM value from structure
                                     if let Ok(bpm_val) = structure.get::<f32>("bpm") {
-                                        info!("BPM detected: {:.1}", bpm_val);
+                                        info!("BPM detected: {bpm_val:.1}");
                                         // Update our stored BPM value
                                         if let Ok(mut bpm_lock) = bpm_value_clone.lock() {
-                                            *bpm_lock = bpm_val as f32;
+                                            *bpm_lock = bpm_val;
                                         }
                                     }
                                 }
@@ -305,7 +296,7 @@ impl VideoTextureManager {
                             // Check for BPM tag
                             if let Some(bpm) = tags.get::<gst::tags::BeatsPerMinute>() {
                                 let bpm_val = bpm.get();
-                                info!("BPM tag detected: {:.1}", bpm_val);
+                                info!("BPM tag detected: {bpm_val:.1}");
                                 
                                 if bpm_val > 0.0 {
                                     if let Ok(mut bpm_lock) = bpm_value_clone.lock() {
@@ -405,8 +396,7 @@ impl VideoTextureManager {
                         {
                             Ok(e) => {
                                 info!(
-                                    "Created spectrum analyzer with {} bands and threshold {}dB",
-                                    spectrum_bands, spectrum_threshold
+                                    "Created spectrum analyzer with {spectrum_bands} bands and threshold {spectrum_threshold}dB"
                                 );
                                 e
                             }
@@ -447,7 +437,7 @@ impl VideoTextureManager {
                             .unwrap()
                             .downcast_ref::<gst::Pipeline>()
                             .unwrap()
-                            .add_many(&[
+                            .add_many([
                                 &audioconvert,
                                 &audioresample,
                                 &bpmdetect,
@@ -456,11 +446,11 @@ impl VideoTextureManager {
                                 &audio_sink,
                             ])
                         {
-                            warn!("Failed to add audio elements: {:?}", e);
+                            warn!("Failed to add audio elements: {e:?}");
                             return;
                         }
                         // Link audio elements
-                        if let Err(e) = gst::Element::link_many(&[
+                        if let Err(e) = gst::Element::link_many([
                             &audioconvert,
                             &audioresample,
                             &bpmdetect,
@@ -468,7 +458,7 @@ impl VideoTextureManager {
                             &volume,
                             &audio_sink,
                         ]) {
-                            warn!("Failed to link audio elements: {:?}", e);
+                            warn!("Failed to link audio elements: {e:?}");
                             return;
                         }
 
@@ -496,7 +486,7 @@ impl VideoTextureManager {
                                     info!("Linked decoder to audioconvert successfully");
                                 }
                                 Err(err) => {
-                                    warn!("Failed to link audio pad: {:?}", err);
+                                    warn!("Failed to link audio pad: {err:?}");
                                 }
                             }
                         }
@@ -664,7 +654,7 @@ impl VideoTextureManager {
                     if let (Ok(width), Ok(height)) = (s.get::<i32>("width"), s.get::<i32>("height"))
                     {
                         self.dimensions = (width as u32, height as u32);
-                        info!("Video dimensions: {}x{}", width, height);
+                        info!("Video dimensions: {width}x{height}");
                     }
 
                     // framerate
@@ -771,7 +761,7 @@ impl VideoTextureManager {
                                         // APPROACH 2: Try to access directly by index if approach 1 fails
                                         if magnitude_values.is_empty() {
                                             for i in 0..128 {
-                                                let field_name = format!("magnitude[{}]", i);
+                                                let field_name = format!("magnitude[{i}]");
                                                 if let Ok(value) = structure.get::<f32>(&field_name)
                                                 {
                                                     magnitude_values.push(value);
@@ -850,14 +840,12 @@ impl VideoTextureManager {
                                                 let peak_freq =
                                                     (peak_idx as f32 / bands as f32) * 20000.0;
                                                 info!(
-                                                    "Peak freq: ~{:.0} Hz (band {}, val: {:.2})",
-                                                    peak_freq, peak_idx, peak_val
+                                                    "Peak freq: ~{peak_freq:.0} Hz (band {peak_idx}, val: {peak_val:.2})"
                                                 );
                                             }
 
                                             // Log energy metrics
-                                            info!("Audio energy - Bass: {:.2}, Mid: {:.2}, High: {:.2}", 
-                                                 bass_energy, mid_energy, high_energy);
+                                            info!("Audio energy - Bass: {bass_energy:.2}, Mid: {mid_energy:.2}, High: {high_energy:.2}");
 
                                             // Update spectrum data
                                             if let Ok(mut data) = self.spectrum_data.lock() {
@@ -875,11 +863,11 @@ impl VideoTextureManager {
                                     if structure.name() == "bpm" || structure.name().contains("bpm")
                                     {
                                         info!("🎵 BPM data received");
-                                        info!("Full BPM structure: {}", structure.to_string());
+                                        info!("Full BPM structure: {structure}");
 
                                         // Try to extract BPM value directly
                                         if let Ok(bpm_val) = structure.get::<f32>("bpm") {
-                                            info!("BPM detected: {:.1}", bpm_val);
+                                            info!("BPM detected: {bpm_val:.1}");
                                             if let Ok(mut bpm_lock) = self.bpm_value.lock() {
                                                 // Apply musical heuristics to handle tempo octave ambiguity: https://www.ifs.tuwien.ac.at/~knees/publications/hoerschlaeger_etal_smc_2015.pdf
                                                 let current_bpm = *bpm_lock;
@@ -888,21 +876,21 @@ impl VideoTextureManager {
                                                     // First detection - apply preference for 70-150 BPM range
                                                     if bpm_val > 150.0 {
                                                         // If detected BPM is high, use half tempo
-                                                        *bpm_lock = (bpm_val / 2.0) as f32;
+                                                        *bpm_lock = bpm_val / 2.0;
                                                         info!(
                                                             "Initial BPM halved: {:.1} → {:.1}",
                                                             bpm_val, *bpm_lock
                                                         );
                                                     } else if bpm_val < 70.0 {
                                                         // If detected BPM is low, use double tempo
-                                                        *bpm_lock = (bpm_val * 2.0) as f32;
+                                                        *bpm_lock = bpm_val * 2.0;
                                                         info!(
                                                             "Initial BPM doubled: {:.1} → {:.1}",
                                                             bpm_val, *bpm_lock
                                                         );
                                                     } else {
                                                         // Within preferred range - use directly
-                                                        *bpm_lock = bpm_val as f32;
+                                                        *bpm_lock = bpm_val;
                                                     }
                                                 } else if current_bpm > 0.0 && bpm_val > 0.0 {
                                                     // Subsequent detection - check for tempo octave jumps
@@ -910,43 +898,38 @@ impl VideoTextureManager {
                                                         && bpm_val < current_bpm * 2.2
                                                     {
                                                         // Double tempo detected - stay in preferred range if possible
-                                                        let target = if current_bpm >= 70.0
-                                                            && current_bpm <= 150.0
+                                                        let target = if (70.0..=150.0).contains(&current_bpm)
                                                         {
                                                             current_bpm // Keep current if already in good range
-                                                        } else if bpm_val >= 70.0
-                                                            && bpm_val <= 150.0
+                                                        } else if (70.0..=150.0).contains(&bpm_val)
                                                         {
                                                             bpm_val // Use new if it's in good range
                                                         } else {
                                                             // Neither in ideal range - prefer the lower value
                                                             current_bpm
                                                         };
-                                                        *bpm_lock = target as f32;
+                                                        *bpm_lock = target;
                                                         info!("Tempo doubling corrected: {:.1} → {:.1}", bpm_val, *bpm_lock);
                                                     } else if bpm_val > current_bpm * 0.45
                                                         && bpm_val < current_bpm * 0.55
                                                     {
                                                         // Half tempo detected - stay in preferred range if possible
-                                                        let target = if current_bpm >= 70.0
-                                                            && current_bpm <= 150.0
+                                                        let target = if (70.0..=150.0).contains(&current_bpm)
                                                         {
                                                             current_bpm // Keep current if already in good range
-                                                        } else if bpm_val >= 70.0
-                                                            && bpm_val <= 150.0
+                                                        } else if (70.0..=150.0).contains(&bpm_val)
                                                         {
                                                             bpm_val // Use new if it's in good range
                                                         } else {
                                                             // Neither in ideal range - prefer the higher value
                                                             current_bpm
                                                         };
-                                                        *bpm_lock = target as f32;
+                                                        *bpm_lock = target;
                                                         info!("Tempo halving corrected: {:.1} → {:.1}", bpm_val, *bpm_lock);
                                                     } else {
                                                         // Apply light smoothing to avoid jumps
-                                                        *bpm_lock = (current_bpm * 0.8
-                                                            + bpm_val as f32 * 0.2)
-                                                            as f32;
+                                                        *bpm_lock = current_bpm * 0.8
+                                                            + bpm_val * 0.2;
                                                     }
                                                 }
                                             }
@@ -961,7 +944,7 @@ impl VideoTextureManager {
                                 // Check for BPM tag
                                 if let Some(bpm) = tags.get::<gst::tags::BeatsPerMinute>() {
                                     let bpm_val = bpm.get();
-                                    info!("BPM tag detected: {:.1}", bpm_val);
+                                    info!("BPM tag detected: {bpm_val:.1}");
 
                                     if bpm_val > 0.0 {
                                         // Update stored BPM value with musical heuristics
@@ -1007,7 +990,7 @@ impl VideoTextureManager {
                                                     ];
                                                     let preferred = candidates
                                                         .iter()
-                                                        .filter(|&&v| v >= 70.0 && v <= 150.0)
+                                                        .filter(|&&v| (70.0..=150.0).contains(&v))
                                                         .min_by(|a, b| {
                                                             let a_dist = (**a - 110.0).abs();
                                                             let b_dist = (**b - 110.0).abs();
@@ -1047,7 +1030,7 @@ impl VideoTextureManager {
                 || self.frame_count <= 3;
 
             if should_recreate {
-                info!("Creating new texture with dimensions: {}x{}", width, height);
+                info!("Creating new texture with dimensions: {width}x{height}");
 
                 // Create a completely new texture with the frame's dimensions
                 let new_texture_manager =
@@ -1071,8 +1054,7 @@ impl VideoTextureManager {
 
                     if position >= near_end_threshold {
                         debug!(
-                            "Near end of video (position: {:?}, duration: {:?})",
-                            position, duration
+                            "Near end of video (position: {position:?}, duration: {duration:?})"
                         );
 
                         if *self.loop_playback.lock().unwrap() {
@@ -1121,12 +1103,12 @@ impl VideoTextureManager {
 
     /// Seek to a specific position in the video
     pub fn seek(&mut self, position: gst::ClockTime) -> Result<()> {
-        debug!("Seeking to position: {:?}", position);
+        debug!("Seeking to position: {position:?}");
 
         // are we sure the pipeline is in a state that can handle seeking??
         let current_state = self.pipeline.current_state();
         if current_state == gst::State::Null || current_state == gst::State::Ready {
-            warn!("Cannot seek in current state: {:?}", current_state);
+            warn!("Cannot seek in current state: {current_state:?}");
             return Ok(());
         }
 
@@ -1138,14 +1120,14 @@ impl VideoTextureManager {
             Ok(())
         } else {
             let err = anyhow!("Failed to seek to {:?}", position);
-            error!("{}", err);
+            error!("{err}");
             Err(err)
         }
     }
 
     pub fn set_loop(&mut self, should_loop: bool) {
         *self.loop_playback.lock().unwrap() = should_loop;
-        info!("Video loop set to: {}", should_loop);
+        info!("Video loop set to: {should_loop}");
     }
 
     /// audio volume (between 0.0 and 1.0)
@@ -1160,7 +1142,7 @@ impl VideoTextureManager {
 
         if let Some(volume_elem) = self.pipeline.by_name("volume") {
             volume_elem.set_property("volume", clamped_volume);
-            debug!("Set volume to {:.2}", clamped_volume);
+            debug!("Set volume to {clamped_volume:.2}");
             Ok(())
         } else {
             warn!("Volume element not found in pipeline");
@@ -1179,7 +1161,7 @@ impl VideoTextureManager {
 
         if let Some(volume_elem) = self.pipeline.by_name("volume") {
             volume_elem.set_property("mute", muted);
-            debug!("Set mute to {}", muted);
+            debug!("Set mute to {muted}");
             Ok(())
         } else {
             warn!("Volume element not found in pipeline");
@@ -1249,8 +1231,7 @@ impl VideoTextureManager {
             spectrum_elem.set_property("bands", bands as u32);
             spectrum_elem.set_property("threshold", threshold);
             info!(
-                "Configured spectrum: {} bands, {}dB threshold",
-                bands, threshold
+                "Configured spectrum: {bands} bands, {threshold}dB threshold"
             );
             Ok(())
         } else {
@@ -1308,8 +1289,8 @@ impl VideoTextureManager {
         if let Some(spectrum_elem) = self.pipeline.by_name("spectrum") {
             // Convert milliseconds to nanoseconds for GStreamer
             let interval_ns = interval_ms * 1_000_000;
-            spectrum_elem.set_property("interval", interval_ns as u64);
-            info!("Set spectrum interval to {}ms", interval_ms);
+            spectrum_elem.set_property("interval", interval_ns);
+            info!("Set spectrum interval to {interval_ms}ms");
             Ok(())
         } else {
             warn!("Spectrum element not found in pipeline");

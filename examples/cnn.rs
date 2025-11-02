@@ -88,7 +88,7 @@ impl ShaderManager for CNNDigitRecognizer {
                     source: wgpu::ShaderSource::Wgsl(include_str!("shaders/cnn.wgsl").into()),
                 }),
         ) {
-            eprintln!("Failed to enable hot reload for cnn shader: {}", e);
+            eprintln!("Failed to enable hot reload for cnn shader: {e}");
         }
 
         let current_params = CNNParams {
@@ -322,5 +322,5 @@ impl ShaderManager for CNNDigitRecognizer {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (app, event_loop) = ShaderApp::new("CNN Digit Recognizer", 800, 600);
 
-    app.run(event_loop, |core| CNNDigitRecognizer::init(core))
+    app.run(event_loop, CNNDigitRecognizer::init)
 }

@@ -39,7 +39,7 @@ impl Default for ControlsRequest {
         let mut default_media = None;
         let mut should_play_video = false;
         if let Ok(media_dir) = std::env::var("CUNEUS_MEDIA") {
-            println!("CUNEUS_MEDIA: {}", media_dir);
+            println!("CUNEUS_MEDIA: {media_dir}");
             if media_dir.starts_with('"') && media_dir.ends_with('"') {
                 let unquoted = &media_dir[1..media_dir.len() - 1];
                 default_media = Some(PathBuf::from(unquoted));
@@ -149,7 +149,7 @@ impl ShaderControls {
         let mut play_video = false;
         if !self.media_loaded_once {
             if let Ok(media_dir) = std::env::var("CUNEUS_MEDIA") {
-                println!("CUNEUS_MEDIA: {}", media_dir);
+                println!("CUNEUS_MEDIA: {media_dir}");
                 if media_dir.starts_with('"') && media_dir.ends_with('"') {
                     let unquoted = &media_dir[1..media_dir.len() - 1];
                     load_media_path = Some(PathBuf::from(unquoted));
@@ -212,8 +212,7 @@ impl ShaderControls {
         video_manager: Option<&VideoTextureManager>,
     ) -> Option<VideoInfo> {
         if using_video_texture {
-            if let Some(vm) = video_manager {
-                Some((
+            video_manager.map(|vm| (
                     vm.duration().map(|d| d.seconds() as f32),
                     vm.position().seconds() as f32,
                     vm.dimensions(),
@@ -223,9 +222,6 @@ impl ShaderControls {
                     vm.volume(),
                     vm.is_muted(),
                 ))
-            } else {
-                None
-            }
         } else {
             None
         }
@@ -249,10 +245,8 @@ impl ShaderControls {
                         if ui.button("🔴 Stop Webcam").clicked() {
                             request.stop_webcam = true;
                         }
-                    } else {
-                        if ui.button("📹 Webcam").clicked() {
-                            request.start_webcam = true;
-                        }
+                    } else if ui.button("📹 Webcam").clicked() {
+                        request.start_webcam = true;
                     }
 
                     if ui.button("Load").clicked() {
@@ -305,8 +299,7 @@ impl ShaderControls {
 
                         if let Some(duration_secs) = duration_opt {
                             ui.label(format!(
-                                "Position: {:.1}s / {:.1}s",
-                                position_secs, duration_secs
+                                "Position: {position_secs:.1}s / {duration_secs:.1}s"
                             ));
 
                             let mut pos = position_secs;
@@ -352,7 +345,7 @@ impl ShaderControls {
                             ui.label(format!("Dimensions: {}x{}", dimensions.0, dimensions.1));
 
                             if let Some(fps) = framerate_opt {
-                                ui.label(format!("Framerate: {:.2} fps", fps));
+                                ui.label(format!("Framerate: {fps:.2} fps"));
                             }
 
                             let mut looping = is_looping;
@@ -402,7 +395,7 @@ impl ShaderControls {
             if using_webcam_texture {
                 ui.collapsing("Webcam Settings", |ui| {
                     if let Some((width, height)) = webcam_info {
-                        ui.label(format!("Resolution: {}x{}", width, height));
+                        ui.label(format!("Resolution: {width}x{height}"));
                         ui.label("Type: Live Camera Feed");
                         ui.label("Status: Active");
                     } else {
@@ -431,15 +424,15 @@ impl ShaderControls {
                     request.should_clear_buffers = true;
                 }
                 if let Some(time) = request.current_time {
-                    ui.label(format!("Time: {:.2}s", time));
+                    ui.label(format!("Time: {time:.2}s"));
                 }
                 if let Some(fps) = request.current_fps {
-                    ui.label(format!("FPS: {:.1}", fps));
+                    ui.label(format!("FPS: {fps:.1}"));
                 }
             });
             if let Some((width, height)) = request.window_size {
                 ui.horizontal(|ui| {
-                    ui.label(format!("Resolution: {}x{}", width, height));
+                    ui.label(format!("Resolution: {width}x{height}"));
                 });
             }
         });

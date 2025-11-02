@@ -86,7 +86,7 @@ impl ShaderManager for CircuitShader {
                     source: wgpu::ShaderSource::Wgsl(include_str!("shaders/circuits.wgsl").into()),
                 }),
         ) {
-            eprintln!("Failed to enable hot reload for circuits shader: {}", e);
+            eprintln!("Failed to enable hot reload for circuits shader: {e}");
         }
 
         //Set initial parameters on startup
@@ -298,5 +298,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let (app, event_loop) = cuneus::ShaderApp::new("Circuits", 800, 600);
 
-    app.run(event_loop, |core| CircuitShader::init(core))
+    app.run(event_loop, CircuitShader::init)
 }

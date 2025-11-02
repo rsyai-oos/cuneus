@@ -57,27 +57,27 @@ impl MultiPassManager {
                 width,
                 height,
                 texture_format,
-                &format!("{}_0", name),
+                &format!("{name}_0"),
             );
             let texture1 = Self::create_storage_texture(
                 &core.device,
                 width,
                 height,
                 texture_format,
-                &format!("{}_1", name),
+                &format!("{name}_1"),
             );
 
             let bind_group0 = Self::create_storage_bind_group(
                 &core.device,
                 &storage_layout,
                 &texture0,
-                &format!("{}_0_bind", name),
+                &format!("{name}_0_bind"),
             );
             let bind_group1 = Self::create_storage_bind_group(
                 &core.device,
                 &storage_layout,
                 &texture1,
-                &format!("{}_1_bind", name),
+                &format!("{name}_1_bind"),
             );
 
             buffers.insert(name.clone(), (texture0, texture1));
@@ -326,14 +326,14 @@ impl MultiPassManager {
                 self.width,
                 self.height,
                 self.texture_format,
-                &format!("{}_0", name),
+                &format!("{name}_0"),
             );
             textures.1 = Self::create_storage_texture(
                 &core.device,
                 self.width,
                 self.height,
                 self.texture_format,
-                &format!("{}_1", name),
+                &format!("{name}_1"),
             );
         }
 
@@ -344,13 +344,13 @@ impl MultiPassManager {
                 &core.device,
                 &self.storage_layout,
                 &textures.0,
-                &format!("{}_0_bind", name),
+                &format!("{name}_0_bind"),
             );
             bind_groups.1 = Self::create_storage_bind_group(
                 &core.device,
                 &self.storage_layout,
                 &textures.1,
-                &format!("{}_1_bind", name),
+                &format!("{name}_1_bind"),
             );
         }
 

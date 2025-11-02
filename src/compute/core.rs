@@ -152,7 +152,7 @@ impl ComputeShader {
                 let empty_layout =
                     core.device
                         .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                            label: Some(&format!("Empty Group {} Layout", i)),
+                            label: Some(&format!("Empty Group {i} Layout")),
                             entries: &[],
                         });
                 layouts_vec.push(empty_layout);
@@ -256,7 +256,7 @@ impl ComputeShader {
             if !bind_group_layouts.contains_key(&i) {
                 // This group was missing and got an empty layout, create an empty bind group
                 let empty_bind_group = core.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some(&format!("Empty Group {} Bind Group", i)),
+                    label: Some(&format!("Empty Group {i} Bind Group")),
                     layout: &layouts_vec[i as usize],
                     entries: &[],
                 });
@@ -414,7 +414,7 @@ impl ComputeShader {
                     resource: wgpu::BindingResource::Sampler(&sampler),
                 },
             ],
-            label: Some(&format!("{} Display Bind Group", label)),
+            label: Some(&format!("{label} Display Bind Group")),
         });
 
         TextureManager {
@@ -451,7 +451,7 @@ impl ComputeShader {
 
         // Create dummy bind group layout and bind group for placeholder
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some(&format!("{} Placeholder Layout", label)),
+            label: Some(&format!("{label} Placeholder Layout")),
             entries: &[
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
@@ -484,7 +484,7 @@ impl ComputeShader {
                     resource: wgpu::BindingResource::Sampler(&sampler),
                 },
             ],
-            label: Some(&format!("{} Placeholder Bind Group", label)),
+            label: Some(&format!("{label} Placeholder Bind Group")),
         });
 
         TextureManager {
@@ -858,7 +858,7 @@ impl ComputeShader {
         let mut storage_buffers = Vec::new();
         let mut entries = Vec::new();
 
-        for (_i, buffer_spec) in config.storage_buffers.iter().enumerate() {
+        for buffer_spec in config.storage_buffers.iter() {
             let buffer = core.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some(&buffer_spec.name),
                 size: buffer_spec.size_bytes,
@@ -1251,7 +1251,7 @@ impl ComputeShader {
                     let group1_layout = self.bind_group_layouts.get(&1).unwrap();
                     let intermediate_bind_group =
                         core.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                            label: Some(&format!("{} Intermediate Group 1", entry_point)),
+                            label: Some(&format!("{entry_point} Intermediate Group 1")),
                             layout: group1_layout,
                             entries: &entries,
                         });
@@ -1260,7 +1260,7 @@ impl ComputeShader {
                 } else {
                     // Fallback to main group if no multipass (shouldn't happen)
                     compute_pass.set_bind_group(1, &self.group1_bind_group, &[]);
-                    log::warn!("No multipass manager for intermediate pass {}", entry_point);
+                    log::warn!("No multipass manager for intermediate pass {entry_point}");
                 }
             }
 
@@ -1269,8 +1269,7 @@ impl ComputeShader {
                 compute_pass.set_bind_group(2, group2, &[]);
             } else if let Some(empty_group2) = self.empty_bind_groups.get(&2) {
                 log::warn!(
-                    "Using empty Group 2 bind group for pass {} - channels won't work!",
-                    entry_point
+                    "Using empty Group 2 bind group for pass {entry_point} - channels won't work!"
                 );
                 compute_pass.set_bind_group(2, empty_group2, &[]);
             } else {
@@ -1328,7 +1327,7 @@ impl ComputeShader {
                                 self.label, entry_point
                             )),
                             layout: Some(&self.pipeline_layout),
-                            module: &new_module,
+                            module: new_module,
                             entry_point: Some(entry_point),
                             compilation_options: wgpu::PipelineCompilationOptions::default(),
                             cache: None,
@@ -1552,7 +1551,7 @@ impl ComputeShader {
                 label: Some("Audio Buffer Copy"),
             });
 
-            encoder.copy_buffer_to_buffer(audio_buffer, 0, staging_buffer, 0, buffer_size as u64);
+            encoder.copy_buffer_to_buffer(audio_buffer, 0, staging_buffer, 0, buffer_size);
 
             queue.submit(std::iter::once(encoder.finish()));
 
@@ -1596,11 +1595,11 @@ impl ComputeShader {
                 Ok(data) => {
                     let settings = render_kit.export_manager.settings();
                     if let Err(e) = crate::save_frame(data, frame, settings) {
-                        eprintln!("Error saving frame: {:?}", e);
+                        eprintln!("Error saving frame: {e:?}");
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error capturing export frame: {:?}", e);
+                    eprintln!("Error capturing export frame: {e:?}");
                 }
             }
         } else {
@@ -1620,11 +1619,11 @@ impl ComputeShader {
                 Ok(data) => {
                     let settings = render_kit.export_manager.settings();
                     if let Err(e) = crate::save_frame(data, frame, settings) {
-                        eprintln!("Error saving frame: {:?}", e);
+                        eprintln!("Error saving frame: {e:?}");
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error capturing export frame: {:?}", e);
+                    eprintln!("Error capturing export frame: {e:?}");
                 }
             }
         } else {

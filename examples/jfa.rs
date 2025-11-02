@@ -103,7 +103,7 @@ impl ShaderManager for JfaShader {
                     source: wgpu::ShaderSource::Wgsl(include_str!("shaders/jfa.wgsl").into()),
                 }),
         ) {
-            eprintln!("Failed to enable hot reload for JFA shader: {}", e);
+            eprintln!("Failed to enable hot reload for JFA shader: {e}");
         }
 
         compute_shader.set_custom_params(initial_params, &core.queue);
@@ -353,5 +353,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let (app, event_loop) = ShaderApp::new("JFA", 800, 600);
 
-    app.run(event_loop, |core| JfaShader::init(core))
+    app.run(event_loop, JfaShader::init)
 }

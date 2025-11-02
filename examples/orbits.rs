@@ -42,7 +42,7 @@ struct Shader {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let (app, event_loop) = ShaderApp::new("orbits", 800, 600);
-    app.run(event_loop, |core| Shader::init(core))
+    app.run(event_loop, Shader::init)
 }
 impl ShaderManager for Shader {
     fn init(core: &Core) -> Self {
@@ -94,7 +94,7 @@ impl ShaderManager for Shader {
                     source: wgpu::ShaderSource::Wgsl(include_str!("shaders/orbits.wgsl").into()),
                 }),
         ) {
-            eprintln!("Failed to enable hot reload for orbits shader: {}", e);
+            eprintln!("Failed to enable hot reload for orbits shader: {e}");
         }
 
         compute_shader.set_custom_params(initial_params, &core.queue);
@@ -372,22 +372,19 @@ impl ShaderManager for Shader {
         }
         match event {
             WindowEvent::MouseInput { state, button, .. } => {
-                match button {
-                    MouseButton::Left => match state {
-                        ElementState::Pressed => {
-                            let mouse_pos = self.base.mouse_tracker.uniform.position;
-                            self.mouse_dragging = true;
-                            self.drag_start = mouse_pos;
-                            self.drag_start_pos = [self.current_params.x, self.current_params.y];
-                            return true;
-                        }
-                        ElementState::Released => {
-                            self.mouse_dragging = false;
-                            return true;
-                        }
-                    },
-                    _ => {}
-                }
+                if button == &MouseButton::Left { match state {
+                    ElementState::Pressed => {
+                        let mouse_pos = self.base.mouse_tracker.uniform.position;
+                        self.mouse_dragging = true;
+                        self.drag_start = mouse_pos;
+                        self.drag_start_pos = [self.current_params.x, self.current_params.y];
+                        return true;
+                    }
+                    ElementState::Released => {
+                        self.mouse_dragging = false;
+                        return true;
+                    }
+                } }
                 false
             }
             WindowEvent::CursorMoved { .. } => {

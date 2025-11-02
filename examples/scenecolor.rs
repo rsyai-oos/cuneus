@@ -76,8 +76,7 @@ impl ShaderManager for SceneColorShader {
                 }),
         ) {
             eprintln!(
-                "Failed to enable Scene Color compute shader hot reload: {}",
-                e
+                "Failed to enable Scene Color compute shader hot reload: {e}"
             );
         }
 
@@ -290,7 +289,7 @@ impl ShaderManager for SceneColorShader {
 
         if let WindowEvent::DroppedFile(path) = event {
             if let Err(e) = self.base.load_media(core, path) {
-                eprintln!("Failed to load dropped file: {:?}", e);
+                eprintln!("Failed to load dropped file: {e:?}");
             }
             return true;
         }
@@ -303,5 +302,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     cuneus::gst::init()?;
     env_logger::init();
     let (app, event_loop) = ShaderApp::new("Scene Color Palette", 800, 600);
-    app.run(event_loop, |core| SceneColorShader::init(core))
+    app.run(event_loop, SceneColorShader::init)
 }

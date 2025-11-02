@@ -3,7 +3,6 @@
 #[cfg(feature = "media")]
 use log::info;
 #[cfg(feature = "media")]
-use wgpu;
 
 #[cfg(feature = "media")]
 use crate::gst::video::VideoTextureManager;
@@ -18,6 +17,12 @@ pub struct SpectrumAnalyzer {
 }
 
 #[cfg(feature = "media")]
+impl Default for SpectrumAnalyzer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SpectrumAnalyzer {
     pub fn new() -> Self {
         Self {

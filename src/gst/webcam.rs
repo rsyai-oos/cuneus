@@ -45,10 +45,10 @@ impl WebcamTextureManager {
         let texture_manager = TextureManager::new(device, queue, &default_image, bind_group_layout);
 
         let device_name = device_index
-            .map(|i| format!("/dev/video{}", i))
+            .map(|i| format!("/dev/video{i}"))
             .unwrap_or_else(|| "0".to_string());
 
-        info!("Creating webcam capture from device: {}", device_name);
+        info!("Creating webcam capture from device: {device_name}");
 
         let pipeline = gst::Pipeline::new();
         //MAC  :   https://gstreamer.freedesktop.org/documentation/applemedia/avfvideosrc.html?gi-language=c#avfvideosrc-page
@@ -124,22 +124,22 @@ impl WebcamTextureManager {
         appsink.set_sync(false);
 
         pipeline
-            .add_many(&[
+            .add_many([
                 &source,
                 &caps_filter,
                 &videorate,
                 &videoconvert,
-                &appsink.upcast_ref(),
+                appsink.upcast_ref(),
             ])
             .map_err(|_| anyhow!("Failed to add webcam elements to pipeline"))?;
 
         // Link elements
-        gst::Element::link_many(&[
+        gst::Element::link_many([
             &source,
             &caps_filter,
             &videorate,
             &videoconvert,
-            &appsink.upcast_ref(),
+            appsink.upcast_ref(),
         ])
         .map_err(|_| anyhow!("Failed to link webcam elements"))?;
 
@@ -245,7 +245,7 @@ impl WebcamTextureManager {
                                 (s.get::<i32>("width"), s.get::<i32>("height"))
                             {
                                 self.dimensions = (width as u32, height as u32);
-                                info!("Webcam dimensions: {}x{}", width, height);
+                                info!("Webcam dimensions: {width}x{height}");
                             }
                         }
                     }
@@ -314,8 +314,7 @@ impl WebcamTextureManager {
 
             if should_recreate {
                 info!(
-                    "Creating new webcam texture with dimensions: {}x{}",
-                    width, height
+                    "Creating new webcam texture with dimensions: {width}x{height}"
                 );
 
                 // Create a completely new texture with the frame's dimensions
@@ -371,7 +370,7 @@ impl WebcamTextureManager {
         {
             // On macOS, AVFoundation devices are usually indexed 0, 1, 2...
             for i in 0..5 {
-                devices.push(format!("Camera {}", i));
+                devices.push(format!("Camera {i}"));
             }
         }
 

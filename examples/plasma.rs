@@ -98,7 +98,7 @@ impl ShaderManager for Neural2Shader {
                     source: wgpu::ShaderSource::Wgsl(include_str!("shaders/plasma.wgsl").into()),
                 }),
         ) {
-            eprintln!("Failed to enable hot reload for Plasma shader: {}", e);
+            eprintln!("Failed to enable hot reload for Plasma shader: {e}");
         }
 
         compute_shader.set_custom_params(initial_params, &core.queue);
@@ -404,12 +404,11 @@ impl ShaderManager for Neural2Shader {
             return true;
         }
         if let WindowEvent::MouseInput { state, button, .. } = event {
-            if *button == winit::event::MouseButton::Right {
-                if *state == winit::event::ElementState::Released {
+            if *button == winit::event::MouseButton::Right
+                && *state == winit::event::ElementState::Released {
                     self.mouse_look_enabled = !self.mouse_look_enabled;
                     return true;
                 }
-            }
         }
         if self.mouse_look_enabled && self.base.handle_mouse_input(core, event, false) {
             return true;
@@ -430,5 +429,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let (app, event_loop) = cuneus::ShaderApp::new("Neural Wave", 800, 600);
 
-    app.run(event_loop, |core| Neural2Shader::init(core))
+    app.run(event_loop, Neural2Shader::init)
 }

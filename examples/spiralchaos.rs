@@ -93,7 +93,7 @@ impl ShaderManager for SpiralShader {
                     ),
                 }),
         ) {
-            eprintln!("Failed to enable hot reload for Spiralchaos shader: {}", e);
+            eprintln!("Failed to enable hot reload for Spiralchaos shader: {e}");
         }
 
         compute_shader.set_custom_params(initial_params, &core.queue);
@@ -358,5 +358,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let (app, event_loop) = cuneus::ShaderApp::new("Chaos Spiral", 800, 600);
 
-    app.run(event_loop, |core| SpiralShader::init(core))
+    app.run(event_loop, SpiralShader::init)
 }

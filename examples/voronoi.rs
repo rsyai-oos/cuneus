@@ -20,7 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     cuneus::gst::init()?;
     env_logger::init();
     let (app, event_loop) = ShaderApp::new("voronoi", 800, 600);
-    app.run(event_loop, |core| Voronoi::init(core))
+    app.run(event_loop, Voronoi::init)
 }
 struct Voronoi {
     base: RenderKit,
@@ -59,7 +59,7 @@ impl ShaderManager for Voronoi {
                     source: wgpu::ShaderSource::Wgsl(include_str!("shaders/voronoi.wgsl").into()),
                 }),
         ) {
-            eprintln!("Failed to enable hot reload for voronoi shader: {}", e);
+            eprintln!("Failed to enable hot reload for voronoi shader: {e}");
         }
 
         compute_shader.set_custom_params(initial_params, &core.queue);

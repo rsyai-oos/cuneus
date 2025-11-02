@@ -69,7 +69,7 @@ impl ShaderManager for FluidShader {
                     source: wgpu::ShaderSource::Wgsl(include_str!("shaders/fluid.wgsl").into()),
                 }),
         ) {
-            eprintln!("Failed to enable hot reload for fluid shader: {}", e);
+            eprintln!("Failed to enable hot reload for fluid shader: {e}");
         }
 
         compute_shader.set_custom_params(initial_params, &core.queue);
@@ -299,5 +299,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     cuneus::gst::init()?;
     env_logger::init();
     let (app, event_loop) = ShaderApp::new("Fluid Simulation", 800, 600);
-    app.run(event_loop, |core| FluidShader::init(core))
+    app.run(event_loop, FluidShader::init)
 }

@@ -385,7 +385,7 @@ impl RenderKit {
             Some(ext)
                 if ["png", "jpg", "jpeg", "bmp", "gif", "tiff", "webp"].contains(&ext.as_str()) =>
             {
-                info!("Loading image: {:?}", path_ref);
+                info!("Loading image: {path_ref:?}");
                 if let Ok(img) = image::open(path_ref) {
                     let rgba_image = img.into_rgba8();
                     let new_texture_manager = TextureManager::new(
@@ -408,7 +408,7 @@ impl RenderKit {
                 }
             }
             Some(ext) if ["hdr", "exr"].contains(&ext.as_str()) => {
-                info!("Loading HDRI: {:?}", path_ref);
+                info!("Loading HDRI: {path_ref:?}");
                 let file_data = std::fs::read(path_ref)?;
                 self.hdri_file_data = Some(file_data.clone());
                 let default_exposure = 1.0;
@@ -433,14 +433,14 @@ impl RenderKit {
                         Ok(())
                     }
                     Err(e) => {
-                        error!("Failed to load HDRI: {}", e);
+                        error!("Failed to load HDRI: {e}");
                         Err(anyhow::anyhow!("Failed to load HDRI: {}", e))
                     }
                 }
             }
             #[cfg(feature = "media")]
             Some(ext) if ["mp4", "avi", "mkv", "mov", "webm"].contains(&ext.as_str()) => {
-                info!("Loading video: {:?}", path_ref);
+                info!("Loading video: {path_ref:?}");
                 match VideoTextureManager::new(
                     &core.device,
                     &core.queue,
@@ -453,14 +453,14 @@ impl RenderKit {
                         self.using_webcam_texture = false;
                         self.webcam_texture_manager = None;
                         if let Err(e) = self.play_video() {
-                            warn!("Failed to play video: {}", e);
+                            warn!("Failed to play video: {e}");
                         }
                         self.set_video_loop(true);
 
                         Ok(())
                     }
                     Err(e) => {
-                        error!("Failed to load video: {}", e);
+                        error!("Failed to load video: {e}");
                         Err(e)
                     }
                 }
@@ -632,7 +632,7 @@ impl RenderKit {
     pub fn handle_video_requests(&mut self, core: &Core, request: &ControlsRequest) {
         if let Some(path) = &request.load_media_path {
             if let Err(e) = self.load_media(core, path) {
-                error!("Failed to load media: {}", e);
+                error!("Failed to load media: {e}");
             }
         }
 
@@ -680,13 +680,13 @@ impl RenderKit {
     pub fn handle_webcam_requests(&mut self, core: &Core, request: &ControlsRequest) {
         if request.start_webcam {
             if let Err(e) = self.start_webcam(core, request.webcam_device_index) {
-                error!("Failed to start webcam: {}", e);
+                error!("Failed to start webcam: {e}");
             }
         }
 
         if request.stop_webcam {
             if let Err(e) = self.stop_webcam() {
-                error!("Failed to stop webcam: {}", e);
+                error!("Failed to stop webcam: {e}");
             }
         }
     }
@@ -727,7 +727,7 @@ impl RenderKit {
                     exposure,
                     new_gamma,
                 ) {
-                    error!("Failed to update HDRI parameters: {}", e);
+                    error!("Failed to update HDRI parameters: {e}");
                 }
             }
         }
@@ -736,7 +736,7 @@ impl RenderKit {
 
     pub fn get_hdri_info(&self) -> Option<HdriMetadata> {
         if self.using_hdri_texture {
-            self.hdri_metadata.clone()
+            self.hdri_metadata
         } else {
             None
         }
@@ -822,8 +822,7 @@ impl RenderKit {
         bool,
     )> {
         if self.using_video_texture {
-            if let Some(vm) = &self.video_texture_manager {
-                Some((
+            self.video_texture_manager.as_ref().map(|vm| (
                     vm.duration().map(|d| d.seconds() as f32),
                     vm.position().seconds() as f32,
                     vm.dimensions(),
@@ -833,9 +832,6 @@ impl RenderKit {
                     vm.volume(),
                     vm.is_muted(),
                 ))
-            } else {
-                None
-            }
         } else {
             None
         }
@@ -844,11 +840,7 @@ impl RenderKit {
     #[cfg(feature = "media")]
     pub fn get_webcam_info(&self) -> Option<(u32, u32)> {
         if self.using_webcam_texture {
-            if let Some(wm) = &self.webcam_texture_manager {
-                Some(wm.dimensions())
-            } else {
-                None
-            }
+            self.webcam_texture_manager.as_ref().map(|wm| wm.dimensions())
         } else {
             None
         }

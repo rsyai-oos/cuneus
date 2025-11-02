@@ -171,7 +171,7 @@ impl Core {
         &self.window
     }
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
-        println!("Core resize called with size: {:?}", new_size);
+        println!("Core resize called with size: {new_size:?}");
         if new_size.width > 0 && new_size.height > 0 {
             self.size = new_size;
             self.config.width = new_size.width;

@@ -88,8 +88,8 @@ impl<S: ShaderManager> ApplicationHandler for ShaderAppHandler<S> {
     ) {
         // Only process events if core and shader are initialized
         if let (Some(core), Some(shader)) = (&self.app.core, &mut self.shader) {
-            if window_id == core.window().id() {
-                if !shader.handle_input(core, &event) {
+            if window_id == core.window().id()
+                && !shader.handle_input(core, &event) {
                     match event {
                         WindowEvent::CloseRequested => {
                             event_loop.exit();
@@ -117,13 +117,12 @@ impl<S: ShaderManager> ApplicationHandler for ShaderAppHandler<S> {
                                     }
                                 }
                                 Err(wgpu::SurfaceError::OutOfMemory) => event_loop.exit(),
-                                Err(e) => eprintln!("Render error: {:?}", e),
+                                Err(e) => eprintln!("Render error: {e:?}"),
                             }
                         }
                         _ => {}
                     }
                 }
-            }
         }
     }
 

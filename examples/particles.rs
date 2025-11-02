@@ -92,7 +92,7 @@ impl ShaderManager for ParticleShader {
                     source: wgpu::ShaderSource::Wgsl(include_str!("shaders/particles.wgsl").into()),
                 }),
         ) {
-            eprintln!("Failed to enable hot reload for Particles shader: {}", e);
+            eprintln!("Failed to enable hot reload for Particles shader: {e}");
         }
 
         compute_shader.set_custom_params(initial_params, &core.queue);
@@ -356,5 +356,5 @@ impl ShaderManager for ParticleShader {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let (app, event_loop) = cuneus::ShaderApp::new("Particles", 800, 600);
-    app.run(event_loop, |core| ParticleShader::init(core))
+    app.run(event_loop, ParticleShader::init)
 }

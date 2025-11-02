@@ -73,7 +73,7 @@ impl ShaderManager for TreeShader {
                     source: wgpu::ShaderSource::Wgsl(include_str!("shaders/tree.wgsl").into()),
                 }),
         ) {
-            eprintln!("Failed to enable hot reload for tree shader: {}", e);
+            eprintln!("Failed to enable hot reload for tree shader: {e}");
         }
 
         compute_shader.set_custom_params(initial_params, &core.queue);
@@ -290,5 +290,5 @@ impl ShaderManager for TreeShader {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let (app, event_loop) = ShaderApp::new("Fractal Tree", 800, 600);
-    app.run(event_loop, |core| TreeShader::init(core))
+    app.run(event_loop, TreeShader::init)
 }

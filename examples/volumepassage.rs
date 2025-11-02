@@ -90,8 +90,7 @@ impl ShaderManager for VolumeShader {
                 }),
         ) {
             eprintln!(
-                "Failed to enable hot reload for volumepassage shader: {}",
-                e
+                "Failed to enable hot reload for volumepassage shader: {e}"
             );
         }
 
@@ -318,5 +317,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let (app, event_loop) = cuneus::ShaderApp::new("Volume Passage", 600, 300);
 
-    app.run(event_loop, |core| VolumeShader::init(core))
+    app.run(event_loop, VolumeShader::init)
 }

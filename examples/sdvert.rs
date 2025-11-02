@@ -40,7 +40,7 @@ struct Shader {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let (app, event_loop) = ShaderApp::new("sdvert", 800, 600);
-    app.run(event_loop, |core| Shader::init(core))
+    app.run(event_loop, Shader::init)
 }
 impl ShaderManager for Shader {
     fn init(core: &Core) -> Self {
@@ -89,7 +89,7 @@ impl ShaderManager for Shader {
                     source: wgpu::ShaderSource::Wgsl(include_str!("shaders/sdvert.wgsl").into()),
                 }),
         ) {
-            eprintln!("Failed to enable hot reload for sdvert shader: {}", e);
+            eprintln!("Failed to enable hot reload for sdvert shader: {e}");
         }
 
         compute_shader.set_custom_params(initial_params, &core.queue);

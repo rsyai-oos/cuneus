@@ -27,7 +27,7 @@ struct GalaxyShader {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let (app, event_loop) = ShaderApp::new("Galaxy", 800, 600);
-    app.run(event_loop, |core| GalaxyShader::init(core))
+    app.run(event_loop, GalaxyShader::init)
 }
 impl ShaderManager for GalaxyShader {
     fn init(core: &Core) -> Self {
@@ -63,7 +63,7 @@ impl ShaderManager for GalaxyShader {
                     source: wgpu::ShaderSource::Wgsl(include_str!("shaders/galaxy.wgsl").into()),
                 }),
         ) {
-            eprintln!("Failed to enable hot reload for Galaxy shader: {}", e);
+            eprintln!("Failed to enable hot reload for Galaxy shader: {e}");
         }
 
         compute_shader.set_custom_params(initial_params, &core.queue);

@@ -93,7 +93,7 @@ impl ShaderManager for ColorProjection {
                     ),
                 }),
         ) {
-            eprintln!("Failed to enable ComputeColors hot reload: {}", e);
+            eprintln!("Failed to enable ComputeColors hot reload: {e}");
         }
 
         compute_shader.set_custom_params(initial_params, &core.queue);
@@ -372,7 +372,7 @@ impl ShaderManager for ColorProjection {
 
         if let WindowEvent::DroppedFile(path) = event {
             if let Err(e) = self.base.load_media(core, path) {
-                eprintln!("Failed to load dropped file: {:?}", e);
+                eprintln!("Failed to load dropped file: {e:?}");
             }
             return true;
         }
@@ -385,5 +385,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     cuneus::gst::init()?;
     env_logger::init();
     let (app, event_loop) = cuneus::ShaderApp::new("Particle Splatting", 800, 600);
-    app.run(event_loop, |core| ColorProjection::init(core))
+    app.run(event_loop, ColorProjection::init)
 }

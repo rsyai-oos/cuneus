@@ -73,7 +73,7 @@ impl ShaderManager for NeuronShader {
                     source: wgpu::ShaderSource::Wgsl(include_str!("shaders/2dneuron.wgsl").into()),
                 }),
         ) {
-            eprintln!("Failed to enable hot reload for 2dneuron shader: {}", e);
+            eprintln!("Failed to enable hot reload for 2dneuron shader: {e}");
         }
 
         compute_shader.set_custom_params(initial_params, &core.queue);
@@ -289,5 +289,5 @@ impl ShaderManager for NeuronShader {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let (app, event_loop) = ShaderApp::new("2D Neuron", 600, 800);
-    app.run(event_loop, |core| NeuronShader::init(core))
+    app.run(event_loop, NeuronShader::init)
 }

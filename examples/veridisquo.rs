@@ -70,7 +70,7 @@ impl ShaderManager for VeridisQuo {
                     ),
                 }),
         ) {
-            eprintln!("Failed to enable hot reload for veridisquo shader: {}", e);
+            eprintln!("Failed to enable hot reload for veridisquo shader: {e}");
         }
 
         compute_shader.set_custom_params(initial_params, &core.queue);
@@ -327,5 +327,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (app, event_loop) = ShaderApp::new("Veridis Quo", 800, 600);
 
-    app.run(event_loop, |core| VeridisQuo::init(core))
+    app.run(event_loop, VeridisQuo::init)
 }

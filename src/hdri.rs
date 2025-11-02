@@ -135,7 +135,7 @@ fn hdr_to_rgba8(hdr_data: &[u8], exposure: f32, gamma: Option<f32>) -> Result<Rg
     let decoder = HdrDecoder::new(cursor).map_err(|e| e.to_string())?;
     let metadata = decoder.metadata();
     let dynamic_img = image::DynamicImage::from_decoder(decoder)
-        .map_err(|e| format!("Failed to decode HDR: {}", e))?;
+        .map_err(|e| format!("Failed to decode HDR: {e}"))?;
     let mut rgba8_image = RgbaImage::new(metadata.width, metadata.height);
     let rgb8_image = dynamic_img.to_rgb8();
     let gamma_value = gamma.unwrap_or(2.2);
@@ -157,10 +157,10 @@ fn exr_to_rgba8(exr_data: &[u8], exposure: f32, gamma: Option<f32>) -> Result<Rg
 
     let cursor = Cursor::new(exr_data);
     let decoder =
-        OpenExrDecoder::new(cursor).map_err(|e| format!("Failed to decode EXR: {}", e))?;
+        OpenExrDecoder::new(cursor).map_err(|e| format!("Failed to decode EXR: {e}"))?;
     let (width, height) = decoder.dimensions();
     let dynamic_img = image::DynamicImage::from_decoder(decoder)
-        .map_err(|e| format!("Failed to create DynamicImage from EXR: {}", e))?;
+        .map_err(|e| format!("Failed to create DynamicImage from EXR: {e}"))?;
     let rgba_float = dynamic_img.to_rgba32f();
     let mut rgba8_image = RgbaImage::new(width, height);
     let gamma_value = gamma.unwrap_or(2.2);

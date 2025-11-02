@@ -51,8 +51,7 @@ impl AudioSynthManager {
         let max_voices = 8;
 
         info!(
-            "Creating polyphonic audio synthesis manager with {} voices at {} Hz",
-            max_voices, sample_rate
+            "Creating polyphonic audio synthesis manager with {max_voices} voices at {sample_rate} Hz"
         );
 
         let pipeline = gst::Pipeline::new();
@@ -87,7 +86,7 @@ impl AudioSynthManager {
 
         // A mixer and output chain to pipeline
         pipeline
-            .add_many(&[
+            .add_many([
                 &audiomixer,
                 &final_convert,
                 &final_resample,
@@ -96,7 +95,7 @@ impl AudioSynthManager {
             ])
             .map_err(|_| anyhow!("Failed to add output elements to pipeline"))?;
 
-        gst::Element::link_many(&[
+        gst::Element::link_many([
             &audiomixer,
             &final_convert,
             &final_resample,
@@ -157,7 +156,7 @@ impl AudioSynthManager {
     ) -> Result<AudioVoice> {
         // Create audiotestsrc for this voice
         let audiotestsrc = gst::ElementFactory::make("audiotestsrc")
-            .name(&format!("voice_{}_source", voice_id))
+            .name(format!("voice_{voice_id}_source"))
             .property("freq", 440.0f64)
             .property("volume", 0.0f64) // Start silent
             .property("samplesperbuffer", 512i32)
@@ -170,28 +169,28 @@ impl AudioSynthManager {
 
         // lets create voice-specific elements
         let audioconvert = gst::ElementFactory::make("audioconvert")
-            .name(&format!("voice_{}_convert", voice_id))
+            .name(format!("voice_{voice_id}_convert"))
             .build()
             .map_err(|_| anyhow!("Failed to create audioconvert for voice {}", voice_id))?;
 
         let audioresample = gst::ElementFactory::make("audioresample")
-            .name(&format!("voice_{}_resample", voice_id))
+            .name(format!("voice_{voice_id}_resample"))
             .build()
             .map_err(|_| anyhow!("Failed to create audioresample for voice {}", voice_id))?;
 
         let volume = gst::ElementFactory::make("volume")
-            .name(&format!("voice_{}_volume", voice_id))
+            .name(format!("voice_{voice_id}_volume"))
             .property("volume", 0.0f64)
             .build()
             .map_err(|_| anyhow!("Failed to create volume for voice {}", voice_id))?;
 
         //voice elements to our pipeline...
         pipeline
-            .add_many(&[&audiotestsrc, &audioconvert, &audioresample, &volume])
+            .add_many([&audiotestsrc, &audioconvert, &audioresample, &volume])
             .map_err(|_| anyhow!("Failed to add voice {} elements to pipeline", voice_id))?;
 
         // link:
-        gst::Element::link_many(&[&audiotestsrc, &audioconvert, &audioresample, &volume])
+        gst::Element::link_many([&audiotestsrc, &audioconvert, &audioresample, &volume])
             .map_err(|_| anyhow!("Failed to link voice {} elements", voice_id))?;
 
         // Connect to mixer
@@ -246,7 +245,7 @@ impl AudioSynthManager {
             master_vol.set_property("volume", clamped_volume);
         }
 
-        debug!("Set master volume to {:.3}", clamped_volume);
+        debug!("Set master volume to {clamped_volume:.3}");
         Ok(())
     }
 
@@ -266,7 +265,7 @@ impl AudioSynthManager {
             voice.audiotestsrc.set_property_from_str("wave", wave_str);
         }
 
-        debug!("Set waveform to {:?}", wave_type);
+        debug!("Set waveform to {wave_type:?}");
         Ok(())
     }
 
@@ -291,8 +290,7 @@ impl AudioSynthManager {
         voice.note = None;
 
         info!(
-            "Playing frequency {:.2} Hz on voice {}",
-            frequency, voice_id
+            "Playing frequency {frequency:.2} Hz on voice {voice_id}"
         );
         Ok(())
     }
@@ -309,7 +307,7 @@ impl AudioSynthManager {
         voice.is_active = false;
         voice.note = None;
 
-        info!("Stopped voice {}", voice_id);
+        info!("Stopped voice {voice_id}");
         Ok(())
     }
 
@@ -359,9 +357,9 @@ impl AudioSynthManager {
             voice.note = Some(note);
 
             active_notes.push(note);
-            info!("Playing note {:?} ({:.2} Hz) on voice", note, freq);
+            info!("Playing note {note:?} ({freq:.2} Hz) on voice");
         } else {
-            warn!("No available voice for note {:?}", note);
+            warn!("No available voice for note {note:?}");
         }
 
         Ok(())
@@ -379,7 +377,7 @@ impl AudioSynthManager {
             let mut active_notes = self.active_notes.lock().unwrap();
             active_notes.retain(|&n| n != note);
 
-            info!("Stopped note {:?}", note);
+            info!("Stopped note {note:?}");
         }
         Ok(())
     }
@@ -643,6 +641,12 @@ impl crate::UniformProvider for AudioSynthUniform {
     }
 }
 
+impl Default for AudioSynthUniform {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AudioSynthUniform {
     pub fn new() -> Self {
         Self {
@@ -711,7 +715,7 @@ impl SynthesisManager {
         let audio_manager = match AudioSynthManager::new(Some(44100)) {
             Ok(manager) => Some(manager),
             Err(e) => {
-                eprintln!("Failed to create GStreamer audio manager: {}", e);
+                eprintln!("Failed to create GStreamer audio manager: {e}");
                 None
             }
         };
@@ -823,6 +827,12 @@ unsafe impl bytemuck::Zeroable for SynthesisUniform {}
 impl crate::UniformProvider for SynthesisUniform {
     fn as_bytes(&self) -> &[u8] {
         bytemuck::bytes_of(self)
+    }
+}
+
+impl Default for SynthesisUniform {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

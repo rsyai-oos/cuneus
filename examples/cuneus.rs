@@ -51,7 +51,7 @@ struct Shader {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let (app, event_loop) = ShaderApp::new("cuneus", 800, 600);
-    app.run(event_loop, |core| Shader::init(core))
+    app.run(event_loop, Shader::init)
 }
 
 impl Shader {
@@ -119,7 +119,7 @@ impl ShaderManager for Shader {
                     source: wgpu::ShaderSource::Wgsl(include_str!("shaders/cuneus.wgsl").into()),
                 }),
         ) {
-            eprintln!("Failed to enable hot reload for cuneus shader: {}", e);
+            eprintln!("Failed to enable hot reload for cuneus shader: {e}");
         }
 
         compute_shader.set_custom_params(initial_params, &core.queue);

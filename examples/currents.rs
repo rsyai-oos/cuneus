@@ -147,7 +147,7 @@ impl ShaderManager for CurrentsShader {
                     source: wgpu::ShaderSource::Wgsl(include_str!("shaders/currents.wgsl").into()),
                 }),
         ) {
-            eprintln!("Failed to enable hot reload for currents shader: {}", e);
+            eprintln!("Failed to enable hot reload for currents shader: {e}");
         }
 
         let initial_params = CurrentsParams::default();
@@ -629,5 +629,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let (app, event_loop) = ShaderApp::new("Photon Tracing", 800, 600);
 
-    app.run(event_loop, |core| CurrentsShader::init(core))
+    app.run(event_loop, CurrentsShader::init)
 }

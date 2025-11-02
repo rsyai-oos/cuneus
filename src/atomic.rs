@@ -12,8 +12,7 @@ impl AtomicBuffer {
 
         let (actual_size, actual_buffer_size) = if buffer_size > max_binding_size {
             println!(
-                "Requested buffer size {} exceeds device max_storage_buffer_binding_size {}. Reducing size to {}.",
-                buffer_size, max_binding_size, max_size
+                "Requested buffer size {buffer_size} exceeds device max_storage_buffer_binding_size {max_binding_size}. Reducing size to {max_size}."
             );
             (max_size, max_binding_size)
         } else {

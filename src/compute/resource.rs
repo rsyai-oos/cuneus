@@ -78,7 +78,7 @@ impl ResourceLayout {
                     .collect();
 
                 let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    label: Some(&format!("Dynamic Group {} Layout", group_idx)),
+                    label: Some(&format!("Dynamic Group {group_idx} Layout")),
                     entries: &entries,
                 });
 
@@ -202,8 +202,8 @@ impl ResourceLayout {
     /// Add channel textures (channel0-channel3) for external media accessible from all passes
     pub fn add_channel_textures(&mut self, num_channels: u32) {
         for i in 0..num_channels {
-            let channel_name = format!("channel{}", i);
-            let sampler_name = format!("channel{}_sampler", i);
+            let channel_name = format!("channel{i}");
+            let sampler_name = format!("channel{i}_sampler");
 
             self.add_resource(2, &channel_name, ResourceType::ChannelTexture);
             self.add_resource(2, &sampler_name, ResourceType::Sampler);
@@ -215,10 +215,10 @@ impl ResourceLayout {
         for i in 0..3 {
             self.add_resource(
                 3,
-                &format!("input_texture{}", i),
+                &format!("input_texture{i}"),
                 ResourceType::InputTexture,
             );
-            self.add_resource(3, &format!("input_sampler{}", i), ResourceType::Sampler);
+            self.add_resource(3, &format!("input_sampler{i}"), ResourceType::Sampler);
         }
     }
 

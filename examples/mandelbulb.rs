@@ -148,7 +148,7 @@ impl ShaderManager for MandelbulbShader {
                     ),
                 }),
         ) {
-            eprintln!("Failed to enable hot reload for mandelbulb shader: {}", e);
+            eprintln!("Failed to enable hot reload for mandelbulb shader: {e}");
         }
 
         // Initialize custom uniform with initial parameters
@@ -282,12 +282,11 @@ impl ShaderManager for MandelbulbShader {
                                 ui.separator();
                                 let old_mouse_enabled = self.mouse_enabled;
                                 ui.checkbox(&mut self.mouse_enabled, "Mouse Camera Control");
-                                if self.mouse_enabled != old_mouse_enabled {
-                                    if !self.mouse_enabled {
+                                if self.mouse_enabled != old_mouse_enabled
+                                    && !self.mouse_enabled {
                                         // When disabling mouse, reset accumulation one more time
                                         self.should_reset_accumulation = true;
                                     }
-                                }
                                 if !self.mouse_enabled {
                                     ui.colored_label(
                                         egui::Color32::GRAY,
@@ -546,7 +545,7 @@ impl ShaderManager for MandelbulbShader {
                             "Resolution: {}x{}",
                             core.size.width, core.size.height
                         ));
-                        ui.label(format!("FPS: {:.1}", current_fps));
+                        ui.label(format!("FPS: {current_fps:.1}"));
                     });
             })
         } else {
@@ -668,5 +667,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let (app, event_loop) = cuneus::ShaderApp::new("Mandelbulb Path Tracer", 800, 600);
 
-    app.run(event_loop, |core| MandelbulbShader::init(core))
+    app.run(event_loop, MandelbulbShader::init)
 }

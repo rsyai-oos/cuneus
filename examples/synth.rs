@@ -116,7 +116,7 @@ impl ShaderManager for SynthManager {
                     source: wgpu::ShaderSource::Wgsl(include_str!("shaders/synth.wgsl").into()),
                 }),
         ) {
-            eprintln!("Failed to enable hot reload for synth shader: {}", e);
+            eprintln!("Failed to enable hot reload for synth shader: {e}");
         }
 
         compute_shader.set_custom_params(initial_params, &core.queue);
@@ -378,7 +378,7 @@ impl ShaderManager for SynthManager {
                                             0.5..=0.999,
                                         )
                                         .text("Initial")
-                                        .custom_formatter(|n, _| format!("{:.3}", n)),
+                                        .custom_formatter(|n, _| format!("{n:.3}")),
                                     )
                                     .changed();
                                 changed |= ui
@@ -388,14 +388,14 @@ impl ShaderManager for SynthManager {
                                             0.5..=0.999,
                                         )
                                         .text("Sustain")
-                                        .custom_formatter(|n, _| format!("{:.3}", n)),
+                                        .custom_formatter(|n, _| format!("{n:.3}")),
                                     )
                                     .changed();
                                 changed |= ui
                                     .add(
                                         egui::Slider::new(&mut params.fade_speed_tail, 0.5..=0.999)
                                             .text("Tail")
-                                            .custom_formatter(|n, _| format!("{:.3}", n)),
+                                            .custom_formatter(|n, _| format!("{n:.3}")),
                                     )
                                     .changed();
 
@@ -520,7 +520,7 @@ impl ShaderManager for SynthManager {
             if event.state == winit::event::ElementState::Pressed {
                 if let winit::keyboard::Key::Character(ref s) = event.logical_key {
                     if let Some(key_index) = s.chars().next().and_then(|c| c.to_digit(10)) {
-                        if key_index >= 1 && key_index <= 9 {
+                        if (1..=9).contains(&key_index) {
                             let index = (key_index - 1) as usize;
 
                             // Only start if not already pressed (prevent retriggering)
@@ -539,7 +539,7 @@ impl ShaderManager for SynthManager {
                 // Handle key release for smooth fade-out
                 if let winit::keyboard::Key::Character(ref s) = event.logical_key {
                     if let Some(key_index) = s.chars().next().and_then(|c| c.to_digit(10)) {
-                        if key_index >= 1 && key_index <= 9 {
+                        if (1..=9).contains(&key_index) {
                             let index = (key_index - 1) as usize;
 
                             // Start fade-out process
@@ -570,5 +570,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     cuneus::gst::init()?;
 
     let (app, event_loop) = ShaderApp::new("Synth", 800, 600);
-    app.run(event_loop, |core| SynthManager::init(core))
+    app.run(event_loop, SynthManager::init)
 }

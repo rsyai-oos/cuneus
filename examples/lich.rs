@@ -67,7 +67,7 @@ impl ShaderManager for LichShader {
                     source: wgpu::ShaderSource::Wgsl(include_str!("shaders/lich.wgsl").into()),
                 }),
         ) {
-            eprintln!("Failed to enable hot reload for Lich shader: {}", e);
+            eprintln!("Failed to enable hot reload for Lich shader: {e}");
         }
 
         let initial_params = LichParams {
@@ -291,5 +291,5 @@ impl ShaderManager for LichShader {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let (app, event_loop) = ShaderApp::new("Lich Lightning", 800, 600);
-    app.run(event_loop, |core| LichShader::init(core))
+    app.run(event_loop, LichShader::init)
 }

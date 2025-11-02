@@ -6,6 +6,12 @@ pub struct KeyInputHandler {
     is_fullscreen: bool,
     pub show_ui: bool,
 }
+impl Default for KeyInputHandler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl KeyInputHandler {
     pub fn new() -> Self {
         Self {

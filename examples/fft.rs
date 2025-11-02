@@ -81,7 +81,7 @@ impl ShaderManager for FFTShader {
                     source: wgpu::ShaderSource::Wgsl(include_str!("shaders/fft.wgsl").into()),
                 }),
         ) {
-            eprintln!("Failed to enable FFT compute shader hot reload: {}", e);
+            eprintln!("Failed to enable FFT compute shader hot reload: {e}");
         }
 
         // Initialize custom uniform with initial parameters
@@ -429,7 +429,7 @@ impl ShaderManager for FFTShader {
 
         if let WindowEvent::DroppedFile(path) = event {
             if let Err(e) = self.base.load_media(core, path) {
-                eprintln!("Failed to load dropped file: {:?}", e);
+                eprintln!("Failed to load dropped file: {e:?}");
             } else {
                 self.should_initialize = true;
             }
@@ -444,5 +444,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     cuneus::gst::init()?;
     env_logger::init();
     let (app, event_loop) = cuneus::ShaderApp::new("FFT", 800, 600);
-    app.run(event_loop, |core| FFTShader::init(core))
+    app.run(event_loop, FFTShader::init)
 }

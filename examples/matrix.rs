@@ -26,7 +26,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     cuneus::gst::init()?;
     env_logger::init();
     let (app, event_loop) = ShaderApp::new("matrix", 800, 600);
-    app.run(event_loop, |core| MatrixShader::init(core))
+    app.run(event_loop, MatrixShader::init)
 }
 
 struct MatrixShader {

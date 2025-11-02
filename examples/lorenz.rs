@@ -104,7 +104,7 @@ impl ShaderManager for LorenzShader {
                     source: wgpu::ShaderSource::Wgsl(include_str!("shaders/lorenz.wgsl").into()),
                 }),
         ) {
-            eprintln!("Failed to enable hot reload for Lorenz shader: {}", e);
+            eprintln!("Failed to enable hot reload for Lorenz shader: {e}");
         }
 
         compute_shader.set_custom_params(initial_params, &core.queue);
@@ -478,12 +478,11 @@ impl ShaderManager for LorenzShader {
             return true;
         }
         if let WindowEvent::MouseInput { state, button, .. } = event {
-            if *button == winit::event::MouseButton::Right {
-                if *state == winit::event::ElementState::Released {
+            if *button == winit::event::MouseButton::Right
+                && *state == winit::event::ElementState::Released {
                     self.mouse_look_enabled = !self.mouse_look_enabled;
                     return true;
                 }
-            }
         }
         if self.mouse_look_enabled && self.base.handle_mouse_input(core, event, false) {
             return true;
@@ -504,5 +503,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let (app, event_loop) = cuneus::ShaderApp::new("Volumetric Lorenz", 800, 600);
 
-    app.run(event_loop, |core| LorenzShader::init(core))
+    app.run(event_loop, LorenzShader::init)
 }

@@ -81,6 +81,12 @@ struct TempExportState {
     path: PathBuf,
 }
 
+impl Default for ExportManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ExportManager {
     pub fn new() -> Self {
         let settings = ExportSettings::default();
@@ -231,11 +237,7 @@ impl ExportManager {
                         }
                     });
                     ui.horizontal(|ui| {
-                        let path_text = if let Some(path_str) = request.path.to_str() {
-                            path_str
-                        } else {
-                            "Invalid path"
-                        };
+                        let path_text = request.path.to_str().unwrap_or("Invalid path");
                         ui.add(egui::Label::new(
                             egui::RichText::new(path_text)
                                 .monospace()
@@ -273,11 +275,11 @@ impl ExportManager {
                 Ok(data) => {
                     let settings = self.settings();
                     if let Err(e) = save_frame(data, frame, settings) {
-                        eprintln!("Error saving frame: {:?}", e);
+                        eprintln!("Error saving frame: {e:?}");
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error capturing frame: {:?}", e);
+                    eprintln!("Error capturing frame: {e:?}");
                 }
             }
         } else {
@@ -291,7 +293,7 @@ pub fn save_frame(
     frame: u32,
     settings: &ExportSettings,
 ) -> Result<(), ExportError> {
-    let frame_path = settings.export_path.join(format!("frame_{:05}.png", frame));
+    let frame_path = settings.export_path.join(format!("frame_{frame:05}.png"));
 
     if let Some(parent) = frame_path.parent() {
         std::fs::create_dir_all(parent)?;

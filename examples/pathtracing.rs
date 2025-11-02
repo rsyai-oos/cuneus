@@ -257,8 +257,7 @@ impl ShaderManager for PathTracingShader {
                 }),
         ) {
             eprintln!(
-                "Failed to enable Path Tracing compute shader hot reload: {}",
-                e
+                "Failed to enable Path Tracing compute shader hot reload: {e}"
             );
         }
 
@@ -451,7 +450,7 @@ impl ShaderManager for PathTracingShader {
                             "Resolution: {}x{}",
                             core.size.width, core.size.height
                         ));
-                        ui.label(format!("FPS: {:.1}", current_fps));
+                        ui.label(format!("FPS: {current_fps:.1}"));
                     });
             })
         } else {
@@ -595,17 +594,16 @@ impl ShaderManager for PathTracingShader {
         }
 
         if let WindowEvent::MouseInput { state, button, .. } = event {
-            if *button == winit::event::MouseButton::Right {
-                if *state == winit::event::ElementState::Released {
+            if *button == winit::event::MouseButton::Right
+                && *state == winit::event::ElementState::Released {
                     self.camera_movement.toggle_mouse_look();
                     return true;
                 }
-            }
         }
 
         if let WindowEvent::DroppedFile(path) = event {
             if let Err(e) = self.base.load_media(core, path) {
-                eprintln!("Failed to load dropped file: {:?}", e);
+                eprintln!("Failed to load dropped file: {e:?}");
             }
             return true;
         }
@@ -629,5 +627,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     cuneus::gst::init()?;
     let (app, event_loop) = ShaderApp::new("Path Tracer", 800, 600);
 
-    app.run(event_loop, |core| PathTracingShader::init(core))
+    app.run(event_loop, PathTracingShader::init)
 }

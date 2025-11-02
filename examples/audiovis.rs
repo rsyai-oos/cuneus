@@ -74,8 +74,7 @@ impl ShaderManager for AudioVisCompute {
                 }),
         ) {
             eprintln!(
-                "Failed to enable audio visualizer compute shader hot reload: {}",
-                e
+                "Failed to enable audio visualizer compute shader hot reload: {e}"
             );
         }
 
@@ -324,7 +323,7 @@ impl ShaderManager for AudioVisCompute {
 
         if let WindowEvent::DroppedFile(path) = event {
             if let Err(e) = self.base.load_media(core, path) {
-                eprintln!("Failed to load dropped file: {:?}", e);
+                eprintln!("Failed to load dropped file: {e:?}");
             }
             return true;
         }
@@ -338,5 +337,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let (app, event_loop) = ShaderApp::new("Audio Visualizer", 800, 600);
 
-    app.run(event_loop, |core| AudioVisCompute::init(core))
+    app.run(event_loop, AudioVisCompute::init)
 }

@@ -61,7 +61,7 @@ impl ShaderHotReload {
             if let Some(parent) = path.parent() {
                 if !parent.exists() {
                     fs::create_dir_all(parent).unwrap_or_else(|e| {
-                        println!("Failed to create shader directory: {}", e);
+                        println!("Failed to create shader directory: {e}");
                     });
                 }
 
@@ -73,7 +73,7 @@ impl ShaderHotReload {
                     );
                     if cfg!(windows) {
                         if let Err(e) = watcher.watch(parent, RecursiveMode::NonRecursive) {
-                            println!("Fallback watch failed: {}", e);
+                            println!("Fallback watch failed: {e}");
                         }
                     }
                 }
@@ -127,7 +127,7 @@ impl ShaderHotReload {
         if let Some(parent) = normalized_path.parent() {
             if !parent.exists() {
                 fs::create_dir_all(parent).unwrap_or_else(|e| {
-                    println!("Failed to create shader directory: {}", e);
+                    println!("Failed to create shader directory: {e}");
                 });
             }
 
@@ -139,7 +139,7 @@ impl ShaderHotReload {
                 );
                 if cfg!(windows) {
                     if let Err(e) = watcher.watch(parent, RecursiveMode::NonRecursive) {
-                        println!("Fallback watch failed: {}", e);
+                        println!("Fallback watch failed: {e}");
                     }
                 }
             }
@@ -217,7 +217,7 @@ impl ShaderHotReload {
         let vs_content = match fs::read_to_string(&self.shader_paths[0]) {
             Ok(content) => content,
             Err(e) => {
-                eprintln!("Failed to read vertex shader: {}", e);
+                eprintln!("Failed to read vertex shader: {e}");
                 return None;
             }
         };
@@ -225,7 +225,7 @@ impl ShaderHotReload {
         let fs_content = match fs::read_to_string(&self.shader_paths[1]) {
             Ok(content) => content,
             Err(e) => {
-                eprintln!("Failed to read fragment shader: {}", e);
+                eprintln!("Failed to read fragment shader: {e}");
                 return None;
             }
         };
@@ -234,15 +234,9 @@ impl ShaderHotReload {
             return None;
         }
 
-        let new_vs = match self.create_shader_module(&vs_content, "Vertex Shader") {
-            Some(module) => module,
-            None => return None,
-        };
+        let new_vs = self.create_shader_module(&vs_content, "Vertex Shader")?;
 
-        let new_fs = match self.create_shader_module(&fs_content, "Fragment Shader") {
-            Some(module) => module,
-            None => return None,
-        };
+        let new_fs = self.create_shader_module(&fs_content, "Fragment Shader")?;
         self.last_vs_content = vs_content;
         self.last_fs_content = fs_content;
         self.vs_module = new_vs;
@@ -274,7 +268,7 @@ impl ShaderHotReload {
         let compute_content = match fs::read_to_string(&self.shader_paths[0]) {
             Ok(content) => content,
             Err(e) => {
-                eprintln!("Failed to read compute shader: {}", e);
+                eprintln!("Failed to read compute shader: {e}");
                 return None;
             }
         };
@@ -285,10 +279,7 @@ impl ShaderHotReload {
             }
         }
 
-        let new_compute = match self.create_shader_module(&compute_content, "Compute Shader") {
-            Some(module) => module,
-            None => return None,
-        };
+        let new_compute = self.create_shader_module(&compute_content, "Compute Shader")?;
 
         self.last_compute_content = Some(compute_content);
         self.compute_module = Some(new_compute);
@@ -310,9 +301,9 @@ impl ShaderHotReload {
             Ok(module) => Some(module),
             Err(e) => {
                 if let Some(error_msg) = e.downcast_ref::<String>() {
-                    eprintln!("Shader compilation error in {}: {}", label, error_msg);
+                    eprintln!("Shader compilation error in {label}: {error_msg}");
                 } else {
-                    eprintln!("Shader compilation error in {}", label);
+                    eprintln!("Shader compilation error in {label}");
                 }
                 None
             }

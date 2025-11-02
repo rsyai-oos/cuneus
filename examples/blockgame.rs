@@ -110,7 +110,7 @@ impl ShaderManager for BlockTowerGame {
                     source: wgpu::ShaderSource::Wgsl(include_str!("shaders/blockgame.wgsl").into()),
                 }),
         ) {
-            eprintln!("Failed to enable hot reload for blockgame shader: {}", e);
+            eprintln!("Failed to enable hot reload for blockgame shader: {e}");
         }
 
         Self {
@@ -333,5 +333,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (app, event_loop) = ShaderApp::new("Block Tower Game", 600, 800);
 
-    app.run(event_loop, |core| BlockTowerGame::init(core))
+    app.run(event_loop, BlockTowerGame::init)
 }

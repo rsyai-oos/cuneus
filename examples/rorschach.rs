@@ -127,7 +127,7 @@ impl ShaderManager for RorschachShader {
                     source: wgpu::ShaderSource::Wgsl(include_str!("shaders/rorschach.wgsl").into()),
                 }),
         ) {
-            eprintln!("Failed to enable hot reload for Rorschach shader: {}", e);
+            eprintln!("Failed to enable hot reload for Rorschach shader: {e}");
         }
 
         compute_shader.set_custom_params(initial_params, &core.queue);
@@ -478,5 +478,5 @@ impl ShaderManager for RorschachShader {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let (app, event_loop) = cuneus::ShaderApp::new("Rorschach IFS", 800, 600);
-    app.run(event_loop, |core| RorschachShader::init(core))
+    app.run(event_loop, RorschachShader::init)
 }

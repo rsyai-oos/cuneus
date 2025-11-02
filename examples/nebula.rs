@@ -134,7 +134,7 @@ impl ShaderManager for NebulaShader {
                     source: wgpu::ShaderSource::Wgsl(include_str!("shaders/nebula.wgsl").into()),
                 }),
         ) {
-            eprintln!("Failed to enable hot reload for Nebula shader: {}", e);
+            eprintln!("Failed to enable hot reload for Nebula shader: {e}");
         }
 
         compute_shader.set_custom_params(initial_params, &core.queue);
@@ -405,5 +405,5 @@ impl ShaderManager for NebulaShader {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let (app, event_loop) = ShaderApp::new("universe", 800, 600);
-    app.run(event_loop, |core| NebulaShader::init(core))
+    app.run(event_loop, NebulaShader::init)
 }

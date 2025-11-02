@@ -43,7 +43,7 @@ impl ShaderManager for DebugScreen {
                     ),
                 }),
         ) {
-            eprintln!("Failed to enable hot reload for debugscreen shader: {}", e);
+            eprintln!("Failed to enable hot reload for debugscreen shader: {e}");
         }
 
         // init audio synthesis system
@@ -147,7 +147,7 @@ impl ShaderManager for DebugScreen {
                         "Position (pixels): {:.1}, {:.1}",
                         raw_pos[0], raw_pos[1]
                     ));
-                    ui.label(format!("Buttons: {:#b}", mouse_buttons));
+                    ui.label(format!("Buttons: {mouse_buttons:#b}"));
                     ui.label(format!(
                         "Wheel: {:.2}, {:.2}",
                         mouse_wheel[0], mouse_wheel[1]
@@ -258,5 +258,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let (app, event_loop) = ShaderApp::new("Debug Screen", 800, 600);
 
-    app.run(event_loop, |core| DebugScreen::init(core))
+    app.run(event_loop, DebugScreen::init)
 }

@@ -103,7 +103,7 @@ impl ShaderManager for BuddhabrotShader {
                     ),
                 }),
         ) {
-            eprintln!("Failed to enable hot reload for buddhabrot shader: {}", e);
+            eprintln!("Failed to enable hot reload for buddhabrot shader: {e}");
         }
 
         compute_shader.set_custom_params(initial_params, &core.queue);
@@ -409,5 +409,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
     let (app, event_loop) = cuneus::ShaderApp::new("Buddhabrot", 800, 600);
 
-    app.run(event_loop, |core| BuddhabrotShader::init(core))
+    app.run(event_loop, BuddhabrotShader::init)
 }
