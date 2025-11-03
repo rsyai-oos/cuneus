@@ -17,7 +17,6 @@ mod atomic;
 pub mod compute;
 mod controls;
 mod export;
-mod feedback;
 mod font;
 mod fps;
 #[cfg(feature = "media")]
@@ -36,7 +35,6 @@ pub use app::*;
 pub use atomic::AtomicBuffer;
 pub use controls::{ControlsRequest, ShaderControls};
 pub use export::{save_frame, ExportError, ExportManager, ExportSettings, ExportUiState};
-pub use feedback::*;
 pub use font::{CharInfo, FontSystem, FontUniforms};
 pub use hdri::*;
 pub use hot::ShaderHotReload;

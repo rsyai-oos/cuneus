@@ -29,7 +29,6 @@ impl PassDescription {
 pub struct StorageBufferSpec {
     pub name: String,
     pub size_bytes: u64,
-    pub read_only: bool,
 }
 
 impl StorageBufferSpec {
@@ -37,13 +36,7 @@ impl StorageBufferSpec {
         Self {
             name: name.to_string(),
             size_bytes,
-            read_only: false,
         }
-    }
-
-    pub fn read_only(mut self) -> Self {
-        self.read_only = true;
-        self
     }
 }
 

@@ -123,14 +123,9 @@ impl ComputeShader {
 
         // Group 3: User-defined storage buffers with optional multi-pass input textures
         if !config.storage_buffers.is_empty() {
-            // Priority: User storage buffers (needed for FFT algorithm data, etc.) lemme think more generic things for future!
+            // User storage buffers
             for buffer_spec in &config.storage_buffers {
-                if buffer_spec.read_only {
-                    resource_layout
-                        .add_readonly_storage_buffer(&buffer_spec.name, buffer_spec.size_bytes);
-                } else {
-                    resource_layout.add_storage_buffer(&buffer_spec.name, buffer_spec.size_bytes);
-                }
+                resource_layout.add_storage_buffer(&buffer_spec.name, buffer_spec.size_bytes);
             }
         } else if config.passes.is_some() {
             // Fallback: Multi-pass input textures only if no storage buffers requested
