@@ -1,11 +1,17 @@
-use winit::window::Window;
 use winit::event::{ElementState, KeyEvent};
 use winit::keyboard::Key;
+use winit::window::Window;
 
 pub struct KeyInputHandler {
     is_fullscreen: bool,
     pub show_ui: bool,
 }
+impl Default for KeyInputHandler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl KeyInputHandler {
     pub fn new() -> Self {
         Self {

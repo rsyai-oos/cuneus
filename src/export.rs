@@ -1,6 +1,6 @@
+use image::ImageError;
 use std::path::PathBuf;
 use std::sync::mpsc;
-use image::ImageError;
 
 #[derive(Debug)]
 pub enum ExportError {
@@ -81,6 +81,12 @@ struct TempExportState {
     path: PathBuf,
 }
 
+impl Default for ExportManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ExportManager {
     pub fn new() -> Self {
         let settings = ExportSettings::default();
@@ -93,7 +99,7 @@ impl ExportManager {
             fps: settings.fps,
             path: settings.export_path.clone(),
         };
-        
+
         Self {
             settings,
             export_channel: None,
@@ -149,7 +155,7 @@ impl ExportManager {
         self.settings.total_time = self.temp_state.total_time;
         self.settings.fps = self.temp_state.fps;
         self.settings.export_path = self.temp_state.path.clone();
-        
+
         // Then start the export process
         self.settings.is_exporting = true;
         let settings = self.settings.clone();
@@ -157,7 +163,7 @@ impl ExportManager {
 
         std::thread::spawn(move || {
             let total_frames = (settings.total_time * settings.fps as f32) as u32;
-            
+
             for frame in 0..total_frames {
                 let time = settings.start_time + (frame as f32 / settings.fps as f32);
                 if tx.send((frame, time)).is_err() {
@@ -165,10 +171,9 @@ impl ExportManager {
                 }
             }
         });
-        
+
         self.export_channel = Some(rx);
     }
-
 
     /// Completes the export process
     pub fn complete_export(&mut self) {
@@ -182,32 +187,42 @@ impl ExportManager {
     }
     pub fn render_export_ui_widget(ui: &mut egui::Ui, request: &mut ExportUiRequest) -> bool {
         let mut should_start_export = false;
-        
+
         ui.separator();
         ui.collapsing("Export", |ui| {
             if !request.is_exporting {
                 // Resolution section
                 ui.collapsing("Resolution", |ui| {
-                    ui.add(egui::DragValue::new(&mut request.width)
-                        .range(1..=7680)
-                        .prefix("Width: "));
-                        
-                    ui.add(egui::DragValue::new(&mut request.height)
-                        .range(1..=4320)
-                        .prefix("Height: "));
+                    ui.add(
+                        egui::DragValue::new(&mut request.width)
+                            .range(1..=7680)
+                            .prefix("Width: "),
+                    );
+
+                    ui.add(
+                        egui::DragValue::new(&mut request.height)
+                            .range(1..=4320)
+                            .prefix("Height: "),
+                    );
                 });
                 ui.collapsing("Time Settings", |ui| {
-                    ui.add(egui::DragValue::new(&mut request.start_time)
-                        .prefix("Start Time: ")
-                        .speed(0.1));
-                        
-                    ui.add(egui::DragValue::new(&mut request.total_time)
-                        .prefix("Total Time: ")
-                        .speed(0.1));
-                        
-                    ui.add(egui::DragValue::new(&mut request.fps)
-                        .range(1..=240)
-                        .prefix("FPS: "));
+                    ui.add(
+                        egui::DragValue::new(&mut request.start_time)
+                            .prefix("Start Time: ")
+                            .speed(0.1),
+                    );
+
+                    ui.add(
+                        egui::DragValue::new(&mut request.total_time)
+                            .prefix("Total Time: ")
+                            .speed(0.1),
+                    );
+
+                    ui.add(
+                        egui::DragValue::new(&mut request.fps)
+                            .range(1..=240)
+                            .prefix("FPS: "),
+                    );
                 });
                 ui.collapsing("Output", |ui| {
                     ui.horizontal(|ui| {
@@ -215,29 +230,26 @@ impl ExportManager {
                         if ui.button("Browse").clicked() {
                             if let Some(path) = rfd::FileDialog::new()
                                 .set_directory(&request.path)
-                                .pick_folder() {
+                                .pick_folder()
+                            {
                                 request.path = path;
                             }
                         }
                     });
                     ui.horizontal(|ui| {
-                        let path_text = if let Some(path_str) = request.path.to_str() {
-                            path_str
-                        } else {
-                            "Invalid path"
-                        };
+                        let path_text = request.path.to_str().unwrap_or("Invalid path");
                         ui.add(egui::Label::new(
                             egui::RichText::new(path_text)
                                 .monospace()
                                 .weak()
-                                .color(egui::Color32::from_rgb(150, 150, 150))
+                                .color(egui::Color32::from_rgb(150, 150, 150)),
                         ));
                     });
                     if !request.path.exists() {
                         ui.horizontal(|ui| {
                             ui.label(
                                 egui::RichText::new("⚠ Path doesn't exist!")
-                                    .color(egui::Color32::from_rgb(255, 190, 0))
+                                    .color(egui::Color32::from_rgb(255, 190, 0)),
                             );
                         });
                     }
@@ -252,10 +264,10 @@ impl ExportManager {
         });
         should_start_export
     }
-    pub fn handle_export<F, E>(&mut self, capture_fn: F) 
-    where 
+    pub fn handle_export<F, E>(&mut self, capture_fn: F)
+    where
         F: FnMut(u32, f32) -> Result<Vec<u8>, E>,
-        E: std::fmt::Debug
+        E: std::fmt::Debug,
     {
         let mut capture_fn = capture_fn;
         if let Some((frame, time)) = self.try_get_next_frame() {
@@ -263,11 +275,11 @@ impl ExportManager {
                 Ok(data) => {
                     let settings = self.settings();
                     if let Err(e) = save_frame(data, frame, settings) {
-                        eprintln!("Error saving frame: {:?}", e);
+                        eprintln!("Error saving frame: {e:?}");
                     }
-                },
+                }
                 Err(e) => {
-                    eprintln!("Error capturing frame: {:?}", e);
+                    eprintln!("Error capturing frame: {e:?}");
                 }
             }
         } else {
@@ -276,10 +288,13 @@ impl ExportManager {
     }
 }
 #[allow(unused_mut)]
-pub fn save_frame(mut data: Vec<u8>, frame: u32, settings: &ExportSettings) -> Result<(), ExportError> {
-    let frame_path = settings.export_path
-        .join(format!("frame_{:05}.png", frame));
-    
+pub fn save_frame(
+    mut data: Vec<u8>,
+    frame: u32,
+    settings: &ExportSettings,
+) -> Result<(), ExportError> {
+    let frame_path = settings.export_path.join(format!("frame_{frame:05}.png"));
+
     if let Some(parent) = frame_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -292,15 +307,14 @@ pub fn save_frame(mut data: Vec<u8>, frame: u32, settings: &ExportSettings) -> R
     let image = image::ImageBuffer::<image::Rgba<u8>, Vec<u8>>::from_raw(
         settings.width,
         settings.height,
-        data
-    ).ok_or_else(|| ImageError::Parameter(
-        image::error::ParameterError::from_kind(
-            image::error::ParameterErrorKind::Generic(
-                "Failed to create image buffer".to_string()
-            )
-        )
-    ))?;
-    
+        data,
+    )
+    .ok_or_else(|| {
+        ImageError::Parameter(image::error::ParameterError::from_kind(
+            image::error::ParameterErrorKind::Generic("Failed to create image buffer".to_string()),
+        ))
+    })?;
+
     image.save(&frame_path)?;
     Ok(())
 }
