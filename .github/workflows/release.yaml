@@ -53,7 +53,7 @@ jobs:
         if: runner.os == 'macOS' && matrix.shader_config.gstreamer_required
         run: |
           # Download and install official GStreamer packages
-          GSTREAMER_VERSION="1.26.5"
+          GSTREAMER_VERSION="1.26.7"
           curl -L "https://gstreamer.freedesktop.org/data/pkg/osx/$GSTREAMER_VERSION/gstreamer-1.0-$GSTREAMER_VERSION-universal.pkg" -o gstreamer.pkg
           curl -L "https://gstreamer.freedesktop.org/data/pkg/osx/$GSTREAMER_VERSION/gstreamer-1.0-devel-$GSTREAMER_VERSION-universal.pkg" -o gstreamer-devel.pkg
           
@@ -90,7 +90,7 @@ jobs:
         shell: pwsh
         run: |
           Write-Host "Starting GStreamer installation process..."
-          $gstVer = "1.26.5"
+          $gstVer = "1.26.7"
           $tempDir = "C:\gst-temp"
           $installDir = "C:\gstreamer"
           
@@ -132,13 +132,13 @@ jobs:
             Write-Host "Installing FFmpeg/libav codecs package..."
             $proc = Start-Process msiexec -ArgumentList "/i", "`"$tempDir\gstreamer-libav.msi`"", "INSTALLDIR=$installDir", "/qn" -Wait -PassThru -NoNewWindow
             if ($proc.ExitCode -eq 0) {
-              Write-Host "✅ FFmpeg/libav codecs package installed successfully"
+              Write-Host "FFmpeg/libav codecs package installed successfully"
             } else {
-              Write-Host "⚠️ FFmpeg/libav installation failed with code: $($proc.ExitCode) - continuing without FFmpeg codecs"
+              Write-Host "FFmpeg/libav installation failed with code: $($proc.ExitCode) - continuing without FFmpeg codecs"
             }
           } catch {
-            Write-Host "⚠️ Could not download FFmpeg/libav package: $($_.Exception.Message)"
-            Write-Host "⚠️ Video processing may be limited without FFmpeg codecs"
+            Write-Host "Could not download FFmpeg/libav package: $($_.Exception.Message)"
+            Write-Host "Video processing may be limited without FFmpeg codecs"
           }
           
           Write-Host "Looking for GStreamer installation..."
@@ -167,7 +167,7 @@ jobs:
           "PATH=$expectedPath\bin;$env:Path" | Out-File -FilePath $env:GITHUB_ENV -Append
           
           # Verify critical FFmpeg codec DLLs are installed
-          Write-Host "🔍 Verifying FFmpeg codec installation..."
+          Write-Host "Verifying FFmpeg codec installation..."
           $criticalCodecs = @("avformat-61.dll", "avcodec-61.dll", "avutil-59.dll", "gstlibav.dll")
           $binPath = "$expectedPath\bin"
           $pluginPath = "$expectedPath\lib\gstreamer-1.0"
@@ -180,13 +180,13 @@ jobs:
             }
             
             if (Test-Path $codecPath) {
-              Write-Host "  ✅ Found: $codec"
+              Write-Host "  Found: $codec"
             } else {
-              Write-Host "  ❌ Missing: $codec at $codecPath"
+              Write-Host "  Missing: $codec at $codecPath"
             }
           }
           
-          Write-Host "📊 Installation summary:"
+          Write-Host " Installation summary:"
           Write-Host "  Bin directory files: $((Get-ChildItem $binPath -ErrorAction SilentlyContinue).Count)"
           Write-Host "  Plugin directory files: $((Get-ChildItem $pluginPath -ErrorAction SilentlyContinue).Count)"
 
@@ -222,7 +222,7 @@ jobs:
           mkdir -p "$BUNDLE_DIR/etc/ssl/certs"
           
           if [[ "${{ runner.os }}" == "macOS" ]]; then
-            echo "📦 Bundling GStreamer for macOS..."
+            echo " Bundling GStreamer for macOS..."
             GSTREAMER_ROOT="/Library/Frameworks/GStreamer.framework/Versions/1.0"
             LIB_EXT="dylib"
             
@@ -360,18 +360,18 @@ jobs:
           
           # Copy additional codec libraries from bin/ directory (Windows only)
           if [[ "${{ runner.os }}" == "Windows" ]]; then
-            echo "📦 Copying critical codec libraries from bin directory..."
-            echo "🔍 Checking GStreamer installation at: $GSTREAMER_ROOT"
-            echo "🔍 Expected bin directory: $GSTREAMER_ROOT/bin"
+            echo " Copying critical codec libraries from bin directory..."
+            echo " Checking GStreamer installation at: $GSTREAMER_ROOT"
+            echo " Expected bin directory: $GSTREAMER_ROOT/bin"
             
             # Debug: List what's actually in the bin directory
             if [[ -d "$GSTREAMER_ROOT/bin" ]]; then
-              echo "✅ Bin directory exists. Contents:"
+              echo " Bin directory exists. Contents:"
               ls -la "$GSTREAMER_ROOT/bin" | head -20
-              echo "📊 Total files in bin: $(ls -1 "$GSTREAMER_ROOT/bin" | wc -l)"
+              echo " Total files in bin: $(ls -1 "$GSTREAMER_ROOT/bin" | wc -l)"
             else
-              echo "❌ Bin directory does not exist at: $GSTREAMER_ROOT/bin"
-              echo "🔍 Available directories in $GSTREAMER_ROOT:"
+              echo " Bin directory does not exist at: $GSTREAMER_ROOT/bin"
+              echo " Available directories in $GSTREAMER_ROOT:"
               ls -la "$GSTREAMER_ROOT/" 2>/dev/null || echo "GSTREAMER_ROOT path invalid"
             fi
             
@@ -379,67 +379,67 @@ jobs:
               if [[ -f "$GSTREAMER_ROOT/bin/$lib" ]]; then
                 # Copy to bin directory so Windows restructuring can find them
                 cp "$GSTREAMER_ROOT/bin/$lib" "$BUNDLE_DIR/bin/" 2>/dev/null || true
-                echo "  ✅ Copied codec to bin/: $lib"
+                echo "   Copied codec to bin/: $lib"
               else
-                echo "  ❌ Missing codec: $lib (checked: $GSTREAMER_ROOT/bin/$lib)"
+                echo "   Missing codec: $lib (checked: $GSTREAMER_ROOT/bin/$lib)"
               fi
             done
           fi
           
           # Copy plugins with detailed logging
-          echo "📦 Copying GStreamer plugins..."
-          echo "🔍 Plugin directory: $GSTREAMER_ROOT/lib/gstreamer-1.0"
+          echo " Copying GStreamer plugins..."
+          echo " Plugin directory: $GSTREAMER_ROOT/lib/gstreamer-1.0"
           
           # Debug: Check plugin directory
           if [[ -d "$GSTREAMER_ROOT/lib/gstreamer-1.0" ]]; then
-            echo "✅ Plugin directory exists"
-            echo "📊 Total plugins available: $(ls -1 "$GSTREAMER_ROOT/lib/gstreamer-1.0"/*.dll 2>/dev/null | wc -l)"
+            echo " Plugin directory exists"
+            echo " Total plugins available: $(ls -1 "$GSTREAMER_ROOT/lib/gstreamer-1.0"/*.dll 2>/dev/null | wc -l)"
             
             # Check for critical plugins specifically
             for critical in "gstlibav.dll" "gstmpegtsdemux.dll" "gstasf.dll"; do
               if [[ -f "$GSTREAMER_ROOT/lib/gstreamer-1.0/$critical" ]]; then
-                echo "✅ Found critical plugin: $critical"
+                echo " Found critical plugin: $critical"
               else
-                echo "❌ Critical plugin missing: $critical"
+                echo " Critical plugin missing: $critical"
               fi
             done
           else
-            echo "❌ Plugin directory does not exist"
+            echo " Plugin directory does not exist"
           fi
           
           for plugin in "${PLUGINS[@]}"; do
             if [[ -f "$GSTREAMER_ROOT/lib/gstreamer-1.0/$plugin" ]]; then
               cp "$GSTREAMER_ROOT/lib/gstreamer-1.0/$plugin" "$BUNDLE_DIR/lib/gstreamer-1.0/" 2>/dev/null || true
-              echo "  ✅ Copied plugin: $plugin"
+              echo "   Copied plugin: $plugin"
               
               # Special check for critical macOS camera plugin
               if [[ "$plugin" == "libgstapplemedia.dylib" ]]; then
-                echo "  🎥 CRITICAL: macOS camera plugin copied successfully"
+                echo "   CRITICAL: macOS camera plugin copied successfully"
               fi
             else
-              echo "  ❌ MISSING plugin: $plugin (checked: $GSTREAMER_ROOT/lib/gstreamer-1.0/$plugin)"
+              echo "   MISSING plugin: $plugin (checked: $GSTREAMER_ROOT/lib/gstreamer-1.0/$plugin)"
               
               # Special warning for critical macOS camera plugin
               if [[ "$plugin" == "libgstapplemedia.dylib" ]]; then
-                echo "  🚨 CRITICAL ERROR: macOS camera plugin NOT FOUND - webcam will not work!"
+                echo "   CRITICAL ERROR: macOS camera plugin NOT FOUND - webcam will not work!"
               fi
             fi
           done
           
           # Verify critical plugins are present
           if [[ "${{ runner.os }}" == "Windows" ]]; then
-            echo "🔍 Verifying critical plugins in bundle..."
+            echo " Verifying critical plugins in bundle..."
             critical_plugins=("gstlibav.dll" "gstmpegtsdemux.dll" "gstasf.dll")
             for critical in "${critical_plugins[@]}"; do
               if [[ -f "$BUNDLE_DIR/lib/gstreamer-1.0/$critical" ]]; then
-                echo "  ✅ Critical plugin verified: $critical"
+                echo "   Critical plugin verified: $critical"
               else
-                echo "  ❌ CRITICAL PLUGIN MISSING: $critical"
+                echo "   CRITICAL PLUGIN MISSING: $critical"
               fi
             done
           fi
           
-          # Copy SSL certificates (if available)
+          # Copy SSL certificates
           if [[ -f "$GSTREAMER_ROOT/etc/ssl/certs/ca-certificates.crt" ]]; then
             cp "$GSTREAMER_ROOT/etc/ssl/certs/ca-certificates.crt" "$BUNDLE_DIR/etc/ssl/certs/"
           elif [[ -f "/etc/ssl/certs/ca-certificates.crt" ]]; then
@@ -481,7 +481,7 @@ jobs:
             done
           fi
           
-          echo "✅ GStreamer bundle created: $(du -sh $BUNDLE_DIR | cut -f1)"
+          echo " GStreamer bundle created: $(du -sh $BUNDLE_DIR | cut -f1)"
 
       # Create release packages for each shader in the group
       - name: Prepare release packages
@@ -508,7 +508,7 @@ jobs:
               cp -r "gstreamer_bundle" "release/$shader/gstreamer"
               
               # Fix library paths (platform-specific)
-              echo "🔧 Fixing library paths for ${{ runner.os }}..."
+              echo " Fixing library paths for ${{ runner.os }}..."
               BINARY="release/$shader/$shader${{ matrix.ext }}"
               BUNDLE_LIB_DIR="release/$shader/gstreamer/lib"
               BUNDLE_PLUGIN_DIR="$BUNDLE_LIB_DIR/gstreamer-1.0"
@@ -518,7 +518,7 @@ jobs:
               echo "Debug: Bundle exists: $(test -d release/$shader/gstreamer && echo yes || echo no)"
               
               if [[ "${{ runner.os }}" == "macOS" ]]; then
-                echo "🍎 Processing macOS library paths..."
+                echo " Processing macOS library paths..."
                 
                 # Fix main binary
                 echo "Fixing main binary: $BINARY"
@@ -544,7 +544,7 @@ jobs:
                   echo "After fixing:"
                   otool -L "$BINARY" | grep -E "(@rpath|/Library/Frameworks/GStreamer.framework)" || echo "All paths fixed!"
                 else
-                  echo "❌ Binary not found: $BINARY"
+                  echo " Binary not found: $BINARY"
                 fi
                 
                 # Fix all libraries
@@ -587,7 +587,7 @@ jobs:
                     fi
                   done
                 else
-                  echo "❌ Library directory not found: $BUNDLE_LIB_DIR"
+                  echo " Library directory not found: $BUNDLE_LIB_DIR"
                 fi
                 
                 # Fix all plugins
@@ -624,7 +624,7 @@ jobs:
                     fi
                   done
                 else
-                  echo "❌ Plugin directory not found: $BUNDLE_PLUGIN_DIR"
+                  echo " Plugin directory not found: $BUNDLE_PLUGIN_DIR"
                 fi
                 
               elif [[ "${{ runner.os }}" == "Linux" ]]; then
@@ -647,7 +647,7 @@ jobs:
                     fi
                   done
                 else
-                  echo "⚠️ patchelf not available, library paths may not work correctly"
+                  echo " patchelf not available, library paths may not work correctly"
                 fi
                 
               elif [[ "${{ runner.os }}" == "Windows" ]]; then
@@ -655,15 +655,15 @@ jobs:
                 echo "Windows DLL bundling and structure optimization..."
                 
                 # Copy DLLs to release directory root (alongside exe)
-                echo "📦 Restructuring Windows GStreamer layout..."
+                echo " Restructuring Windows GStreamer layout..."
                 
                 # Copy all DLLs directly to exe directory (includes both core libs and codec libs)
-                echo "📦 Copying all DLLs from lib/ to exe directory..."
+                echo " Copying all DLLs from lib/ to exe directory..."
                 cp "release/$shader/gstreamer/lib"/*.dll "release/$shader/" 2>/dev/null || true
                 
-                # CRITICAL: Copy codec DLLs from bin directory to exe directory
+                # Copy codec DLLs from bin directory to exe directory
                 if [[ -d "release/$shader/gstreamer/bin" ]]; then
-                  echo "📦 Copying critical codec DLLs from bin directory to exe directory..."
+                  echo " Copying critical codec DLLs from bin directory to exe directory..."
                   
                   # Explicitly copy the 12 required codec DLLs
                   for codec_dll in "avformat-61.dll" "avcodec-61.dll" "avutil-59.dll" \
@@ -672,20 +672,20 @@ jobs:
                                    "libogg-0.dll" "libmp3lame-0.dll" "libmpg123-0.dll"; do
                     if [[ -f "release/$shader/gstreamer/bin/$codec_dll" ]]; then
                       cp "release/$shader/gstreamer/bin/$codec_dll" "release/$shader/" 2>/dev/null || true
-                      echo "  ✅ Copied critical codec: $codec_dll"
+                      echo "   Copied critical codec: $codec_dll"
                     else
-                      echo "  ❌ MISSING critical codec: $codec_dll"
+                      echo "   MISSING critical codec: $codec_dll"
                     fi
                   done
                   
                   # Copy other executables from bin
                   cp "release/$shader/gstreamer/bin"/*.exe "release/$shader/" 2>/dev/null || true
                 else
-                  echo "❌ CRITICAL ERROR: No bin directory found in GStreamer bundle!"
+                  echo " CRITICAL ERROR: No bin directory found in GStreamer bundle!"
                 fi
                 
                 # Debug: Final count of DLLs in exe directory
-                echo "✅ Final DLL count in exe directory:"
+                echo " Final DLL count in exe directory:"
                 ls -la "release/$shader/"*.dll 2>/dev/null | wc -l | xargs echo "  Total DLLs:"
                 
                 # Keep the lib folder structure for plugins
@@ -705,10 +705,10 @@ jobs:
                 # Remove the original gstreamer folder
                 rm -rf "release/$shader/gstreamer" 2>/dev/null || true
                 
-                echo "✅ Windows structure: exe + DLLs + lib/ + etc/ + libexec/"
+                echo " Windows structure: exe + DLLs + lib/ + etc/ + libexec/"
               fi
               
-              echo "✅ GStreamer embedded and paths fixed"
+              echo " GStreamer embedded and paths fixed"
             fi
             
             # Create appropriate README based on shader group
@@ -716,7 +716,7 @@ jobs:
             echo "Requirements:" >> "release/$shader/README.txt"
             
             if [[ "${{ matrix.shader_config.gstreamer_required }}" == "true" ]]; then
-              echo "1. No additional dependencies required - GStreamer is bundled!" >> "release/$shader/README.txt"
+              echo "1. GStreamer is bundled!" >> "release/$shader/README.txt"
               echo "2. The 'shaders' directory must remain in the same folder as the executable." >> "release/$shader/README.txt"
               echo "3. Self-contained build with embedded media support (~80-100MB)." >> "release/$shader/README.txt"
               if [[ "${{ runner.os }}" == "Windows" ]]; then
@@ -727,9 +727,8 @@ jobs:
                 echo "- Use the .bat launcher for best compatibility" >> "release/$shader/README.txt"
               fi
             else
-              echo "1. No additional dependencies required - just run the executable!" >> "release/$shader/README.txt"
+              echo "1. just run the executable!" >> "release/$shader/README.txt"
               echo "2. The 'shaders' directory must remain in the same folder as the executable." >> "release/$shader/README.txt"
-              echo "3. This is a lightweight build without media support." >> "release/$shader/README.txt"
             fi
             
             # Windows-specific: create .bat launcher
