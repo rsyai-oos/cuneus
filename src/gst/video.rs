@@ -182,25 +182,25 @@ impl VideoTextureManager {
         let _ = bus.add_watch(move |_, message| {
             // Log ALL message types
             info!("Bus message received: type={:?}", message.type_());
-            
+
             // Print source information
             if let Some(src) = message.src() {
                 info!("Message source: {}", src.name());
             }
-            
+
             match message.view() {
                 gst::MessageView::Element(element) => {
                     if let Some(structure) = element.structure() {
                         info!("Element message structure name: '{}'", structure.name());
-                        
+
                         // Explicitly check for spectrum messages
                         if structure.name() == "spectrum" {
                             info!("SPECTRUM MESSAGE DETECTED ");
                             info!("Full structure: {structure}");
-                            
+
                             // Try ALL possible ways to extract spectrum data
                             let mut magnitude_values = Vec::new();
-                            
+
                             // Method 1: Direct indexing
                             for i in 0..5 {  // Just try first 5 bands initially
                                 let field_name = format!("magnitude[{i}]");
@@ -215,18 +215,18 @@ impl VideoTextureManager {
                                     }
                                 }
                             }
-                            
+
                             // Method 2: Try to access magnitude as array field
                             if structure.has_field("magnitude") {
                                 info!("✅ Structure has 'magnitude' field");
                             } else {
                                 info!("❌ Structure does NOT have 'magnitude' field");
                             }
-                            
+
                             // Method 3: Parse from structure string
                             let struct_str = structure.to_string();
                             info!("Structure string: {struct_str}");
-                            
+
                             // If we found magnitude values through any method, process them
                             if !magnitude_values.is_empty() {
                                 // Continue extracting all magnitude values
@@ -240,22 +240,22 @@ impl VideoTextureManager {
                                         break;
                                     }
                                 }
-                                
+
                                 // Log summary of extracted data
                                 info!("Extracted {} magnitude values", magnitude_values.len());
-                                
+
                                 // Calculate average magnitude
                                 let avg_magnitude = magnitude_values.iter().sum::<f32>() / magnitude_values.len() as f32;
                                 info!("Average magnitude: {avg_magnitude:.2} dB");
-                                
+
                                 // Find peak frequency
                                 if let Some((peak_idx, &peak_val)) = magnitude_values.iter()
                                     .enumerate()
-                                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)) 
+                                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
                                 {
                                     info!("Peak frequency: band {peak_idx} at {peak_val:.2} dB");
                                 }
-                                
+
                                 // Update spectrum data
                                 if let Ok(mut data) = spectrum_data_clone2.lock() {
                                     *data = SpectrumData {
@@ -290,7 +290,7 @@ impl VideoTextureManager {
                             if let Some(bpm) = tags.get::<gst::tags::BeatsPerMinute>() {
                                 let bpm_val = bpm.get();
                                 info!("BPM tag detected: {bpm_val:.1}");
-                                
+
                                 if bpm_val > 0.0 {
                                     if let Ok(mut bpm_lock) = bpm_value_clone.lock() {
                                         *bpm_lock = bpm_val as f32;
@@ -303,7 +303,7 @@ impl VideoTextureManager {
                 },
                 _ => (),
             }
-            
+
             ControlFlow::Continue
         }).map_err(|_| anyhow!("Failed to add bus watch"));
 
