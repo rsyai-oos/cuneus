@@ -190,38 +190,42 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     for(var i = 0; i < params.max_iterations; i++) {
         point = 0.09 * f32(i) * vec3<f32>(uv, 1.0);
         point += vec3<f32>(0.1, 0.01, -3.5 - sin(tf * 0.1) * 0.01);
-
+        point = point * 0.7;
+        point = f32(i) * 0.1 + vec3<f32>(0.0, 0.0, tf * 0.2) + point;
+        
         for(var j = 0; j < params.max_sub_iterations; j++) {
-            point = abs(point) / dot(point, point) - 0.52;
+            point = abs(point) / dot(point, point) - 0.44;
         }
 
         let pi = dot(point, point) * params.point_intensity;
-        c1 += pi * (3.8 + sin(dfc * 13.0 + 3.5 - tf * 2.0));
-        c2 += pi * (1.5 + sin(dfc * 13.5 + 2.2 - tf * 3.0));
+        c1 += pi * (3.8 + sin(dfc * 1.0 + 3.5 - tf * 2.0));
+        c2 += pi * (1.5 + sin(dfc * 13.5 + 12.2 - tf * 3.0));
         c3 += pi * (2.4 + sin(dfc * 14.5 + 1.5 - tf * 2.5));
     }
 
     let vp = v3(point + vec3<f32>(u_time.time * 0.2));
-    let vi = vp.x * 1.5;
+    let vi = vp.x * 3.5;
 
-    c1 += vi * 2.2;
-    c2 += vi * 0.8;
-    c3 += vi * 1.8;
-
-    let cf = vec3<f32>(sin(vp.x), sin(vp.y), sin(vp.z + u_time.time * 0.5));
+    c1 += vi * 0.5;
+    c2 += vi * 0.5;
+    c3 += vi * 0.4;
+    var cf = vec3<f32>(sin(vp.x), sin(vp.y), sin(vp.z + u_time.time * 0.5));
+    cf *= vec3<f32>(1.0, 0.5, 0.4);
+    cf = abs(cf);
     c1 *= cf.r;
     c2 *= cf.g;
     c3 *= cf.b;
 
-    bc = 3.1 * length(point.xy) * 0.12;
-    c1 *= 0.5;
+    bc = .1 * length(point.xy) * 0.12;
+    c1 *= 0.2;
     c2 *= 0.5;
     c3 = smoothstep(0.1, 0.0, dfc) * 0.3;
+    
 
     let dir = normalize(vec3<f32>(uv, 0.0));
     let sundot = dot(LIGHT_DIR, dir);
 
-    var fc = vec3<f32>(bc, (c1 + bc) * 0.25, c2);
+    var fc = vec3<f32>(bc, (c1 + bc) * 0.4, c2);
     fc += c3 * 1.9;
     fc.g += c3 * 0.45;
 
