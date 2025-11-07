@@ -7,8 +7,9 @@
 // - Biased sampling technique: yx http://blog.hvidtfeldts.net/index.php/2015/01/path-tracing-3d-fractals/
 // - Additional path tracing reference: demofox https://www.shadertoy.com/view/WsBBR3
 // - Surface offset technique: https://www.shadertoy.com/view/lsXGzH
-// - The idea for path tracing for 3D fractals: Kleinian Seahorse: https://www.shadertoy.com/view/Ns2fzy by tdhooper; 
-// - http://blog.hvidtfeldts.net/index.php/2015/01/path-tracing-3d-fractals/ 
+// - The idea for path tracing for 3D fractals: Kleinian Seahorse: https://www.shadertoy.com/view/Ns2fzy by tdhooper;
+// - http://blog.hvidtfeldts.net/index.php/2015/01/path-tracing-3d-fractals/
+
 struct TimeUniform {
     time: f32,
     delta: f32,
@@ -22,15 +23,15 @@ struct MandelbulbParams {
     max_bounces: u32,
     samples_per_pixel: u32,
     accumulate: u32,
-    
+
     animation_speed: f32,
     hold_duration: f32,
     transition_duration: f32,
-    
+
     exposure: f32,
     focal_length: f32,
     dof_strength: f32,
-    
+
     palette_a_r: f32,
     palette_a_g: f32,
     palette_a_b: f32,
@@ -43,11 +44,10 @@ struct MandelbulbParams {
     palette_d_r: f32,
     palette_d_g: f32,
     palette_d_b: f32,
-    
-    
+
     gamma: f32,
     zoom: f32,
-    
+
     background_r: f32,
     background_g: f32,
     background_b: f32,
@@ -64,15 +64,18 @@ struct MandelbulbParams {
 @group(1) @binding(0) var output: texture_storage_2d<rgba16float, write>;
 @group(1) @binding(1) var<uniform> params: MandelbulbParams;
 
-// Group 2: Global Engine Resources (mouse, fonts, audio, atomics)
+// Group 2: Global Engine Resources (mouse)
 struct MouseUniform {
     position: vec2<f32>,
-    click_position: vec2<f32>, 
+    click_position: vec2<f32>,
     wheel: vec2<f32>,
     buttons: vec2<u32>,
 };
 @group(2) @binding(0) var<uniform> mouse: MouseUniform;
-@group(2) @binding(1) var<storage, read_write> atomic_buffer: array<atomic<u32>>;
+
+// Group 3: Multipass input textures
+@group(3) @binding(0) var input_texture0: texture_2d<f32>;
+@group(3) @binding(1) var input_sampler0: sampler;
 
 alias v4 = vec4<f32>;
 alias v3 = vec3<f32>;
@@ -82,27 +85,40 @@ const pi = 3.14159265359;
 const tau = 6.28318530718;
 const sqrt3 = 1.7320508075688772;
 
+const UNDERSTEP = 0.5;
+const BOUNCE_UNDERSTEP = 2.0;
+
+// defaults for best look
+const FOCUS_OFFSET = v3(0.0, -0.1, 0.2);
+const MANDEL_ROT_X = 0.0;
+const MANDEL_ROT_Y = -1.9;
+const MANDEL_ROT_Z = 1.7;
+const FOCUS_CAM_POS = v3(0.8, 0.2, 0.4);
+const FOCUS_CAM_TARGET = v3(0.0, 0.0, 0.0);
+const FOCUS_SCALE = 1.6;
+const FOCUS_MANDEL_SCALE = 2.0;
+
 var<private> R: v2;
 var<private> seed: u32;
 
-fn hash_u(_a: u32) -> u32 { 
-    var a = _a; 
+fn hash_u(_a: u32) -> u32 {
+    var a = _a;
     a ^= a >> 16;
     a *= 0x7feb352du;
     a ^= a >> 15;
     a *= 0x846ca68bu;
     a ^= a >> 16;
-    return a; 
+    return a;
 }
 
-fn hash_f() -> f32 { 
-    var s = hash_u(seed); 
+fn hash_f() -> f32 {
+    var s = hash_u(seed);
     seed = s;
-    return (f32(s) / f32(0xffffffffu)); 
+    return (f32(s) / f32(0xffffffffu));
 }
 
-fn hash_v2() -> v2 { 
-    return v2(hash_f(), hash_f()); 
+fn hash_v2() -> v2 {
+    return v2(hash_f(), hash_f());
 }
 
 fn hash22(p: v2) -> v2 {
@@ -148,47 +164,30 @@ fn spectrum(n: f32) -> v3 {
     return pal(n, a, b, c, d);
 }
 
-fn smootherstep(edge0: f32, edge1: f32, x: f32) -> f32 {
-    let t = clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0);
-    return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
-}
-
-fn animation_phase(time: f32, hold_duration: f32, transition_duration: f32) -> f32 {
-    let total_cycle = hold_duration + transition_duration;
-    let cycle_time = time % total_cycle;
-    
-    if (cycle_time < hold_duration) {
-        return 0.0;
-    } else {
-        let transition_progress = (cycle_time - hold_duration) / transition_duration;
-        return smootherstep(0.0, 1.0, transition_progress);
-    }
-}
-
 fn mandelbulb(pos: v3, power: f32) -> v4 {
     var z = pos;
     var dr = 1.0;
     var r = 0.0;
     var trap = v4(abs(z), dot(z, z));
-    
+
     for (var i = 0; i < 15; i++) {
         r = length(z);
         if (r > 2.0) { break; }
-        
+
         let theta = acos(z.z / r);
         let phi = atan2(z.y, z.x);
         dr = pow(r, power - 1.0) * power * dr + 1.0;
-        
+
         let zr = pow(r, power);
         let new_theta = theta * power;
         let new_phi = phi * power;
-        
+
         z = zr * v3(sin(new_theta) * cos(new_phi), sin(new_phi) * sin(new_theta), cos(new_theta));
         z += pos;
-        
+
         trap = min(trap, v4(abs(z), dot(z, z)));
     }
-    
+
     return v4(0.5 * log(r) * r / dr, trap.yzw);
 }
 
@@ -207,15 +206,15 @@ struct Material {
 
 fn shade_model(model: Model) -> Material {
     let color_val = length(model.albedo.xy) * 0.3 + length(model.uvw) * 0.1;
-    let col = spectrum(clamp(color_val, 0.0, 1.0)) * mix(0.8, 1.5, smoothstep(0.0, 0.5, color_val));
+    let col = spectrum(clamp(color_val, 0.0, 1.0)) * mix(0.8, 2.0, smoothstep(0.0, 0.5, color_val));
     return Material(col, 0.0, 0.0);
 }
 
 fn map_scene(p: v3, rotation: m3, power: f32) -> Model {
     let rotated_pos = rotation * p;
-    let scaled_pos = rotated_pos * 1.5;
+    let scaled_pos = (rotated_pos - FOCUS_OFFSET) * FOCUS_MANDEL_SCALE;
     let res = mandelbulb(scaled_pos, power);
-    let d = res.x / 1.2;
+    let d = res.x / FOCUS_MANDEL_SCALE;
     let orbit_trap = res.yzw;
     return Model(d, p, orbit_trap, 1);
 }
@@ -241,19 +240,19 @@ fn march(origin: v3, ray_direction: v3, max_dist: f32, understep: f32, rotation:
     var ray_length = 0.0;
     var model: Model;
 
-    for (var i = 0; i < 200; i++) {
+    for (var i = 0; i < 300; i++) {
         model = map_scene(ray_position, rotation, power);
         ray_length += model.d * understep;
         ray_position = origin + ray_direction * ray_length;
 
-        if (model.d < 0.001) { break; }
+        if (model.d < 0.00005) { break; }
 
         if (ray_length > max_dist) {
             model.id = 0;
             break;
         }
     }
-    
+
     return Hit(model, ray_position, ray_length);
 }
 
@@ -294,97 +293,84 @@ fn rnd_unit2(rnd: v2) -> v2 {
 fn env(dir: v3) -> v3 {
     let glow_color = v3(params.glow_color_r, params.glow_color_g, params.glow_color_b);
     let background_color = v3(params.background_r, params.background_g, params.background_b);
-    return mix(background_color * 0.2, glow_color, 
+    return mix(background_color * 0.2, glow_color * 0.8,
                smoothstep(-0.2, 0.2, dot(dir, normalize(v3(0.5, 1.0, -0.5)))));
 }
 
 fn sample_direct(hit: Hit, nor: v3, throughput: v3, rnd: v2, rotation: m3, power: f32) -> v3 {
     let sun_pos = normalize(v3(-0.2, 1.2, -0.8)) * 100.0;
     let sun_color = v3(params.sun_color_r, params.sun_color_g, params.sun_color_b);
-    
+
     var col = v3(0.0);
     let light_dir = sun_pos - hit.pos;
     let light_sample_dir = get_cone_sample(light_dir, 0.001, rnd);
     let diffuse = dot(nor, light_sample_dir);
     let shadow_origin = hit.pos + nor * (0.0002 / abs(dot(light_sample_dir, nor)));
-    
+
     if (diffuse > 0.0) {
-        let sh = march(shadow_origin, light_sample_dir, 1.0, 2.0, rotation, power);
+        let sh = march(shadow_origin, light_sample_dir, 1.0, BOUNCE_UNDERSTEP, rotation, power);
         if (sh.model.id == 0) {
-            col += throughput * sun_color * diffuse;
+            col += throughput * sun_color / 8.0 * diffuse;
         }
     }
     return col;
 }
 
-fn aces_tonemap(x: v3) -> v3 {
-    let a = 2.51;
-    let b = 0.03;
-    let c = 2.43;
-    let d = 0.59;
-    let e = 0.14;
-    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), v3(0.0), v3(1.0));
-}
-
 fn draw(frag_coord: v2, frame: u32) -> v4 {
     let p = (-R + 2.0 * frag_coord) / R.y;
-    
+
     seed = u32(frag_coord.x) + u32(frag_coord.y) * u32(R.x) + frame * 719393;
     let initial_seed = hash22(frag_coord + f32(frame) * sqrt3);
-    
+
     let jitter = 2.0 * (initial_seed - 0.5) / R;
     let jittered_p = p + jitter;
-    let scaled_p = jittered_p * 1.5;
+    let scaled_p = jittered_p * FOCUS_SCALE;
 
     var col = v3(0.0);
 
-    let base_cam_pos = v3(5.1, 1.0, 2.0);
-    let cam_pos = base_cam_pos * params.zoom;
-    let focus_point = v3(-0.7, -0.25, -0.3);
+    let cam_pos = FOCUS_CAM_POS * params.zoom;
+    let focus_point = FOCUS_CAM_TARGET;
     let cam_tar = focus_point;
-    
+
     let mouse_sensitivity = 3.0;
-    // mouse.position is already normalized to [0,1] from Rust side
     let current_rotation = v3(
         (mouse.position.y - 0.5) * mouse_sensitivity,
         (mouse.position.x - 0.5) * mouse_sensitivity,
         0.0
     );
-    
-    let rotation = rotation_z(current_rotation.z) * rotation_y(current_rotation.y) * rotation_x(current_rotation.x);
-    
+    let base_rotation = rotation_z(MANDEL_ROT_Z) * rotation_y(MANDEL_ROT_Y) * rotation_x(MANDEL_ROT_X);
+    let mouse_rotation = rotation_z(current_rotation.z) * rotation_y(current_rotation.y) * rotation_x(current_rotation.x);
+    let rotation = mouse_rotation * base_rotation;
     let ww = normalize(cam_tar - cam_pos);
     let uu = normalize(cross(v3(0.0, 1.0, 0.0), ww));
     let vv = normalize(cross(ww, uu));
     let cam_mat = m3(-uu, vv, ww);
-    
+
     let ray_dir = normalize(cam_mat * v3(scaled_p, params.focal_length));
     var origin = cam_pos;
     var ray_direction = ray_dir;
-    
+
     // Depth of field
     let focal_point_dist = distance(cam_pos, focus_point);
     let focal_plane_dist = dot(cam_mat[2], ray_dir) * focal_point_dist;
-    
-    var hit = march(origin, ray_direction, focal_plane_dist, 0.5, rotation, params.power);
+
+    var hit = march(origin, ray_direction, focal_plane_dist, UNDERSTEP, rotation, params.power);
     if (hit.model.id == 0) {
         let ray_focal_point = origin + ray_direction * focal_plane_dist;
         origin += cam_mat * v3(rnd_unit2(initial_seed), 0.0) * params.dof_strength;
         ray_direction = normalize(ray_focal_point - origin);
         origin = hit.pos;
-        hit = march(origin, ray_direction, 20.0, 0.5, rotation, params.power);
+        hit = march(origin, ray_direction, 20.0, UNDERSTEP, rotation, params.power);
     }
 
     var throughput = v3(1.0);
     let bg_col = v3(params.background_r, params.background_g, params.background_b);
     var ray_length = 0.0;
-    
     // Path tracing loop
     for (var bounce = 0; bounce < i32(params.max_bounces); bounce++) {
         if (bounce > 0) {
-            hit = march(origin, ray_direction, 10.0, 2.0, rotation, params.power);
+            hit = march(origin, ray_direction, 10.0, BOUNCE_UNDERSTEP, rotation, params.power);
         }
-       
         if (hit.model.id == 0) {
             if (bounce > 0) {
                 col += env(ray_direction) * throughput;
@@ -399,7 +385,7 @@ fn draw(frag_coord: v2, frame: u32) -> v4 {
 
         let nor = calc_normal(hit.pos, rotation, params.power);
         let material = shade_model(hit.model);
-        
+
         throughput *= material.albedo;
 
         let rnd1 = hash_v2();
@@ -408,7 +394,7 @@ fn draw(frag_coord: v2, frame: u32) -> v4 {
         let rnd2 = hash_v2();
         col += sample_direct(hit, nor, throughput, rnd2, rotation, params.power);
         ray_direction = diffuse_ray_dir;
-    
+
         origin = hit.pos + nor * (0.0002 / abs(dot(ray_direction, nor)));
     }
 
@@ -419,50 +405,73 @@ fn draw(frag_coord: v2, frame: u32) -> v4 {
     return v4(col, 1.0);
 }
 
+// Path tracing with self-feedback accumulation
 @compute @workgroup_size(16, 16, 1)
-fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+fn buffer_a(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let dimensions = textureDimensions(output);
     R = v2(f32(dimensions.x), f32(dimensions.y));
-    
+
     if (global_id.x >= dimensions.x || global_id.y >= dimensions.y) {
         return;
     }
-    
+
     let frag_coord = v2(f32(global_id.x), f32(global_id.y)) + 0.5;
-    let pixel_idx = global_id.x + dimensions.x * global_id.y;
-    
+
     var pixel_color = v3(0.0);
-    
-    // mult samples per pixel
+
+    // Render samples for this frame
     for (var s: u32 = 0; s < params.samples_per_pixel; s++) {
         let sample_result = draw(frag_coord, time_data.frame * params.samples_per_pixel + s);
         pixel_color += sample_result.rgb;
     }
-    
-    pixel_color /= f32(params.samples_per_pixel);
-    pixel_color *= params.exposure;
-    
-    let should_accumulate = params.accumulate > 0 && time_data.frame > 0;
-    
-    if (should_accumulate) {
-        let old_r = f32(atomicLoad(&atomic_buffer[pixel_idx * 3])) / 1000.0;
-        let old_g = f32(atomicLoad(&atomic_buffer[pixel_idx * 3 + 1])) / 1000.0;
-        let old_b = f32(atomicLoad(&atomic_buffer[pixel_idx * 3 + 2])) / 1000.0;
-        let old_color = v3(old_r, old_g, old_b);
-        
-        let max_blend_frames = 32.0;
-        let effective_frame = min(f32(time_data.frame), max_blend_frames);
-        let blend_factor = 1.0 / (effective_frame + 1.0);
 
-        pixel_color = mix(old_color, pixel_color, max(blend_factor, 0.05));
+    pixel_color /= f32(params.samples_per_pixel);
+
+    // Accumulate with previous frame (self-feedback)
+    // Alpha channel tracks frame count for averaging
+    let should_accumulate = params.accumulate > 0 && time_data.frame > 0;
+
+    var final_color = v4(pixel_color, 1.0);
+
+    if (should_accumulate) {
+        let last_col = textureLoad(input_texture0, vec2<i32>(global_id.xy), 0);
+        final_color = v4(pixel_color, 1.0) + last_col;
     }
-    
-    atomicStore(&atomic_buffer[pixel_idx * 3], u32(pixel_color.r * 1000.0));
-    atomicStore(&atomic_buffer[pixel_idx * 3 + 1], u32(pixel_color.g * 1000.0));
-    atomicStore(&atomic_buffer[pixel_idx * 3 + 2], u32(pixel_color.b * 1000.0));
-    
-    pixel_color = aces_tonemap(pixel_color);
-    pixel_color = pow(pixel_color, v3(1.0 / params.gamma));
-    
-    textureStore(output, vec2<i32>(global_id.xy), v4(pixel_color, 1.0));
+
+    textureStore(output, vec2<i32>(global_id.xy), final_color);
+}
+
+// Tonemapping and gamma correction
+fn aces_tonemap(x: v3) -> v3 {
+    let a = 2.51;
+    let b = 0.03;
+    let c = 2.43;
+    let d = 0.59;
+    let e = 0.14;
+    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), v3(0.0), v3(1.0));
+}
+
+@compute @workgroup_size(16, 16, 1)
+fn main_image(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let dimensions = textureDimensions(output);
+
+    if (global_id.x >= dimensions.x || global_id.y >= dimensions.y) {
+        return;
+    }
+
+    // Read from buffer_a - alpha channel contains frame count
+    // Divide by frame count for proper average
+    let tex = textureLoad(input_texture0, vec2<i32>(global_id.xy), 0);
+    var col = tex.rgb / tex.a;
+
+    // Apply exposure
+    col *= params.exposure;
+
+    // ACES tonemapping
+    col = aces_tonemap(col);
+
+    // Gamma correction
+    col = pow(col, v3(1.0 / params.gamma));
+
+    textureStore(output, vec2<i32>(global_id.xy), v4(col, 1.0));
 }

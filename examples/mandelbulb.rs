@@ -65,11 +65,12 @@ struct MandelbulbShader {
     // Mouse tracking for accumulation reset
     previous_mouse_pos: [f32; 2],
     mouse_enabled: bool,
+    stored_mouse_position: [f32; 2],
 }
 
 impl MandelbulbShader {
-    fn clear_atomic_buffer(&mut self, core: &Core) {
-        self.compute_shader.clear_atomic_buffer(core);
+    fn reset_accumulation(&mut self) {
+        self.compute_shader.current_frame = 0;
         self.should_reset_accumulation = false;
         self.frame_count = 0;
     }
@@ -78,42 +79,42 @@ impl MandelbulbShader {
 impl ShaderManager for MandelbulbShader {
     fn init(core: &Core) -> Self {
         let initial_params = MandelbulbParams {
-            power: 8.0,
-            max_bounces: 6,
-            samples_per_pixel: 2,
+            power: 4.0,
+            max_bounces: 2,
+            samples_per_pixel: 1,
             accumulate: 1,
 
             animation_speed: 1.0,
             hold_duration: 3.0,
             transition_duration: 3.0,
 
-            exposure: 1.5,
-            focal_length: 6.0,
-            dof_strength: 0.02,
+            exposure: 1.0,
+            focal_length: 2.5,
+            dof_strength: 0.04,
 
             palette_a_r: 0.5,
-            palette_a_g: 0.5,
+            palette_a_g: 0.7,
             palette_a_b: 0.5,
-            palette_b_r: 0.5,
-            palette_b_g: 0.1,
+            palette_b_r: 0.9,
+            palette_b_g: 0.8,
             palette_b_b: 0.1,
             palette_c_r: 1.0,
             palette_c_g: 1.0,
             palette_c_b: 1.0,
-            palette_d_r: 0.0,
-            palette_d_g: 0.33,
-            palette_d_b: 0.67,
+            palette_d_r: 1.0,
+            palette_d_g: 1.15,
+            palette_d_b: 0.20,
 
             gamma: 1.1,
             zoom: 1.0,
 
-            background_r: 0.1,
+            background_r: 0.05,
             background_g: 0.1,
             background_b: 0.15,
             sun_color_r: 8.10,
             sun_color_g: 6.00,
             sun_color_b: 4.20,
-            fog_color_r: 0.1,
+            fog_color_r: 0.05,
             fog_color_g: 0.1,
             fog_color_b: 0.15,
             glow_color_r: 0.5,
@@ -123,11 +124,19 @@ impl ShaderManager for MandelbulbShader {
         let texture_bind_group_layout = RenderKit::create_standard_texture_layout(&core.device);
         let base = RenderKit::new(core, &texture_bind_group_layout, None);
 
+        // multipass system: buffer_a (self-feedback) -> main_image (in shadertoy term)
+        // buffa: self-feedback for accumulation
+        // img: reads buffer_a for tonemapping
+        let passes = vec![
+            cuneus::compute::PassDescription::new("buffer_a", &["buffer_a"]),
+            cuneus::compute::PassDescription::new("main_image", &["buffer_a"]),
+        ];
+
         let config = ComputeShader::builder()
-            .with_entry_point("main")
+            .with_entry_point("buffer_a")
+            .with_multi_pass(&passes)
             .with_custom_uniforms::<MandelbulbParams>()
             .with_mouse() // Enable mouse backend integration
-            .with_atomic_buffer() // Enable atomic buffer for path tracing
             .with_workgroup_size([16, 16, 1])
             .with_texture_format(cuneus::compute::COMPUTE_TEXTURE_FORMAT_RGBA16)
             .with_label("Mandelbulb Unified")
@@ -160,8 +169,9 @@ impl ShaderManager for MandelbulbShader {
             frame_count: 0,
             should_reset_accumulation: true,
             current_params: initial_params,
-            previous_mouse_pos: [0.0, 0.0],
-            mouse_enabled: true,
+            previous_mouse_pos: [0.5, 0.5],
+            mouse_enabled: false,
+            stored_mouse_position: [0.5, 0.5],
         }
     }
 
@@ -204,15 +214,14 @@ impl ShaderManager for MandelbulbShader {
             }
         }
 
-        // Update mouse uniform only if mouse is enabled, otherwise use static position
         if self.mouse_enabled {
             self.compute_shader
                 .update_mouse_uniform(&self.base.mouse_tracker.uniform, &core.queue);
         } else {
-            // Use a fixed mouse position when disabled
+            // stored mouse position to hold the view
             let static_mouse = MouseUniform {
-                position: [0.5, 0.5], // Center position
-                click_position: [0.5, 0.5],
+                position: self.stored_mouse_position,
+                click_position: self.stored_mouse_position,
                 wheel: [0.0, 0.0],
                 buttons: [0, 0],
             };
@@ -231,6 +240,7 @@ impl ShaderManager for MandelbulbShader {
         controls_request.current_fps = Some(self.base.fps_tracker.fps());
 
         let current_fps = self.base.fps_tracker.fps();
+        let current_mouse_position = self.base.mouse_tracker.uniform.position;
 
         let full_output = if self.base.key_handler.show_ui {
             self.base.render_ui(core, |ctx| {
@@ -254,7 +264,7 @@ impl ShaderManager for MandelbulbShader {
                     .resizable(true)
                     .default_width(350.0)
                     .show(ctx, |ui| {
-                        ui.label("Mouse - Rotate camera (when enabled)");
+                        ui.label("Mouse - Rotate camera");
                         ui.label("M key - Toggle mouse on/off");
                         ui.separator();
 
@@ -282,9 +292,11 @@ impl ShaderManager for MandelbulbShader {
                                 ui.separator();
                                 let old_mouse_enabled = self.mouse_enabled;
                                 ui.checkbox(&mut self.mouse_enabled, "Mouse Camera Control");
-                                if self.mouse_enabled != old_mouse_enabled && !self.mouse_enabled {
-                                    // When disabling mouse, reset accumulation one more time
-                                    self.should_reset_accumulation = true;
+                                if self.mouse_enabled != old_mouse_enabled {
+                                    if !self.mouse_enabled {
+                                        self.stored_mouse_position = current_mouse_position;
+                                        self.should_reset_accumulation = true;
+                                    }
                                 }
                                 if !self.mouse_enabled {
                                     ui.colored_label(
@@ -553,7 +565,7 @@ impl ShaderManager for MandelbulbShader {
 
         self.base.export_manager.apply_ui_request(export_request);
         if controls_request.should_clear_buffers || self.should_reset_accumulation {
-            self.clear_atomic_buffer(core);
+            self.reset_accumulation();
         }
         self.base.apply_control_request(controls_request);
 
@@ -636,6 +648,9 @@ impl ShaderManager for MandelbulbShader {
                     }
                     "m" | "M" => {
                         if event.state == winit::event::ElementState::Released {
+                            if self.mouse_enabled {
+                                self.stored_mouse_position = self.base.mouse_tracker.uniform.position;
+                            }
                             self.mouse_enabled = !self.mouse_enabled;
                             if !self.mouse_enabled {
                                 self.should_reset_accumulation = true;
@@ -664,7 +679,7 @@ impl ShaderManager for MandelbulbShader {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
-    let (app, event_loop) = cuneus::ShaderApp::new("Mandelbulb Path Tracer", 800, 600);
+    let (app, event_loop) = cuneus::ShaderApp::new("Mandelbulb Path Tracer", 600, 400);
 
     app.run(event_loop, MandelbulbShader::init)
 }
