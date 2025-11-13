@@ -752,6 +752,13 @@ fn sample_conv1(pos: vec2<i32>, fmap: i32) -> f32 {
     return conv1_data[conv1_index(pos.x, pos.y, fmap)];
 }
 
+fn sample_conv2(pos: vec2<i32>, fmap: i32) -> f32 {
+    if (pos.x < 0 || pos.x >= i32(CONV2_SIZE) || pos.y < 0 || pos.y >= i32(CONV2_SIZE) || fmap < 0 || fmap >= i32(FEATURE_MAPS_2)) {
+        return 0.0;
+    }
+    return conv2_data[conv2_index(pos.x, pos.y, fmap)];
+}
+
 @compute @workgroup_size(1, 1, 1)
 fn canvas_update(@builtin(global_invocation_id) id: vec3<u32>) {
     let pos = vec2<i32>(id.xy);
@@ -949,6 +956,68 @@ fn main_image(@builtin(global_invocation_id) id: vec3<u32>) {
         let digit_alpha = render_digit(pixel_pos, digit_screen_pos, u32(digit), 32.0);
         color = mix(color, vec3(1.0), digit_alpha);
     }
+
+    // Visualize Feature Maps
+    let viz_area_start = vec2(0.72, 0.5);
+    let viz_size_conv1 = 0.06;
+    let viz_size_conv2 = 0.04;
+    let padding = 0.008;
+    // Visualize conv1 feature maps (8 maps in 2 rows of 4)
+    for (var i = 0; i < i32(FEATURE_MAPS_1); i++) {
+        let row = i / 4;
+        let col = i % 4;
+        let map_pos = viz_area_start + vec2<f32>(f32(col) * (viz_size_conv1 + padding), f32(row) * (viz_size_conv1 + padding));
+
+        if (all(uv >= map_pos) && all(uv < map_pos + viz_size_conv1)) {
+            let map_uv = (uv - map_pos) / viz_size_conv1;
+            var map_coord = vec2<i32>(map_uv * vec2<f32>(f32(CONV1_SIZE)));
+            
+            map_coord.y = i32(CONV1_SIZE) - 1 - map_coord.y;
+
+            let val = sample_conv1(map_coord, i);
+            let viz_val = smoothstep(0.0, 1.0, val * 0.5);
+            
+            let color_a = vec3(0.1, 0.5, 1.0);
+            let color_b = vec3(0.5, 1.0, 0.5);
+            let interp = f32(i) / f32(FEATURE_MAPS_1 - 1u);
+            let base_color = mix(color_a, color_b, interp);
+
+            color = mix(color, base_color * viz_val, 0.9);
+
+            let border_width = 0.02;
+            if (any(map_uv < vec2<f32>(border_width)) || any(map_uv > vec2<f32>(1.0 - border_width))) {
+                color = mix(color, vec3(0.5), 0.5);
+            }
+        }
+    }
+
+    // Visualize conv2 feature maps (5 maps in 1 row)
+    let conv2_start_y = viz_area_start.y + 2.0 * (viz_size_conv1 + padding) + padding;
+    for (var i = 0; i < i32(FEATURE_MAPS_2); i++) {
+        let map_pos = vec2(viz_area_start.x + f32(i) * (viz_size_conv2 + padding), conv2_start_y);
+
+        if (all(uv >= map_pos) && all(uv < map_pos + viz_size_conv2)) {
+            let map_uv = (uv - map_pos) / viz_size_conv2;
+            var map_coord = vec2<i32>(map_uv * vec2<f32>(f32(CONV2_SIZE)));
+
+            map_coord.y = i32(CONV2_SIZE) - 1 - map_coord.y;
+
+            let val = sample_conv2(map_coord, i);
+            let viz_val = smoothstep(0.0, 1.0, val * 0.5);
+            
+            let color_c = vec3(1.0, 0.8, 0.3);
+            let color_d = vec3(1.0, 0.4, 0.4);
+            let interp = f32(i) / f32(FEATURE_MAPS_2 - 1u);
+            let base_color = mix(color_c, color_d, interp);
+
+            color = mix(color, base_color * viz_val, 0.9);
+            let border_width = 0.03;
+            if (any(map_uv < vec2<f32>(border_width)) || any(map_uv > vec2<f32>(1.0 - border_width))) {
+                color = mix(color, vec3(0.5), 0.5);
+            }
+        }
+    }
+
     let mouse_corrected = vec2<f32>(mouse.position.x, 1.0 - mouse.position.y);
     let mouse_dist = distance(uv, mouse_corrected);
     if mouse_dist < .02 {
