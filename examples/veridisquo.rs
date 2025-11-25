@@ -1,4 +1,4 @@
-use cuneus::audio::SynthesisManager;
+use cuneus::audio::{EnvelopeConfig, SynthesisManager};
 use cuneus::compute::*;
 use cuneus::prelude::*;
 use winit::event::WindowEvent;
@@ -48,8 +48,8 @@ impl ShaderManager for VeridisQuo {
         let config = ComputeShader::builder()
             .with_entry_point("main")
             .with_custom_uniforms::<SongParams>()
-            .with_fonts() // Fonts in Group 2
-            .with_audio(4096) // Audio buffer in Group 2
+            .with_fonts()
+            .with_audio(4096)
             .with_workgroup_size([16, 16, 1])
             .with_texture_format(COMPUTE_TEXTURE_FORMAT_RGBA16)
             .with_label("Veridis Quo Unified")
@@ -58,7 +58,6 @@ impl ShaderManager for VeridisQuo {
         let mut compute_shader =
             ComputeShader::from_builder(core, include_str!("shaders/veridisquo.wgsl"), config);
 
-        // Enable hot reload
         if let Err(e) = compute_shader.enable_hot_reload(
             core.device.clone(),
             std::path::PathBuf::from("examples/shaders/veridisquo.wgsl"),
@@ -77,14 +76,27 @@ impl ShaderManager for VeridisQuo {
 
         let audio_synthesis = match SynthesisManager::new() {
             Ok(mut synth) => {
-                if let Err(_e) = synth.start_gpu_synthesis() {
+                // For continuous song playback, use minimal envelope
+                // Quick attack, full sustain, quick release for smooth note transitions
+                synth.set_envelope(EnvelopeConfig {
+                    attack_time: 0.005,   // 5ms - very quick attack
+                    decay_time: 0.01,     // 10ms decay
+                    sustain_level: 1.0,   // Full sustain for continuous playback
+                    release_time: 0.05,   // 50ms release for smooth transitions
+                });
+
+                if let Err(e) = synth.start_gpu_synthesis() {
+                    eprintln!("Failed to start audio synthesis: {e}");
                     None
                 } else {
                     println!("Audio synthesis started.");
                     Some(synth)
                 }
             }
-            Err(_e) => None,
+            Err(e) => {
+                eprintln!("Failed to create audio synthesis: {e}");
+                None
+            }
         };
 
         Self {
@@ -96,7 +108,6 @@ impl ShaderManager for VeridisQuo {
     }
 
     fn update(&mut self, core: &Core) {
-        // Check for hot reload updates
         self.compute_shader.check_hot_reload(&core.device);
 
         let current_time = self.base.controls.get_time(&self.base.start_time);
@@ -105,34 +116,35 @@ impl ShaderManager for VeridisQuo {
             .set_time(current_time, delta, &core.queue);
         self.base.fps_tracker.update();
 
-        // Handle GPU audio reading for CPU synthesis
-        if self.base.time_uniform.data.frame % 2 == 0 {
-            if let Some(ref mut synth) = self.audio_synthesis {
-                // Update the waveform type for all voices
-                synth.update_waveform(self.current_params.waveform_type);
+        // Read GPU audio parameters and update synthesis
+        if let Some(ref mut synth) = self.audio_synthesis {
+            // Update waveform type
+            synth.update_waveform(self.current_params.waveform_type);
+            synth.set_master_volume(self.current_params.volume as f64);
 
-                // Read melody and bass frequencies from GPU's audio buffer
-                // The GPU shader writes: melody_freq, envelope, waveform_type, final_melody_freq, melody_amp, final_bass_freq, bass_amp
-                if let Ok(audio_data) = pollster::block_on(
-                    self.compute_shader
-                        .read_audio_buffer(&core.device, &core.queue),
-                ) {
-                    if audio_data.len() >= 7 {
-                        let final_melody_freq = audio_data[3];
-                        let melody_amp = audio_data[4];
-                        let final_bass_freq = audio_data[5];
-                        let bass_amp = audio_data[6];
+            // Read melody and bass frequencies from GPU's audio buffer
+            if let Ok(audio_data) = pollster::block_on(
+                self.compute_shader
+                    .read_audio_buffer(&core.device, &core.queue),
+            ) {
+                if audio_data.len() >= 7 {
+                    let final_melody_freq = audio_data[3];
+                    let melody_amp = audio_data[4];
+                    let final_bass_freq = audio_data[5];
+                    let bass_amp = audio_data[6];
 
-                        // Voice 0: Melody
-                        let melody_active = melody_amp > 0.01 && final_melody_freq > 10.0;
-                        synth.set_voice(0, final_melody_freq, melody_amp, melody_active);
+                    // Voice 0: Melody
+                    let melody_active = melody_amp > 0.01 && final_melody_freq > 10.0;
+                    synth.set_voice(0, final_melody_freq, melody_amp * 0.8, melody_active);
 
-                        // Voice 1: Bass
-                        let bass_active = bass_amp > 0.01 && final_bass_freq > 10.0;
-                        synth.set_voice(1, final_bass_freq, bass_amp, bass_active);
-                    }
+                    // Voice 1: Bass
+                    let bass_active = bass_amp > 0.01 && final_bass_freq > 10.0;
+                    synth.set_voice(1, final_bass_freq, bass_amp * 0.6, bass_active);
                 }
             }
+
+            // Must call update() every frame to process envelopes
+            synth.update();
         }
     }
 
@@ -203,7 +215,6 @@ impl ShaderManager for VeridisQuo {
                                     ("Square", 1),
                                     ("Saw", 2),
                                     ("Triangle", 3),
-                                    ("Pulse", 4),
                                 ];
                                 for (name, wave_type) in waveform_names.iter() {
                                     let selected = params.waveform_type == *wave_type;
@@ -258,7 +269,6 @@ impl ShaderManager for VeridisQuo {
                 label: Some("Veridis Quo Render Encoder"),
             });
 
-        // Single stage dispatch
         self.compute_shader.dispatch(&mut encoder, core);
 
         {

@@ -6,63 +6,209 @@ use log::{debug, info, warn};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-/// Individual audio voice for polyphonic synthesis
-/// Based: https://gstreamer.freedesktop.org/documentation/audiotestsrc/index.html?gi-language=c
-/// Sample rate: 44100
+/// Envelope phase for ADSR
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum EnvelopePhase {
+    Idle,
+    Attack,
+    Decay,
+    Sustain,
+    Release,
+}
+
+/// ADSR envelope configuration
+#[derive(Debug, Clone, Copy)]
+pub struct EnvelopeConfig {
+    pub attack_time: f32,
+    pub decay_time: f32,
+    pub sustain_level: f32,
+    pub release_time: f32,
+}
+
+impl Default for EnvelopeConfig {
+    fn default() -> Self {
+        Self {
+            attack_time: 0.01,
+            decay_time: 0.1,
+            sustain_level: 0.7,
+            release_time: 0.3,
+        }
+    }
+}
+
+/// Envelope state for a single voice
+#[derive(Debug, Clone)]
+struct EnvelopeState {
+    phase: EnvelopePhase,
+    current_level: f32,
+    phase_start_time: Instant,
+    phase_start_level: f32,
+    target_frequency: f64,
+    config: EnvelopeConfig,
+}
+
+impl EnvelopeState {
+    fn new() -> Self {
+        Self {
+            phase: EnvelopePhase::Idle,
+            current_level: 0.0,
+            phase_start_time: Instant::now(),
+            phase_start_level: 0.0,
+            target_frequency: 440.0,
+            config: EnvelopeConfig::default(),
+        }
+    }
+
+    fn trigger(&mut self, frequency: f64, config: EnvelopeConfig) {
+        self.target_frequency = frequency;
+        self.config = config;
+        self.phase_start_level = self.current_level;
+        self.phase_start_time = Instant::now();
+        self.phase = EnvelopePhase::Attack;
+    }
+
+    fn release(&mut self) {
+        if self.phase != EnvelopePhase::Idle && self.phase != EnvelopePhase::Release {
+            self.phase_start_level = self.current_level;
+            self.phase_start_time = Instant::now();
+            self.phase = EnvelopePhase::Release;
+        }
+    }
+
+    fn update(&mut self) -> f32 {
+        let elapsed = self.phase_start_time.elapsed().as_secs_f32();
+
+        match self.phase {
+            EnvelopePhase::Idle => {
+                self.current_level = 0.0;
+            }
+            EnvelopePhase::Attack => {
+                if self.config.attack_time > 0.0 {
+                    let progress = (elapsed / self.config.attack_time).min(1.0);
+                    // Smooth curve for attack
+                    let curve = smooth_step(progress);
+                    self.current_level = self.phase_start_level + (1.0 - self.phase_start_level) * curve;
+                    
+                    if progress >= 1.0 {
+                        self.phase = EnvelopePhase::Decay;
+                        self.phase_start_time = Instant::now();
+                        self.phase_start_level = 1.0;
+                    }
+                } else {
+                    self.current_level = 1.0;
+                    self.phase = EnvelopePhase::Decay;
+                    self.phase_start_time = Instant::now();
+                    self.phase_start_level = 1.0;
+                }
+            }
+            EnvelopePhase::Decay => {
+                if self.config.decay_time > 0.0 {
+                    let progress = (elapsed / self.config.decay_time).min(1.0);
+                    let curve = smooth_step(progress);
+                    self.current_level = 1.0 - (1.0 - self.config.sustain_level) * curve;
+                    
+                    if progress >= 1.0 {
+                        self.phase = EnvelopePhase::Sustain;
+                        self.phase_start_time = Instant::now();
+                    }
+                } else {
+                    self.current_level = self.config.sustain_level;
+                    self.phase = EnvelopePhase::Sustain;
+                    self.phase_start_time = Instant::now();
+                }
+            }
+            EnvelopePhase::Sustain => {
+                self.current_level = self.config.sustain_level;
+            }
+            EnvelopePhase::Release => {
+                if self.config.release_time > 0.0 {
+                    let progress = (elapsed / self.config.release_time).min(1.0);
+                    // Use exponential decay for more natural release
+                    let curve = 1.0 - smooth_step(progress);
+                    self.current_level = self.phase_start_level * curve;
+                    
+                    if progress >= 1.0 || self.current_level < 0.001 {
+                        self.phase = EnvelopePhase::Idle;
+                        self.current_level = 0.0;
+                    }
+                } else {
+                    self.phase = EnvelopePhase::Idle;
+                    self.current_level = 0.0;
+                }
+            }
+        }
+
+        self.current_level
+    }
+
+    fn is_active(&self) -> bool {
+        self.phase != EnvelopePhase::Idle
+    }
+
+    fn is_releasing(&self) -> bool {
+        self.phase == EnvelopePhase::Release
+    }
+}
+
+/// Attempt smoothstep for smoother transitions
+fn smooth_step(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// Individual audio voice for polyphonic synthesis with envelope
 struct AudioVoice {
-    /// The audiotestsrc element for this 'voice'
     audiotestsrc: gst::Element,
-    /// The volume control element for this voice
     volume: gst::Element,
-    /// Current frequency being generated
-    frequency: f64,
-    /// Current volume (0.0 to 1.0)
-    volume_level: f64,
-    /// Whether this voice is active
-    is_active: bool,
-    /// Musical note this voice is playing
+    envelope: EnvelopeState,
+    last_applied_volume: f64,
     note: Option<MusicalNote>,
 }
 
-/// Audio synthesis manager that can generate multiple tones simultaneously using GStreamer
+impl AudioVoice {
+    fn apply_envelope(&mut self) {
+        let level = self.envelope.update();
+        let target_volume = level as f64 * 0.4;
+        
+        // Smooth the volume changes to avoid clicks
+        let smoothed = self.last_applied_volume + (target_volume - self.last_applied_volume) * 0.3;
+        
+        if (smoothed - self.last_applied_volume).abs() > 0.0001 {
+            self.volume.set_property("volume", smoothed);
+            self.audiotestsrc.set_property("volume", smoothed);
+            self.last_applied_volume = smoothed;
+        }
+    }
+}
+
 pub struct AudioSynthManager {
-    /// The GStreamer pipeline for audio generation
     pipeline: gst::Pipeline,
-    /// The audio mixer element
     _audiomixer: gst::Element,
-    /// Multiple voices for polyphonic synthesis
     voices: Vec<AudioVoice>,
-    /// Current waveform type
     current_waveform: AudioWaveform,
-    /// Master volume (0.0 to 1.0)
     master_volume: Arc<Mutex<f64>>,
-    /// Sample rate for audio generation
     sample_rate: u32,
-    /// Last update time
     last_update: Instant,
-    /// Currently playing notes
     active_notes: Arc<Mutex<Vec<MusicalNote>>>,
+    default_envelope: EnvelopeConfig,
+    update_interval: std::time::Duration,
+    last_envelope_update: Instant,
 }
 
 impl AudioSynthManager {
     pub fn new(sample_rate: Option<u32>) -> Result<Self> {
         let sample_rate = sample_rate.unwrap_or(44100);
-        // Support up to 8 simultaneous notes
-        let max_voices = 8;
+        let max_voices = 16;
 
-        info!(
-            "Creating polyphonic audio synthesis manager with {max_voices} voices at {sample_rate} Hz"
-        );
+        info!("Creating polyphonic audio synthesis manager with {max_voices} voices at {sample_rate} Hz");
 
         let pipeline = gst::Pipeline::new();
 
-        // Create audio mixer for combining multiple voices
         let audiomixer = gst::ElementFactory::make("audiomixer")
             .name("audio_mixer")
             .build()
             .map_err(|_| anyhow!("Failed to create audiomixer element"))?;
 
-        // Create final audio conversion and output chain
         let final_convert = gst::ElementFactory::make("audioconvert")
             .name("final_convert")
             .build()
@@ -73,9 +219,10 @@ impl AudioSynthManager {
             .build()
             .map_err(|_| anyhow!("Failed to create final audioresample element"))?;
 
+        // Add a limiter to prevent clipping with multiple voices
         let master_volume = gst::ElementFactory::make("volume")
             .name("master_volume")
-            .property("volume", 0.3f64)
+            .property("volume", 0.5f64)
             .build()
             .map_err(|_| anyhow!("Failed to create master volume element"))?;
 
@@ -84,7 +231,6 @@ impl AudioSynthManager {
             .build()
             .map_err(|_| anyhow!("Failed to create autoaudiosink element"))?;
 
-        // A mixer and output chain to pipeline
         pipeline
             .add_many([
                 &audiomixer,
@@ -104,14 +250,12 @@ impl AudioSynthManager {
         ])
         .map_err(|_| anyhow!("Failed to link output elements"))?;
 
-        // Create voices
         let mut voices = Vec::new();
         for i in 0..max_voices {
             let voice = Self::create_voice(&pipeline, &audiomixer, i, sample_rate)?;
             voices.push(voice);
         }
 
-        // bus watch for error handling stuff
         let bus = pipeline.bus().expect("Pipeline has no bus");
         let _ = bus.add_watch(move |_, message| {
             match message.view() {
@@ -133,19 +277,19 @@ impl AudioSynthManager {
             ControlFlow::Continue
         });
 
-        let audio_synth = Self {
+        Ok(Self {
             pipeline,
             _audiomixer: audiomixer,
             voices,
             current_waveform: AudioWaveform::Sine,
-            master_volume: Arc::new(Mutex::new(0.3)),
+            master_volume: Arc::new(Mutex::new(0.5)),
             sample_rate,
             last_update: Instant::now(),
             active_notes: Arc::new(Mutex::new(Vec::new())),
-        };
-
-        info!("Polyphonic audio synthesis manager created successfully");
-        Ok(audio_synth)
+            default_envelope: EnvelopeConfig::default(),
+            update_interval: std::time::Duration::from_millis(5),
+            last_envelope_update: Instant::now(),
+        })
     }
 
     fn create_voice(
@@ -154,20 +298,17 @@ impl AudioSynthManager {
         voice_id: usize,
         _sample_rate: u32,
     ) -> Result<AudioVoice> {
-        // Create audiotestsrc for this voice
         let audiotestsrc = gst::ElementFactory::make("audiotestsrc")
             .name(format!("voice_{voice_id}_source"))
             .property("freq", 440.0f64)
-            .property("volume", 0.0f64) // Start silent
-            .property("samplesperbuffer", 512i32)
+            .property("volume", 0.0f64)
+            .property("samplesperbuffer", 256i32) 
             .property("is-live", true)
             .build()
             .map_err(|_| anyhow!("Failed to create audiotestsrc for voice {}", voice_id))?;
 
-        //default waveform:
         audiotestsrc.set_property_from_str("wave", "sine");
 
-        // lets create voice-specific elements
         let audioconvert = gst::ElementFactory::make("audioconvert")
             .name(format!("voice_{voice_id}_convert"))
             .build()
@@ -184,16 +325,13 @@ impl AudioSynthManager {
             .build()
             .map_err(|_| anyhow!("Failed to create volume for voice {}", voice_id))?;
 
-        //voice elements to our pipeline...
         pipeline
             .add_many([&audiotestsrc, &audioconvert, &audioresample, &volume])
             .map_err(|_| anyhow!("Failed to add voice {} elements to pipeline", voice_id))?;
 
-        // link:
         gst::Element::link_many([&audiotestsrc, &audioconvert, &audioresample, &volume])
             .map_err(|_| anyhow!("Failed to link voice {} elements", voice_id))?;
 
-        // Connect to mixer
         volume
             .link(mixer)
             .map_err(|_| anyhow!("Failed to link voice {} to mixer", voice_id))?;
@@ -201,14 +339,16 @@ impl AudioSynthManager {
         Ok(AudioVoice {
             audiotestsrc,
             volume,
-            frequency: 440.0,
-            volume_level: 0.0,
-            is_active: false,
+            envelope: EnvelopeState::new(),
+            last_applied_volume: 0.0,
             note: None,
         })
     }
 
-    /// audio generation
+    pub fn set_envelope_config(&mut self, config: EnvelopeConfig) {
+        self.default_envelope = config;
+    }
+
     pub fn start(&mut self) -> Result<()> {
         info!("Starting polyphonic audio synthesis");
         match self.pipeline.set_state(gst::State::Playing) {
@@ -220,12 +360,11 @@ impl AudioSynthManager {
         }
     }
 
-    // Stop all voices
     pub fn stop(&mut self) -> Result<()> {
         info!("Stopping audio synthesis");
         for voice in &mut self.voices {
             voice.volume.set_property("volume", 0.0f64);
-            voice.is_active = false;
+            voice.envelope = EnvelopeState::new();
             voice.note = None;
         }
         self.active_notes.lock().unwrap().clear();
@@ -240,7 +379,6 @@ impl AudioSynthManager {
         let clamped_volume = vol.max(0.0).min(1.0);
         *self.master_volume.lock().unwrap() = clamped_volume;
 
-        // Find master volume element
         if let Some(master_vol) = self.pipeline.by_name("master_volume") {
             master_vol.set_property("volume", clamped_volume);
         }
@@ -249,7 +387,6 @@ impl AudioSynthManager {
         Ok(())
     }
 
-    /// Set the waveform type for all voices
     pub fn set_waveform(&mut self, wave_type: AudioWaveform) -> Result<()> {
         let wave_str = match wave_type {
             AudioWaveform::Sine => "sine",
@@ -260,7 +397,6 @@ impl AudioSynthManager {
 
         self.current_waveform = wave_type;
 
-        // Update all voices
         for voice in &mut self.voices {
             voice.audiotestsrc.set_property_from_str("wave", wave_str);
         }
@@ -269,93 +405,133 @@ impl AudioSynthManager {
         Ok(())
     }
 
-    /// Play a frequency (polyphonic - can play multiple frequencies simultaneously)
-    /// This allows arbitrary frequencies, not just predefined musical notes
     pub fn play_frequency(&mut self, frequency: f64, voice_id: usize) -> Result<()> {
-        if voice_id >= self.voices.len() {
-            return Err(anyhow!("Voice ID {} out of range", voice_id));
-        }
-
-        let voice = &mut self.voices[voice_id];
-        let volume_level = 0.4; // Individual voice volume
-
-        // Configure voice with arbitrary frequency
-        voice.audiotestsrc.set_property("freq", frequency);
-        voice.audiotestsrc.set_property("volume", volume_level);
-        voice.volume.set_property("volume", volume_level);
-        voice.frequency = frequency;
-        voice.volume_level = volume_level;
-        voice.is_active = true;
-        // Not tied to a specific musical note
-        voice.note = None;
-
-        info!("Playing frequency {frequency:.2} Hz on voice {voice_id}");
-        Ok(())
+        self.play_frequency_with_config(frequency, voice_id, self.default_envelope)
     }
 
-    /// Stop a specific voice by ID
-    pub fn stop_voice(&mut self, voice_id: usize) -> Result<()> {
-        if voice_id >= self.voices.len() {
-            return Err(anyhow!("Voice ID {} out of range", voice_id));
-        }
-
-        let voice = &mut self.voices[voice_id];
-        voice.audiotestsrc.set_property("volume", 0.0f64);
-        voice.volume.set_property("volume", 0.0f64);
-        voice.is_active = false;
-        voice.note = None;
-
-        info!("Stopped voice {voice_id}");
-        Ok(())
-    }
-
-    /// Update frequency and amplitude for an already active voice
-    pub fn update_voice_frequency(
+    pub fn play_frequency_with_config(
         &mut self,
-        voice_id: usize,
         frequency: f64,
-        amplitude: f64,
+        voice_id: usize,
+        envelope_config: EnvelopeConfig,
     ) -> Result<()> {
         if voice_id >= self.voices.len() {
             return Err(anyhow!("Voice ID {} out of range", voice_id));
         }
 
         let voice = &mut self.voices[voice_id];
-        if voice.is_active {
+        
+        // Set frequency immediately
+        voice.audiotestsrc.set_property("freq", frequency);
+        
+        // Trigger envelope
+        voice.envelope.trigger(frequency, envelope_config);
+        voice.note = None;
+
+        debug!("Triggered frequency {frequency:.2} Hz on voice {voice_id}");
+        Ok(())
+    }
+
+    /// Release a specific voice (start release phase, don't stop immediately)
+    pub fn release_voice(&mut self, voice_id: usize) -> Result<()> {
+        if voice_id >= self.voices.len() {
+            return Err(anyhow!("Voice ID {} out of range", voice_id));
+        }
+
+        let voice = &mut self.voices[voice_id];
+        voice.envelope.release();
+        debug!("Released voice {voice_id}");
+        Ok(())
+    }
+
+    /// Stop a voice immediately (use sparingly, prefer release_voice)
+    pub fn stop_voice(&mut self, voice_id: usize) -> Result<()> {
+        if voice_id >= self.voices.len() {
+            return Err(anyhow!("Voice ID {} out of range", voice_id));
+        }
+
+        let voice = &mut self.voices[voice_id];
+        voice.envelope = EnvelopeState::new();
+        voice.volume.set_property("volume", 0.0f64);
+        voice.audiotestsrc.set_property("volume", 0.0f64);
+        voice.last_applied_volume = 0.0;
+        voice.note = None;
+
+        debug!("Stopped voice {voice_id}");
+        Ok(())
+    }
+
+    /// Update frequency and amplitude for a voice with smooth transition
+    pub fn update_voice_frequency(
+        &mut self,
+        voice_id: usize,
+        frequency: f64,
+        _amplitude: f64,
+    ) -> Result<()> {
+        if voice_id >= self.voices.len() {
+            return Err(anyhow!("Voice ID {} out of range", voice_id));
+        }
+
+        let voice = &mut self.voices[voice_id];
+        if voice.envelope.is_active() {
             voice.audiotestsrc.set_property("freq", frequency);
-            voice.volume.set_property("volume", amplitude);
-            voice.frequency = frequency;
-            voice.volume_level = amplitude;
+            voice.envelope.target_frequency = frequency;
         }
 
         Ok(())
     }
 
-    /// Play a note (polyphonic - can play multiple notes simultaneously)
-    /// Little bit tricky, I tried to up to 8 notes at once
+    /// Find a free voice or steal the oldest releasing voice
+    fn find_available_voice(&mut self) -> Option<usize> {
+        // First, try to find an idle voice
+        if let Some(idx) = self.voices.iter().position(|v| !v.envelope.is_active()) {
+            return Some(idx);
+        }
+
+        // Then, try to find a releasing voice (steal it)
+        if let Some(idx) = self.voices.iter().position(|v| v.envelope.is_releasing()) {
+            return Some(idx);
+        }
+
+        // No available voices
+        None
+    }
+
+    /// Play a note with proper voice allocation
     pub fn play_note(&mut self, note: MusicalNote) -> Result<()> {
-        // Check if note is already playing
-        let mut active_notes = self.active_notes.lock().unwrap();
-        if active_notes.contains(&note) {
-            return Ok(()); // Note already playing
+        self.play_note_with_config(note, self.default_envelope)
+    }
+
+    /// Play a note with custom envelope
+    pub fn play_note_with_config(
+        &mut self,
+        note: MusicalNote,
+        envelope_config: EnvelopeConfig,
+    ) -> Result<()> {
+        // Check if note is already playing on a non-releasing voice
+        if let Some(voice) = self.voices.iter_mut().find(|v| {
+            v.note == Some(note) && v.envelope.is_active() && !v.envelope.is_releasing()
+        }) {
+            // Retrigger the existing voice
+            voice.envelope.trigger(note.to_frequency(), envelope_config);
+            return Ok(());
         }
 
         // Find an available voice
-        if let Some(voice) = self.voices.iter_mut().find(|v| !v.is_active) {
+        if let Some(voice_idx) = self.find_available_voice() {
+            let voice = &mut self.voices[voice_idx];
             let freq = note.to_frequency();
-            let volume_level = 0.4; // Individual voice volume
 
-            // cfg voice
             voice.audiotestsrc.set_property("freq", freq);
-            voice.audiotestsrc.set_property("volume", volume_level);
-            voice.volume.set_property("volume", volume_level);
-            voice.frequency = freq;
-            voice.volume_level = volume_level;
-            voice.is_active = true;
+            voice.envelope.trigger(freq, envelope_config);
             voice.note = Some(note);
 
-            active_notes.push(note);
-            info!("Playing note {note:?} ({freq:.2} Hz) on voice");
+            let mut active_notes = self.active_notes.lock().unwrap();
+            if !active_notes.contains(&note) {
+                active_notes.push(note);
+            }
+
+            debug!("Playing note {note:?} ({freq:.2} Hz) on voice {voice_idx}");
         } else {
             warn!("No available voice for note {note:?}");
         }
@@ -363,64 +539,97 @@ impl AudioSynthManager {
         Ok(())
     }
 
-    /// Stop a specific note. this more likely for testing purposes for myself
+    /// Release a specific note
     pub fn stop_note(&mut self, note: MusicalNote) -> Result<()> {
-        if let Some(voice) = self.voices.iter_mut().find(|v| v.note == Some(note)) {
-            voice.audiotestsrc.set_property("volume", 0.0f64);
-            voice.volume.set_property("volume", 0.0f64);
-            voice.is_active = false;
-            voice.note = None;
-
-            // Remove from active notes
-            let mut active_notes = self.active_notes.lock().unwrap();
-            active_notes.retain(|&n| n != note);
-
-            info!("Stopped note {note:?}");
+        for voice in &mut self.voices {
+            if voice.note == Some(note) && !voice.envelope.is_releasing() {
+                voice.envelope.release();
+            }
         }
+
+        // Note will be removed from active_notes when envelope finishes
+        debug!("Released note {note:?}");
         Ok(())
     }
 
+    /// Release all notes
     pub fn stop_all_notes(&mut self) -> Result<()> {
         for voice in &mut self.voices {
-            voice.audiotestsrc.set_property("volume", 0.0f64);
-            voice.volume.set_property("volume", 0.0f64);
-            voice.is_active = false;
-            voice.note = None;
+            if voice.envelope.is_active() {
+                voice.envelope.release();
+            }
         }
-        self.active_notes.lock().unwrap().clear();
-        info!("Stopped all notes");
+        debug!("Released all notes");
         Ok(())
     }
 
-    /// Get current waveform
+    /// Must be called regularly (every frame) to update envelopes
+    pub fn update(&mut self) {
+        let now = Instant::now();
+        
+        // Update envelopes at regular intervals
+        if now.duration_since(self.last_envelope_update) >= self.update_interval {
+            self.last_envelope_update = now;
+            
+            let mut finished_notes = Vec::new();
+            
+            for voice in &mut self.voices {
+                voice.apply_envelope();
+                
+                // Track notes that finished their release phase
+                if !voice.envelope.is_active() && voice.note.is_some() {
+                    finished_notes.push(voice.note.take().unwrap());
+                }
+            }
+
+            // Remove finished notes from active list
+            if !finished_notes.is_empty() {
+                let mut active_notes = self.active_notes.lock().unwrap();
+                for note in finished_notes {
+                    active_notes.retain(|&n| n != note);
+                }
+            }
+        }
+        
+        self.last_update = now;
+    }
+
     pub fn waveform(&self) -> AudioWaveform {
         self.current_waveform
     }
 
-    /// Get master volume
     pub fn master_volume(&self) -> f64 {
         *self.master_volume.lock().unwrap()
     }
 
-    /// Check if any notes are playing
     pub fn is_active(&self) -> bool {
-        !self.active_notes.lock().unwrap().is_empty()
+        self.voices.iter().any(|v| v.envelope.is_active())
     }
 
-    /// Get currently playing notes
     pub fn active_notes(&self) -> Vec<MusicalNote> {
         self.active_notes.lock().unwrap().clone()
     }
 
-    /// Get sample rate
     pub fn sample_rate(&self) -> u32 {
         self.sample_rate
     }
 
-    /// Update method to be called in the main loop if needed
-    pub fn update(&mut self) {
-        self.last_update = Instant::now();
-        //maybe per-frame updates?
+    /// Get the current envelope level for a voice (useful for visualization)
+    pub fn get_voice_level(&self, voice_id: usize) -> f32 {
+        if voice_id < self.voices.len() {
+            self.voices[voice_id].envelope.current_level
+        } else {
+            0.0
+        }
+    }
+
+    /// Check if a specific voice is active
+    pub fn is_voice_active(&self, voice_id: usize) -> bool {
+        if voice_id < self.voices.len() {
+            self.voices[voice_id].envelope.is_active()
+        } else {
+            false
+        }
     }
 }
 
@@ -441,27 +650,24 @@ pub enum AudioWaveform {
 }
 
 /// Musical notes with their frequencies
-/// I took these from here:
-/// https://www.liutaiomottola.com/formulae/freqtab.htm
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MusicalNote {
-    C4,      // 261.63 Hz
-    CSharp4, // 277.18 Hz
-    D4,      // 293.66 Hz
-    DSharp4, // 311.13 Hz
-    E4,      // 329.63 Hz
-    F4,      // 349.23 Hz
-    FSharp4, // 369.99 Hz
-    G4,      // 392.00 Hz
-    GSharp4, // 415.30 Hz
-    A4,      // 440.00 Hz
-    ASharp4, // 466.16 Hz
-    B4,      // 493.88 Hz
-    C5,      // 523.25 Hz
+    C4,
+    CSharp4,
+    D4,
+    DSharp4,
+    E4,
+    F4,
+    FSharp4,
+    G4,
+    GSharp4,
+    A4,
+    ASharp4,
+    B4,
+    C5,
 }
 
 impl MusicalNote {
-    /// Convert musical note to frequency in Hz
     pub fn to_frequency(self) -> f64 {
         match self {
             MusicalNote::C4 => 261.63,
@@ -480,7 +686,6 @@ impl MusicalNote {
         }
     }
 
-    /// Get note from keyboard number (1-9 maps to different notes)
     pub fn from_keyboard_number(num: u32) -> Option<Self> {
         match num {
             1 => Some(MusicalNote::C4),
@@ -496,7 +701,6 @@ impl MusicalNote {
         }
     }
 
-    /// Get the name of the note as a string
     pub fn name(self) -> &'static str {
         match self {
             MusicalNote::C4 => "C4",
@@ -526,13 +730,10 @@ impl AudioDataProvider {
         Self { sample_count: 0 }
     }
 
-    /// Update with current audio synthesis parameters
     pub fn update(&mut self, _active_notes: &[MusicalNote], _master_volume: f64) {
         self.sample_count += 1;
     }
 
-    /// Generate audio data array for visualization based on active notes
-    /// Maps the 9 keyboard notes (1-9) directly to visualization data
     pub fn generate_audio_data(
         &self,
         active_notes: &[MusicalNote],
@@ -540,32 +741,25 @@ impl AudioDataProvider {
     ) -> [[f32; 4]; 32] {
         let mut audio_data = [[0.0f32; 4]; 32];
 
-        // Map notes 1-9 to positions across the audio data array
-        // We'll use the first 9 positions to represent keys 1-9
         let note_mapping = [
-            MusicalNote::C4,      // Key 1
-            MusicalNote::D4,      // Key 2
-            MusicalNote::E4,      // Key 3
-            MusicalNote::F4,      // Key 4
-            MusicalNote::G4,      // Key 5
-            MusicalNote::A4,      // Key 6
-            MusicalNote::B4,      // Key 7
-            MusicalNote::C5,      // Key 8
-            MusicalNote::CSharp4, // Key 9
+            MusicalNote::C4,
+            MusicalNote::D4,
+            MusicalNote::E4,
+            MusicalNote::F4,
+            MusicalNote::G4,
+            MusicalNote::A4,
+            MusicalNote::B4,
+            MusicalNote::C5,
+            MusicalNote::CSharp4,
         ];
 
         if master_volume > 0.0 {
-            // Check each of the 9 notes and set corresponding data
             for (note_index, &mapped_note) in note_mapping.iter().enumerate() {
                 if active_notes.contains(&mapped_note) {
-                    // Calculate the position in the audio_data array for this note
-                    // Spread 9 notes across 32*4=128 positions
-                    let positions_per_note = 128 / 9; // ~14 positions per note
+                    let positions_per_note = 128 / 9;
                     let start_pos = note_index * positions_per_note;
-
                     let amplitude = (master_volume * 0.9) as f32;
 
-                    // Fill multiple positions for this note to create a "region"
                     for i in 0..positions_per_note.min(10) {
                         let pos = start_pos + i;
                         if pos < 128 {
@@ -573,7 +767,6 @@ impl AudioDataProvider {
                             let component_index = pos % 4;
 
                             if array_index < 32 {
-                                // Create a peak with falloff from center
                                 let distance_from_center =
                                     (i as f32 - positions_per_note as f32 / 2.0).abs();
                                 let falloff = (1.0
@@ -581,25 +774,9 @@ impl AudioDataProvider {
                                     .max(0.0);
                                 let final_amplitude = amplitude * falloff;
 
-                                match component_index {
-                                    0 => {
-                                        audio_data[array_index][0] =
-                                            (audio_data[array_index][0] + final_amplitude).min(1.0)
-                                    }
-                                    1 => {
-                                        audio_data[array_index][1] =
-                                            (audio_data[array_index][1] + final_amplitude).min(1.0)
-                                    }
-                                    2 => {
-                                        audio_data[array_index][2] =
-                                            (audio_data[array_index][2] + final_amplitude).min(1.0)
-                                    }
-                                    3 => {
-                                        audio_data[array_index][3] =
-                                            (audio_data[array_index][3] + final_amplitude).min(1.0)
-                                    }
-                                    _ => {}
-                                }
+                                audio_data[array_index][component_index] =
+                                    (audio_data[array_index][component_index] + final_amplitude)
+                                        .min(1.0);
                             }
                         }
                     }
@@ -611,25 +788,23 @@ impl AudioDataProvider {
     }
 }
 
-/// Dedicated uniform structure for audio synthesis data (separate from audio visualization)
+impl Default for AudioDataProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct AudioSynthUniform {
-    /// Active note frequencies (up to 16 simultaneous notes) - stored as vec4s for alignment
-    pub note_frequencies: [[f32; 4]; 4], // 16 frequencies in 4 vec4s
-    /// Individual note amplitudes - stored as vec4s for alignment  
-    pub note_amplitudes: [[f32; 4]; 4], // 16 amplitudes in 4 vec4s
-    /// Master volume level
+    pub note_frequencies: [[f32; 4]; 4],
+    pub note_amplitudes: [[f32; 4]; 4],
     pub master_volume: f32,
-    /// Current waveform type (0=sine, 1=square, 2=saw, 3=triangle)
     pub waveform_type: u32,
-    /// Number of currently active notes
     pub active_note_count: u32,
-    /// Padding for proper alignment
     pub _padding: u32,
 }
 
-// Safe to transmute to bytes for GPU upload
 unsafe impl bytemuck::Pod for AudioSynthUniform {}
 unsafe impl bytemuck::Zeroable for AudioSynthUniform {}
 
@@ -657,14 +832,12 @@ impl AudioSynthUniform {
         }
     }
 
-    /// Update with current synthesis state
     pub fn update_from_synthesis(
         &mut self,
         active_notes: &[MusicalNote],
         master_volume: f64,
         waveform: AudioWaveform,
     ) {
-        // Clear previous data
         for vec4 in &mut self.note_frequencies {
             vec4.fill(0.0);
         }
@@ -672,7 +845,6 @@ impl AudioSynthUniform {
             vec4.fill(0.0);
         }
 
-        // Update current state
         self.master_volume = master_volume as f32;
         self.waveform_type = match waveform {
             AudioWaveform::Sine => 0,
@@ -682,7 +854,6 @@ impl AudioSynthUniform {
         };
         self.active_note_count = active_notes.len().min(16) as u32;
 
-        // Copy active note data (map 16 notes to 4 vec4s)
         for (i, note) in active_notes.iter().take(16).enumerate() {
             let vec4_index = i / 4;
             let component_index = i % 4;
@@ -692,9 +863,21 @@ impl AudioSynthUniform {
     }
 }
 
-impl Default for AudioDataProvider {
+/// Voice state for the synthesis manager
+#[derive(Clone)]
+struct VoiceState {
+    frequency: f32,
+    amplitude: f32,
+    active: bool,
+}
+
+impl Default for VoiceState {
     fn default() -> Self {
-        Self::new()
+        Self {
+            frequency: 440.0,
+            amplitude: 0.0,
+            active: false,
+        }
     }
 }
 
@@ -702,10 +885,10 @@ impl Default for AudioDataProvider {
 pub struct SynthesisManager {
     audio_manager: Option<AudioSynthManager>,
     sample_rate: u32,
-    last_update: std::time::Instant,
+    last_update: Instant,
     synthesis_enabled: bool,
-    // Track which voices are active
-    active_voices: Vec<bool>,
+    voice_states: Vec<VoiceState>,
+    envelope_config: EnvelopeConfig,
 }
 
 impl SynthesisManager {
@@ -721,9 +904,10 @@ impl SynthesisManager {
         Ok(Self {
             audio_manager,
             sample_rate: 44100,
-            last_update: std::time::Instant::now(),
+            last_update: Instant::now(),
             synthesis_enabled: false,
-            active_voices: vec![false; 9], // Track 9 voices
+            voice_states: vec![VoiceState::default(); 16],
+            envelope_config: EnvelopeConfig::default(),
         })
     }
 
@@ -741,6 +925,24 @@ impl SynthesisManager {
             self.synthesis_enabled = false;
         }
         Ok(())
+    }
+
+    /// Set the global envelope configuration
+    pub fn set_envelope(&mut self, config: EnvelopeConfig) {
+        self.envelope_config = config;
+        if let Some(ref mut manager) = self.audio_manager {
+            manager.set_envelope_config(config);
+        }
+    }
+
+    /// Set envelope from ADSR values
+    pub fn set_adsr(&mut self, attack: f32, decay: f32, sustain: f32, release: f32) {
+        self.set_envelope(EnvelopeConfig {
+            attack_time: attack,
+            decay_time: decay,
+            sustain_level: sustain,
+            release_time: release,
+        });
     }
 
     pub fn update_frequency(&mut self, frequency: f32) {
@@ -761,26 +963,58 @@ impl SynthesisManager {
     }
 
     pub fn set_voice(&mut self, voice_id: usize, frequency: f32, amplitude: f32, active: bool) {
-        if voice_id >= self.active_voices.len() {
+        if voice_id >= self.voice_states.len() {
             return;
         }
 
+        let prev_state = &self.voice_states[voice_id];
+        let was_active = prev_state.active && prev_state.amplitude > 0.001;
         let should_be_active = active && amplitude > 0.001;
 
         if let Some(ref mut manager) = self.audio_manager {
-            if should_be_active && !self.active_voices[voice_id] {
-                // Start the voice
-                let _ = manager.play_frequency(frequency as f64, voice_id);
-                self.active_voices[voice_id] = true;
-            } else if !should_be_active && self.active_voices[voice_id] {
-                // Stop the voice
-                let _ = manager.stop_voice(voice_id);
-                self.active_voices[voice_id] = false;
-            } else if should_be_active && self.active_voices[voice_id] {
-                // Voice is already active, but update frequency and amplitude
-                let _ =
-                    manager.update_voice_frequency(voice_id, frequency as f64, amplitude as f64);
+            if should_be_active && !was_active {
+                // Note on: start with envelope
+                let _ = manager.play_frequency_with_config(
+                    frequency as f64,
+                    voice_id,
+                    self.envelope_config,
+                );
+            } else if !should_be_active && was_active {
+                // Note off: release (don't stop immediately)
+                let _ = manager.release_voice(voice_id);
+            } else if should_be_active && was_active {
+                // Update frequency if changed significantly
+                if (frequency - prev_state.frequency).abs() > 0.1 {
+                    let _ = manager.update_voice_frequency(
+                        voice_id,
+                        frequency as f64,
+                        amplitude as f64,
+                    );
+                }
             }
+        }
+
+        // Update state
+        self.voice_states[voice_id] = VoiceState {
+            frequency,
+            amplitude,
+            active: should_be_active,
+        };
+    }
+
+    /// Set master volume
+    pub fn set_master_volume(&mut self, volume: f64) {
+        if let Some(ref mut manager) = self.audio_manager {
+            let _ = manager.set_master_volume(volume);
+        }
+    }
+
+    /// Get the current envelope level for a voice (for visualization)
+    pub fn get_voice_level(&self, voice_id: usize) -> f32 {
+        if let Some(ref manager) = self.audio_manager {
+            manager.get_voice_level(voice_id)
+        } else {
+            0.0
         }
     }
 
@@ -788,9 +1022,9 @@ impl SynthesisManager {
         // This method is kept for compatibility (my impl on CPAL approach) but not used in GStreamer implementation
     }
 
+    /// Must be called every frame to update envelopes
     pub fn update(&mut self) {
-        self.last_update = std::time::Instant::now();
-        // Update GStreamer manager if needed
+        self.last_update = Instant::now();
         if let Some(ref mut manager) = self.audio_manager {
             manager.update();
         }
