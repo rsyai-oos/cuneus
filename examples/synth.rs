@@ -1,4 +1,4 @@
-use cuneus::audio::SynthesisManager;
+use cuneus::audio::{EnvelopeConfig, SynthesisManager};
 use cuneus::compute::*;
 use cuneus::prelude::*;
 use winit::event::WindowEvent;
@@ -23,10 +23,9 @@ struct SynthParams {
     decay_time: f32,
     sustain_level: f32,
     release_time: f32,
-    fade_speed_initial: f32,
-    fade_speed_sustain: f32,
-    fade_speed_tail: f32,
     _padding1: u32,
+    _padding2: u32,
+    _padding3: u32,
     key_states: [[f32; 4]; 3],
     key_decay: [[f32; 4]; 3],
 }
@@ -42,7 +41,8 @@ struct SynthManager {
     compute_shader: ComputeShader,
     current_params: SynthParams,
     gpu_synthesis: Option<SynthesisManager>,
-    key_press_times: [Option<std::time::Instant>; 9],
+    // Track which keys are currently held down
+    keys_held: [bool; 9],
 }
 
 impl SynthManager {
@@ -61,6 +61,25 @@ impl SynthManager {
             self.current_params.key_decay[vec_idx][comp_idx] = decay;
         }
     }
+
+    fn get_note_frequency(&self, note_index: usize) -> f32 {
+        let notes = [
+            261.63, 293.66, 329.63, 349.23, 392.00, 440.00, 493.88, 523.25, 587.33,
+        ];
+        let octave_multiplier = 2.0_f32.powf(self.current_params.octave - 4.0);
+        notes[note_index] * octave_multiplier
+    }
+
+    fn update_envelope_config(&mut self) {
+        if let Some(ref mut synth) = self.gpu_synthesis {
+            synth.set_adsr(
+                self.current_params.attack_time,
+                self.current_params.decay_time,
+                self.current_params.sustain_level,
+                self.current_params.release_time,
+            );
+        }
+    }
 }
 
 impl ShaderManager for SynthManager {
@@ -70,26 +89,26 @@ impl ShaderManager for SynthManager {
 
         let initial_params = SynthParams {
             tempo: 120.0,
-            waveform_type: 1,
+            waveform_type: 0, // Start with sine for smoother sound
             octave: 4.0,
-            volume: 0.85,
-            beat_enabled: 1,
+            volume: 0.7,
+            beat_enabled: 0, // Disabled by default for cleaner testing
             reverb_mix: 0.15,
             delay_time: 0.3,
-            delay_feedback: 0.4,
-            filter_cutoff: 0.8,
+            delay_feedback: 0.3,
+            filter_cutoff: 0.9,
             filter_resonance: 0.1,
             distortion_amount: 0.0,
             chorus_rate: 2.0,
-            chorus_depth: 0.15,
-            attack_time: 0.015,
-            decay_time: 0.6,
-            sustain_level: 0.6,
-            release_time: 1.2,
-            fade_speed_initial: 0.92,
-            fade_speed_sustain: 0.96,
-            fade_speed_tail: 0.98,
+            chorus_depth: 0.1,
+            // Smooth envelope settings
+            attack_time: 0.02,    // 20ms attack - smooth start
+            decay_time: 0.15,     // 150ms decay
+            sustain_level: 0.7,   // 70% sustain
+            release_time: 0.4,    // 400ms release - smooth fade out
             _padding1: 0,
+            _padding2: 0,
+            _padding3: 0,
             key_states: [[0.0; 4]; 3],
             key_decay: [[0.0; 4]; 3],
         };
@@ -97,7 +116,7 @@ impl ShaderManager for SynthManager {
         let config = ComputeShader::builder()
             .with_entry_point("main")
             .with_custom_uniforms::<SynthParams>()
-            .with_audio(2048) // Audio buffer in Group 2
+            .with_audio(2048)
             .with_workgroup_size([16, 16, 1])
             .with_texture_format(COMPUTE_TEXTURE_FORMAT_RGBA16)
             .with_label("Synth Unified")
@@ -106,7 +125,6 @@ impl ShaderManager for SynthManager {
         let mut compute_shader =
             ComputeShader::from_builder(core, include_str!("shaders/synth.wgsl"), config);
 
-        // Enable hot reload
         if let Err(e) = compute_shader.enable_hot_reload(
             core.device.clone(),
             std::path::PathBuf::from("examples/shaders/synth.wgsl"),
@@ -121,9 +139,17 @@ impl ShaderManager for SynthManager {
 
         compute_shader.set_custom_params(initial_params, &core.queue);
 
-        // Initialize audio synthesis system
+        // Initialize audio synthesis with envelope configuration
         let gpu_synthesis = match SynthesisManager::new() {
             Ok(mut synth) => {
+                // Set initial envelope config
+                synth.set_envelope(EnvelopeConfig {
+                    attack_time: initial_params.attack_time,
+                    decay_time: initial_params.decay_time,
+                    sustain_level: initial_params.sustain_level,
+                    release_time: initial_params.release_time,
+                });
+
                 if let Err(_e) = synth.start_gpu_synthesis() {
                     None
                 } else {
@@ -138,14 +164,12 @@ impl ShaderManager for SynthManager {
             compute_shader,
             current_params: initial_params,
             gpu_synthesis,
-            key_press_times: [None; 9],
+            keys_held: [false; 9],
         }
     }
 
     fn update(&mut self, core: &Core) {
         self.base.fps_tracker.update();
-
-        // Check for hot reload updates
         self.compute_shader.check_hot_reload(&core.device);
 
         let current_time = self.base.controls.get_time(&self.base.start_time);
@@ -153,82 +177,43 @@ impl ShaderManager for SynthManager {
         self.compute_shader
             .set_time(current_time, delta, &core.queue);
 
-        // Update key states for GPU shader envelope computation
-        let mut keys_updated = false;
+        // Update GPU shader params for visualization
+        // The audio backend handles the actual envelope - we just need to track key states for visuals
+        let mut needs_update = false;
         for i in 0..9 {
-            if let Some(_press_time) = self.key_press_times[i] {
-                // Key is currently held - let GPU handle envelope progression
+            if self.keys_held[i] {
+                // Key is held - show full visualization
+                self.set_key_state(i, 1.0);
                 self.set_key_decay(i, 1.0);
-                keys_updated = true;
+                needs_update = true;
             } else {
-                // Key released - fade to silence
+                // Key released - get actual envelope level from audio backend for smooth visual
                 let current_decay = self.current_params.key_decay[i / 4][i % 4];
-                if current_decay > 0.005 {
-                    // Use customizable piano fade speeds
-                    let fade_speed = if current_decay > 0.8 {
-                        self.current_params.fade_speed_initial
-                    } else if current_decay > 0.4 {
-                        self.current_params.fade_speed_sustain
-                    } else {
-                        self.current_params.fade_speed_tail
-                    };
-                    let new_decay = current_decay * fade_speed;
+                if current_decay > 0.01 {
+                    // Smooth visual fade (the audio backend handles actual audio envelope)
+                    let new_decay = current_decay * 0.92;
                     self.set_key_decay(i, new_decay);
-                    keys_updated = true;
-                } else {
-                    // Fade complete
-                    self.set_key_state(i, 0.0);
-                    self.set_key_decay(i, 0.0);
+                    if new_decay < 0.01 {
+                        self.set_key_state(i, 0.0);
+                    }
+                    needs_update = true;
                 }
             }
         }
 
-        if keys_updated {
+        if needs_update {
             self.compute_shader
                 .set_custom_params(self.current_params, &core.queue);
         }
 
-        // Read GPU shader-generated audio parameters from the audio buffer
-        // The GPU writes audio parameters to the buffer every frame
-        if self.base.time_uniform.data.frame % 5 == 0 {
-            if let Some(ref mut synth) = self.gpu_synthesis {
-                // Update waveform type from GPU shader params (the GPU updates this)
-                synth.update_waveform(self.current_params.waveform_type);
-
-                // Control individual voices using GPU-computed frequencies and envelopes
-                for i in 0..9 {
-                    let key_state = self.current_params.key_states[i / 4][i % 4];
-                    let key_decay = self.current_params.key_decay[i / 4][i % 4];
-
-                    if key_state > 0.5 || key_decay > 0.001 {
-                        // Calculate frequency for this key (C major scale)
-                        let notes = [
-                            261.63, 293.66, 329.63, 349.23, 392.00, 440.00, 493.88, 523.25, 587.33,
-                        ];
-                        let octave_multiplier = 2.0_f32.powf(self.current_params.octave - 4.0);
-                        let frequency = notes[i] * octave_multiplier;
-
-                        // Use key_decay as envelope amplitude (fades out when key released)
-                        let amplitude = key_decay * self.current_params.volume * 0.15;
-                        let active = key_decay > 0.001;
-
-                        synth.set_voice(i, frequency, amplitude, active);
-                    } else {
-                        synth.set_voice(i, 440.0, 0.0, false);
-                    }
-                }
-
-                // Background beat if enabled
-                if self.current_params.beat_enabled > 0 {
-                    let beat_freq = self.current_params.tempo * 2.0;
-                    let beat_time = self.base.time_uniform.data.time * beat_freq / 60.0;
-                    let beat_amp = if beat_time.fract() < 0.1 { 0.1 } else { 0.0 };
-                    synth.set_voice(8, beat_freq, beat_amp, beat_amp > 0.0);
-                }
-            }
-        }
-
+        // Update audio synthesis
         if let Some(ref mut synth) = self.gpu_synthesis {
+            // Update waveform
+            synth.update_waveform(self.current_params.waveform_type);
+            synth.set_master_volume(self.current_params.volume as f64);
+
+            // The audio manager handles envelopes internally
+            // We just need to call update() to process envelope states
             synth.update();
         }
     }
@@ -285,7 +270,7 @@ impl ShaderManager for SynthManager {
                             .show(ui, |ui| {
                                 ui.label("🎹 GPU-powered polyphonic synthesizer");
                                 ui.label("• Press keys 1-9 for musical notes");
-                                ui.label("• All audio generated on GPU compute shaders");
+                                ui.label("• Smooth ADSR envelopes prevent clicks");
                                 ui.label("• Real-time effects processing");
                                 ui.label("• Visual feedback with spectrum bars");
                             });
@@ -337,74 +322,70 @@ impl ShaderManager for SynthManager {
                             });
 
                         egui::CollapsingHeader::new("Envelope (ADSR)")
-                            .default_open(false)
+                            .default_open(true)
                             .show(ui, |ui| {
-                                changed |= ui
+                                ui.label("Controls click-free sound transitions");
+                                ui.separator();
+                                
+                                let attack_changed = ui
                                     .add(
-                                        egui::Slider::new(&mut params.attack_time, 0.001..=2.0)
+                                        egui::Slider::new(&mut params.attack_time, 0.001..=0.5)
                                             .logarithmic(true)
-                                            .text("Attack"),
+                                            .text("Attack")
+                                            .suffix("s"),
                                     )
                                     .changed();
-                                changed |= ui
+                                let decay_changed = ui
                                     .add(
-                                        egui::Slider::new(&mut params.decay_time, 0.01..=3.0)
+                                        egui::Slider::new(&mut params.decay_time, 0.01..=1.0)
                                             .logarithmic(true)
-                                            .text("Decay"),
+                                            .text("Decay")
+                                            .suffix("s"),
                                     )
                                     .changed();
-                                changed |= ui
+                                let sustain_changed = ui
                                     .add(
                                         egui::Slider::new(&mut params.sustain_level, 0.0..=1.0)
                                             .text("Sustain"),
                                     )
                                     .changed();
-                                changed |= ui
+                                let release_changed = ui
                                     .add(
-                                        egui::Slider::new(&mut params.release_time, 0.01..=5.0)
+                                        egui::Slider::new(&mut params.release_time, 0.01..=2.0)
                                             .logarithmic(true)
-                                            .text("Release"),
-                                    )
-                                    .changed();
-                            });
-
-                        egui::CollapsingHeader::new("Response")
-                            .default_open(false)
-                            .show(ui, |ui| {
-                                changed |= ui
-                                    .add(
-                                        egui::Slider::new(
-                                            &mut params.fade_speed_initial,
-                                            0.5..=0.999,
-                                        )
-                                        .text("Initial")
-                                        .custom_formatter(|n, _| format!("{n:.3}")),
-                                    )
-                                    .changed();
-                                changed |= ui
-                                    .add(
-                                        egui::Slider::new(
-                                            &mut params.fade_speed_sustain,
-                                            0.5..=0.999,
-                                        )
-                                        .text("Sustain")
-                                        .custom_formatter(|n, _| format!("{n:.3}")),
-                                    )
-                                    .changed();
-                                changed |= ui
-                                    .add(
-                                        egui::Slider::new(&mut params.fade_speed_tail, 0.5..=0.999)
-                                            .text("Tail")
-                                            .custom_formatter(|n, _| format!("{n:.3}")),
+                                            .text("Release")
+                                            .suffix("s"),
                                     )
                                     .changed();
 
-                                if ui.small_button("Reset").clicked() {
-                                    params.fade_speed_initial = 0.92;
-                                    params.fade_speed_sustain = 0.96;
-                                    params.fade_speed_tail = 0.98;
+                                if attack_changed || decay_changed || sustain_changed || release_changed {
                                     changed = true;
                                 }
+
+                                ui.separator();
+                                if ui.small_button("Piano Preset").clicked() {
+                                    params.attack_time = 0.01;
+                                    params.decay_time = 0.3;
+                                    params.sustain_level = 0.5;
+                                    params.release_time = 0.8;
+                                    changed = true;
+                                }
+                                ui.horizontal(|ui| {
+                                    if ui.small_button("Pad Preset").clicked() {
+                                        params.attack_time = 0.2;
+                                        params.decay_time = 0.5;
+                                        params.sustain_level = 0.8;
+                                        params.release_time = 1.5;
+                                        changed = true;
+                                    }
+                                    if ui.small_button("Pluck Preset").clicked() {
+                                        params.attack_time = 0.005;
+                                        params.decay_time = 0.1;
+                                        params.sustain_level = 0.3;
+                                        params.release_time = 0.2;
+                                        changed = true;
+                                    }
+                                });
                             });
 
                         egui::CollapsingHeader::new("Filter")
@@ -477,11 +458,12 @@ impl ShaderManager for SynthManager {
         if changed {
             self.current_params = params;
             self.compute_shader.set_custom_params(params, &core.queue);
+            // Update envelope config in audio backend
+            self.update_envelope_config();
         }
 
         self.base.apply_control_request(controls_request);
 
-        // Single stage dispatch
         self.compute_shader.dispatch(&mut encoder, core);
 
         {
@@ -517,41 +499,40 @@ impl ShaderManager for SynthManager {
         }
 
         if let WindowEvent::KeyboardInput { event, .. } = event {
-            if event.state == winit::event::ElementState::Pressed {
-                if let winit::keyboard::Key::Character(ref s) = event.logical_key {
-                    if let Some(key_index) = s.chars().next().and_then(|c| c.to_digit(10)) {
-                        if (1..=9).contains(&key_index) {
-                            let index = (key_index - 1) as usize;
+            if let winit::keyboard::Key::Character(ref s) = event.logical_key {
+                if let Some(key_index) = s.chars().next().and_then(|c| c.to_digit(10)) {
+                    if (1..=9).contains(&key_index) {
+                        let index = (key_index - 1) as usize;
+                        let frequency = self.get_note_frequency(index);
 
-                            // Only start if not already pressed (prevent retriggering)
-                            if self.key_press_times[index].is_none() {
-                                self.key_press_times[index] = Some(std::time::Instant::now());
+                        if event.state == winit::event::ElementState::Pressed {
+                            // Only trigger if not already held (prevent retriggering on key repeat)
+                            if !self.keys_held[index] {
+                                self.keys_held[index] = true;
+                                
+                                // Update visual state
                                 self.set_key_state(index, 1.0);
                                 self.set_key_decay(index, 1.0);
                                 self.compute_shader
                                     .set_custom_params(self.current_params, &core.queue);
-                            }
-                            return true;
-                        }
-                    }
-                }
-            } else if event.state == winit::event::ElementState::Released {
-                // Handle key release for smooth fade-out
-                if let winit::keyboard::Key::Character(ref s) = event.logical_key {
-                    if let Some(key_index) = s.chars().next().and_then(|c| c.to_digit(10)) {
-                        if (1..=9).contains(&key_index) {
-                            let index = (key_index - 1) as usize;
 
-                            // Start fade-out process
-                            if self.key_press_times[index].is_some() {
-                                self.key_press_times[index] = None; // This triggers fade-out in update()
-                                self.set_key_state(index, 0.0);
-                                // Keep current decay value for smooth fade
-                                self.compute_shader
-                                    .set_custom_params(self.current_params, &core.queue);
+                                // Trigger note in audio backend (handles envelope automatically)
+                                if let Some(ref mut synth) = self.gpu_synthesis {
+                                    let amplitude = self.current_params.volume * 0.4;
+                                    synth.set_voice(index, frequency, amplitude, true);
+                                }
                             }
-                            return true;
+                        } else if event.state == winit::event::ElementState::Released {
+                            self.keys_held[index] = false;
+                            
+                            // Release note in audio backend (will fade out with envelope)
+                            if let Some(ref mut synth) = self.gpu_synthesis {
+                                synth.set_voice(index, frequency, 0.0, false);
+                            }
+                            
+                            // Visual state will fade in update()
                         }
+                        return true;
                     }
                 }
             }
