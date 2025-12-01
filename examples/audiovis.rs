@@ -54,7 +54,7 @@ impl ShaderManager for AudioVisCompute {
         let config = ComputeShader::builder()
             .with_entry_point("main")
             .with_custom_uniforms::<AudioVisParams>()
-            .with_audio_spectrum(64) // 64 frequency bands
+            .with_audio_spectrum(65) // 64 frequency bands + 1 BPM value
             .with_workgroup_size([16, 16, 1])
             .with_texture_format(COMPUTE_TEXTURE_FORMAT_RGBA16)
             .with_label("Audio Visualizer Compute")
@@ -331,8 +331,8 @@ impl ShaderManager for AudioVisCompute {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    cuneus::gst::init()?;
     env_logger::init();
+    cuneus::gst::init()?;
     let (app, event_loop) = ShaderApp::new("Audio Visualizer", 800, 600);
 
     app.run(event_loop, AudioVisCompute::init)
