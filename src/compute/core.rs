@@ -1371,14 +1371,14 @@ impl ComputeShader {
             spectrum_data[64] = resolution_uniform.bpm;
 
             // Debug: to see audio spectrum data flow
-             let total_energy: f32 = spectrum_data[..64].iter().sum();
-             if total_energy > 0.01 {
-                 log::info!(
-                     "Audio spectrum: energy={:.3}, BPM={:.1}",
-                     total_energy,
-                     spectrum_data[64]
-                 );
-             }
+            let total_energy: f32 = spectrum_data[..64].iter().sum();
+            if total_energy > 0.01 {
+                log::info!(
+                    "Audio spectrum: energy={:.3}, BPM={:.1}",
+                    total_energy,
+                    spectrum_data[64]
+                );
+            }
 
             // Write the spectrum data to the buffer (including BPM)
             queue.write_buffer(buffer, 0, bytemuck::cast_slice(&spectrum_data));

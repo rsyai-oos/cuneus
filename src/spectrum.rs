@@ -73,8 +73,10 @@ impl SpectrumAnalyzer {
                         };
 
                         // sanity: to see RMS normalization values
-                        info!("Audio Level - RMS: {:.2}dB, Peak: {:.3}, Gain: {:.2}x",
-                               current_rms_db, audio_level.peak, adaptive_gain);
+                        info!(
+                            "Audio Level - RMS: {:.2}dB, Peak: {:.3}, Gain: {:.2}x",
+                            current_rms_db, audio_level.peak, adaptive_gain
+                        );
 
                         // Process only first 64 bands (note that, we actually have 128 but its expensiive)
                         for i in 0..64 {

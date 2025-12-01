@@ -192,7 +192,6 @@ impl VideoTextureManager {
         let spectrum_data_clone2 = spectrum_data.clone();
         // Bus watch for pipeline messages (errors, warnings, EOS)
         let watch_result = bus.add_watch(move |_, message| {
-
             match message.view() {
                 gst::MessageView::Element(element) => {
                     if let Some(structure) = element.structure() {
@@ -207,13 +206,14 @@ impl VideoTextureManager {
                             let mut magnitude_values = Vec::new();
 
                             // Method 1: Direct indexing
-                            for i in 0..5 {  // Just try first 5 bands initially
+                            for i in 0..5 {
+                                // Just try first 5 bands initially
                                 let field_name = format!("magnitude[{i}]");
                                 match structure.get::<f32>(&field_name) {
                                     Ok(value) => {
                                         info!("Method 1 - Band {i}: {value} dB");
                                         magnitude_values.push(value);
-                                    },
+                                    }
                                     Err(e) => {
                                         info!("Method 1 failed: {e:?}");
                                         break;
@@ -250,13 +250,17 @@ impl VideoTextureManager {
                                 info!("Extracted {} magnitude values", magnitude_values.len());
 
                                 // Calculate average magnitude
-                                let avg_magnitude = magnitude_values.iter().sum::<f32>() / magnitude_values.len() as f32;
+                                let avg_magnitude = magnitude_values.iter().sum::<f32>()
+                                    / magnitude_values.len() as f32;
                                 info!("Average magnitude: {avg_magnitude:.2} dB");
 
                                 // Find peak frequency
-                                if let Some((peak_idx, &peak_val)) = magnitude_values.iter()
+                                if let Some((peak_idx, &peak_val)) = magnitude_values
+                                    .iter()
                                     .enumerate()
-                                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                                    .max_by(|(_, a), (_, b)| {
+                                        a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
+                                    })
                                 {
                                     info!("Peak frequency: band {peak_idx} at {peak_val:.2} dB");
                                 }
@@ -271,7 +275,9 @@ impl VideoTextureManager {
                                     };
                                 }
                             } else {
-                                warn!("Failed to extract any magnitude values from spectrum message");
+                                warn!(
+                                    "Failed to extract any magnitude values from spectrum message"
+                                );
                             }
                         }
 
@@ -289,24 +295,28 @@ impl VideoTextureManager {
                                     }
                                 }
                                 if !rms_values.is_empty() {
-                                    info!("Level RMS values: {:?}", rms_values);
+                                    info!("Level RMS values: {rms_values:?}");
                                 }
                             }
                         }
 
                         // Note: BPM messages are handled in update_texture() with octave correction
-                            }
-                        },
-                        gst::MessageView::Tag(tag) => {
-                            let tags = tag.tags();
-                            // Note: BPM tags are ignored - we use bpmdetect messages with octave correction instead
-                            if let Some(bpm) = tags.get::<gst::tags::BeatsPerMinute>() {
-                                info!("BPM tag detected (ignored): {:.1}", bpm.get());
                     }
-                },
+                }
+                gst::MessageView::Tag(tag) => {
+                    let tags = tag.tags();
+                    // Note: BPM tags are ignored - we use bpmdetect messages with octave correction instead
+                    if let Some(bpm) = tags.get::<gst::tags::BeatsPerMinute>() {
+                        info!("BPM tag detected (ignored): {:.1}", bpm.get());
+                    }
+                }
                 gst::MessageView::Error(err) => {
-                    error!("Pipeline error: {} ({})", err.error(), err.debug().unwrap_or_default());
-                },
+                    error!(
+                        "Pipeline error: {} ({})",
+                        err.error(),
+                        err.debug().unwrap_or_default()
+                    );
+                }
                 _ => (),
             }
 
@@ -314,7 +324,7 @@ impl VideoTextureManager {
         });
 
         if let Err(e) = watch_result {
-            error!("Failed to add bus watch: {:?}", e);
+            error!("Failed to add bus watch: {e:?}");
         }
 
         decodebin.connect_pad_added(move |_, pad| {
@@ -747,7 +757,6 @@ impl VideoTextureManager {
                                 if let Some(structure) = element.structure() {
                                     //spectrum data
                                     if structure.name() == "spectrum" {
-
                                         // Extract magnitude values - two possible approaches
                                         let mut magnitude_values = Vec::with_capacity(128);
 
@@ -890,7 +899,9 @@ impl VideoTextureManager {
                                         let mut rms_db_val = None;
                                         let mut peak_val = None;
 
-                                        if let Ok(rms_list) = structure.get::<gst::glib::ValueArray>("rms") {
+                                        if let Ok(rms_list) =
+                                            structure.get::<gst::glib::ValueArray>("rms")
+                                        {
                                             for val in rms_list.iter() {
                                                 if let Ok(rms_db) = val.get::<f64>() {
                                                     rms_db_val = Some(rms_db);
@@ -899,7 +910,9 @@ impl VideoTextureManager {
                                             }
                                         }
 
-                                        if let Ok(peak_list) = structure.get::<gst::glib::ValueArray>("peak") {
+                                        if let Ok(peak_list) =
+                                            structure.get::<gst::glib::ValueArray>("peak")
+                                        {
                                             for val in peak_list.iter() {
                                                 if let Ok(peak_db) = val.get::<f64>() {
                                                     // Convert dB to linear (0.0 to 1.0)
@@ -940,19 +953,22 @@ impl VideoTextureManager {
                                                     let mut corrected_bpm = bpm_val;
                                                     let mut halving_count = 0;
 
-                                                    while corrected_bpm > 110.0 && halving_count < 3 {
+                                                    while corrected_bpm > 110.0 && halving_count < 3
+                                                    {
                                                         corrected_bpm /= 2.0;
                                                         halving_count += 1;
                                                     }
 
                                                     // If still too low after potential halving, try doubling
-                                                    if corrected_bpm < 50.0 && corrected_bpm * 2.0 < 140.0 {
+                                                    if corrected_bpm < 50.0
+                                                        && corrected_bpm * 2.0 < 140.0
+                                                    {
                                                         corrected_bpm *= 2.0;
-                                                        info!("Initial BPM doubled: {:.1} → {:.1}", bpm_val, corrected_bpm);
+                                                        info!("Initial BPM doubled: {bpm_val:.1} → {corrected_bpm:.1}");
                                                     } else if halving_count > 0 {
-                                                        info!("Initial BPM halved {}x: {:.1} → {:.1}", halving_count, bpm_val, corrected_bpm);
+                                                        info!("Initial BPM halved {halving_count}x: {bpm_val:.1} → {corrected_bpm:.1}");
                                                     } else {
-                                                        info!("Initial BPM in range: {:.1}", corrected_bpm);
+                                                        info!("Initial BPM in range: {corrected_bpm:.1}");
                                                     }
 
                                                     *bpm_lock = corrected_bpm;
@@ -966,21 +982,22 @@ impl VideoTextureManager {
                                                         let halved = new_bpm / 2.0;
                                                         if (60.0..=110.0).contains(&halved) {
                                                             new_bpm = halved;
-                                                            info!("New BPM halved: {:.1} → {:.1}", bpm_val, new_bpm);
+                                                            info!("New BPM halved: {bpm_val:.1} → {new_bpm:.1}");
                                                         }
                                                     } else if new_bpm < 50.0 {
                                                         // If new detection is low, try doubling
                                                         let doubled = new_bpm * 2.0;
                                                         if (60.0..=110.0).contains(&doubled) {
                                                             new_bpm = doubled;
-                                                            info!("New BPM doubled: {:.1} → {:.1}", bpm_val, new_bpm);
+                                                            info!("New BPM doubled: {bpm_val:.1} → {new_bpm:.1}");
                                                         }
                                                     }
 
                                                     // Strong smoothing to prevent jumps - heavily favor current BPM
-                                                    let smoothed = current_bpm * 0.9 + new_bpm * 0.1;
+                                                    let smoothed =
+                                                        current_bpm * 0.9 + new_bpm * 0.1;
                                                     *bpm_lock = smoothed;
-                                                    info!("   Final BPM: {:.1} (smoothed from {:.1})", smoothed, new_bpm);
+                                                    info!("   Final BPM: {smoothed:.1} (smoothed from {new_bpm:.1})");
                                                 }
 
                                                 info!("BPM set to: {:.1}", *bpm_lock);
@@ -1011,14 +1028,16 @@ impl VideoTextureManager {
                                                     halving_count += 1;
                                                 }
 
-                                                if corrected_bpm < 50.0 && corrected_bpm * 2.0 < 140.0 {
+                                                if corrected_bpm < 50.0
+                                                    && corrected_bpm * 2.0 < 140.0
+                                                {
                                                     corrected_bpm *= 2.0;
                                                 } else if halving_count > 0 {
-                                                    info!("BPM octave corrected: {:.1} → {:.1}", bpm_val, corrected_bpm);
+                                                    info!("BPM octave corrected: {bpm_val:.1} → {corrected_bpm:.1}");
                                                 }
 
                                                 *bpm_lock = corrected_bpm;
-                                                info!("BPM initialized: {:.1}", corrected_bpm);
+                                                info!("BPM initialized: {corrected_bpm:.1}");
                                             } else if bpm_val > 0.0 {
                                                 // Subsequent detections
                                                 let mut new_bpm = bpm_val;

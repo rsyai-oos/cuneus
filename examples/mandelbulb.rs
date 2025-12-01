@@ -292,11 +292,9 @@ impl ShaderManager for MandelbulbShader {
                                 ui.separator();
                                 let old_mouse_enabled = self.mouse_enabled;
                                 ui.checkbox(&mut self.mouse_enabled, "Mouse Camera Control");
-                                if self.mouse_enabled != old_mouse_enabled {
-                                    if !self.mouse_enabled {
-                                        self.stored_mouse_position = current_mouse_position;
-                                        self.should_reset_accumulation = true;
-                                    }
+                                if self.mouse_enabled != old_mouse_enabled && !self.mouse_enabled {
+                                    self.stored_mouse_position = current_mouse_position;
+                                    self.should_reset_accumulation = true;
                                 }
                                 if !self.mouse_enabled {
                                     ui.colored_label(
@@ -649,7 +647,8 @@ impl ShaderManager for MandelbulbShader {
                     "m" | "M" => {
                         if event.state == winit::event::ElementState::Released {
                             if self.mouse_enabled {
-                                self.stored_mouse_position = self.base.mouse_tracker.uniform.position;
+                                self.stored_mouse_position =
+                                    self.base.mouse_tracker.uniform.position;
                             }
                             self.mouse_enabled = !self.mouse_enabled;
                             if !self.mouse_enabled {
