@@ -47,13 +47,34 @@ impl SpectrumAnalyzer {
             if let Some(video_manager) = video_texture_manager {
                 if video_manager.has_audio() {
                     let spectrum_data = video_manager.spectrum_data();
+                    let audio_level = video_manager.audio_level();
                     resolution_uniform.data.bpm = video_manager.get_bpm();
-                    info!("BPM: {}", resolution_uniform.data.bpm);
 
                     if !spectrum_data.magnitudes.is_empty() {
                         let bands = spectrum_data.bands;
                         // Highly sensitive threshold for detecting subtle high frequencies
                         let threshold: f32 = -60.0;
+
+                        // Calculate adaptive gain based on RMS
+                        // Target RMS: -20dB (moderate loudness)
+                        // Loud songs (metal): RMS ~ -10dB → gain < 1.0 (reduce)
+                        // Quiet songs: RMS ~ -30dB → gain > 1.0 (boost)
+                        let target_rms_db = -20.0;
+                        let current_rms_db = audio_level.rms_db as f32;
+                        let adaptive_gain = if current_rms_db > -100.0 {
+                            // Calculate gain to bring current RMS closer to target
+                            let db_diff = target_rms_db - current_rms_db;
+                            // Convert dB difference to linear gain (every 6dB ≈ 2x amplitude)
+                            let gain = 10.0_f32.powf(db_diff / 20.0);
+                            // Clamp to reasonable range (0.3 to 3.0)
+                            gain.max(0.3).min(3.0)
+                        } else {
+                            1.0 // No adjustment if RMS is invalid
+                        };
+
+                        // sanity: to see RMS normalization values
+                        info!("Audio Level - RMS: {:.2}dB, Peak: {:.3}, Gain: {:.2}x",
+                               current_rms_db, audio_level.peak, adaptive_gain);
 
                         // Process only first 64 bands (note that, we actually have 128 but its expensiive)
                         for i in 0..64 {
@@ -74,8 +95,9 @@ impl SpectrumAnalyzer {
                                     }
                                 }
                                 // Map from dB scale to 0-1
-                                let normalized =
+                                let mut normalized =
                                     ((peak - threshold) / -threshold).max(0.0).min(1.0);
+                                normalized = (normalized * adaptive_gain).min(1.0);
                                 // Apply frequency-specific processing that's balanced
                                 // Lower boost for bass, higher boost for treble
                                 let enhanced = if band_percent < 0.2 {
