@@ -23,6 +23,16 @@ pub struct SpectrumData {
     pub timestamp: Option<gst::ClockTime>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct AudioLevel {
+    /// RMS in linear scale (0.0 to 1.0)
+    pub rms: f64,
+    /// RMS in decibels
+    pub rms_db: f64,
+    /// Peak value in linear scale (0.0 to 1.0)
+    pub peak: f64,
+}
+
 /// Here I created a struct to organize the video text mang.
 /// Manages a video texture that can be updated frame by frame
 pub struct VideoTextureManager {
@@ -68,6 +78,8 @@ pub struct VideoTextureManager {
     spectrum_threshold: i32,
     /// Spectrum data from the most recent analysis
     spectrum_data: Arc<Mutex<SpectrumData>>,
+    /// Audio level data (RMS, peak) for normalization
+    audio_level: Arc<Mutex<AudioLevel>>,
     /// bpm
     bpm_value: Arc<Mutex<f32>>,
 }
@@ -173,21 +185,13 @@ impl VideoTextureManager {
         let spectrum_threshold = -60;
         let spectrum_enabled = true;
         let spectrum_data = Arc::new(Mutex::new(SpectrumData::default()));
+        let audio_level = Arc::new(Mutex::new(AudioLevel::default()));
 
         // bus watch for spectrum messages with debug
         let bus = pipeline.bus().expect("Pipeline has no bus");
         let spectrum_data_clone2 = spectrum_data.clone();
-        let bpm_value_clone = Arc::new(Mutex::new(0.0));
-        // message handler for spectrum messages (these are my sanity checks)
-        let _ = bus.add_watch(move |_, message| {
-            // Log ALL message types
-            info!("Bus message received: type={:?}", message.type_());
-
-            // Print source information
-            if let Some(src) = message.src() {
-                info!("Message source: {}", src.name());
-            }
-
+        // Bus watch for pipeline messages (errors, warnings, EOS)
+        let watch_result = bus.add_watch(move |_, message| {
             match message.view() {
                 gst::MessageView::Element(element) => {
                     if let Some(structure) = element.structure() {
@@ -202,15 +206,16 @@ impl VideoTextureManager {
                             let mut magnitude_values = Vec::new();
 
                             // Method 1: Direct indexing
-                            for i in 0..5 {  // Just try first 5 bands initially
+                            for i in 0..5 {
+                                // Just try first 5 bands initially
                                 let field_name = format!("magnitude[{i}]");
                                 match structure.get::<f32>(&field_name) {
                                     Ok(value) => {
-                                        info!("✅ Method 1 - Band {i}: {value} dB");
+                                        info!("Method 1 - Band {i}: {value} dB");
                                         magnitude_values.push(value);
-                                    },
+                                    }
                                     Err(e) => {
-                                        info!("❌ Method 1 failed: {e:?}");
+                                        info!("Method 1 failed: {e:?}");
                                         break;
                                     }
                                 }
@@ -218,9 +223,9 @@ impl VideoTextureManager {
 
                             // Method 2: Try to access magnitude as array field
                             if structure.has_field("magnitude") {
-                                info!("✅ Structure has 'magnitude' field");
+                                info!("Structure has 'magnitude' field");
                             } else {
-                                info!("❌ Structure does NOT have 'magnitude' field");
+                                info!("Structure does NOT have 'magnitude' field");
                             }
 
                             // Method 3: Parse from structure string
@@ -245,13 +250,17 @@ impl VideoTextureManager {
                                 info!("Extracted {} magnitude values", magnitude_values.len());
 
                                 // Calculate average magnitude
-                                let avg_magnitude = magnitude_values.iter().sum::<f32>() / magnitude_values.len() as f32;
+                                let avg_magnitude = magnitude_values.iter().sum::<f32>()
+                                    / magnitude_values.len() as f32;
                                 info!("Average magnitude: {avg_magnitude:.2} dB");
 
                                 // Find peak frequency
-                                if let Some((peak_idx, &peak_val)) = magnitude_values.iter()
+                                if let Some((peak_idx, &peak_val)) = magnitude_values
+                                    .iter()
                                     .enumerate()
-                                    .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+                                    .max_by(|(_, a), (_, b)| {
+                                        a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
+                                    })
                                 {
                                     info!("Peak frequency: band {peak_idx} at {peak_val:.2} dB");
                                 }
@@ -266,46 +275,57 @@ impl VideoTextureManager {
                                     };
                                 }
                             } else {
-                                warn!("⚠️ Failed to extract any magnitude values from spectrum message");
+                                warn!(
+                                    "Failed to extract any magnitude values from spectrum message"
+                                );
                             }
                         }
 
-                        if structure.name() == "bpm" || structure.name().contains("bpm") {
-                                    info!("BPM MESSAGE DETECTED");
-                                    info!("Full BPM structure: {structure}");
-                                    // Try to extract BPM value from structure
-                                    if let Ok(bpm_val) = structure.get::<f32>("bpm") {
-                                        info!("BPM detected: {bpm_val:.1}");
-                                        // Update our stored BPM value
-                                        if let Ok(mut bpm_lock) = bpm_value_clone.lock() {
-                                            *bpm_lock = bpm_val;
-                                        }
+                        // Handle level messages for RMS/peak/decay
+                        if structure.name() == "level" {
+                            info!("LEVEL MESSAGE DETECTED");
+                            info!("Level structure: {structure}");
+
+                            // Extract RMS, peak, and decay values
+                            if let Ok(rms_list) = structure.get::<gst::glib::ValueArray>("rms") {
+                                let mut rms_values = Vec::new();
+                                for val in rms_list.iter() {
+                                    if let Ok(rms_db) = val.get::<f64>() {
+                                        rms_values.push(rms_db);
                                     }
+                                }
+                                if !rms_values.is_empty() {
+                                    info!("Level RMS values: {rms_values:?}");
                                 }
                             }
-                        },
-                        gst::MessageView::Tag(tag) => {
-                            let tags = tag.tags();
-                            // Check for BPM tag
-                            if let Some(bpm) = tags.get::<gst::tags::BeatsPerMinute>() {
-                                let bpm_val = bpm.get();
-                                info!("BPM tag detected: {bpm_val:.1}");
+                        }
 
-                                if bpm_val > 0.0 {
-                                    if let Ok(mut bpm_lock) = bpm_value_clone.lock() {
-                                        *bpm_lock = bpm_val as f32;
-                                    }
-                                }
+                        // Note: BPM messages are handled in update_texture() with octave correction
                     }
-                },
+                }
+                gst::MessageView::Tag(tag) => {
+                    let tags = tag.tags();
+                    // Note: BPM tags are ignored - we use bpmdetect messages with octave correction instead
+                    if let Some(bpm) = tags.get::<gst::tags::BeatsPerMinute>() {
+                        info!("BPM tag detected (ignored): {:.1}", bpm.get());
+                    }
+                }
                 gst::MessageView::Error(err) => {
-                    error!("Pipeline error: {} ({})", err.error(), err.debug().unwrap_or_default());
-                },
+                    error!(
+                        "Pipeline error: {} ({})",
+                        err.error(),
+                        err.debug().unwrap_or_default()
+                    );
+                }
                 _ => (),
             }
 
             ControlFlow::Continue
-        }).map_err(|_| anyhow!("Failed to add bus watch"));
+        });
+
+        if let Err(e) = watch_result {
+            error!("Failed to add bus watch: {e:?}");
+        }
 
         decodebin.connect_pad_added(move |_, pad| {
             let caps = match pad.current_caps() {
@@ -364,6 +384,25 @@ impl VideoTextureManager {
                                 return;
                             }
                         };
+
+                        // level element for RMS/peak/decay analysis
+                        let level = match gst::ElementFactory::make("level")
+                            .name("level")
+                            .property("interval", 50000000u64)  // 50ms intervals (matches spectrum)
+                            .property("message", true)
+                            .property("post-messages", true)
+                            .build()
+                        {
+                            Ok(e) => {
+                                info!("Created level analyzer element");
+                                e
+                            }
+                            Err(_) => {
+                                warn!("Failed to create level element");
+                                return;
+                            }
+                        };
+
                         let bpmdetect = match gst::ElementFactory::make("bpmdetect")
                             .name("bpmdetect")
                             .build()
@@ -433,6 +472,7 @@ impl VideoTextureManager {
                             .add_many([
                                 &audioconvert,
                                 &audioresample,
+                                &level,
                                 &bpmdetect,
                                 &spectrum,
                                 &volume,
@@ -446,6 +486,7 @@ impl VideoTextureManager {
                         if let Err(e) = gst::Element::link_many([
                             &audioconvert,
                             &audioresample,
+                            &level,
                             &bpmdetect,
                             &spectrum,
                             &volume,
@@ -458,6 +499,7 @@ impl VideoTextureManager {
                         // Set elements to PAUSED state
                         let _ = audioconvert.sync_state_with_parent();
                         let _ = audioresample.sync_state_with_parent();
+                        let _ = level.sync_state_with_parent();
                         let _ = bpmdetect.sync_state_with_parent();
                         let _ = spectrum.sync_state_with_parent();
                         let _ = volume.sync_state_with_parent();
@@ -584,6 +626,7 @@ impl VideoTextureManager {
             spectrum_bands,
             spectrum_threshold,
             spectrum_data,
+            audio_level,
             bpm_value: Arc::new(Mutex::new(0.0)),
         };
         // Start pipeline in paused state to get video info
@@ -714,8 +757,6 @@ impl VideoTextureManager {
                                 if let Some(structure) = element.structure() {
                                     //spectrum data
                                     if structure.name() == "spectrum" {
-                                        info!("🎵 Spectrum data received");
-
                                         // Extract magnitude values - two possible approaches
                                         let mut magnitude_values = Vec::with_capacity(128);
 
@@ -852,161 +893,169 @@ impl VideoTextureManager {
                                         }
                                     }
 
-                                    // Check for BPM messages
-                                    if structure.name() == "bpm" || structure.name().contains("bpm")
-                                    {
-                                        info!("🎵 BPM data received");
-                                        info!("Full BPM structure: {structure}");
+                                    // Check for level messages (RMS/peak/decay)
+                                    if structure.name() == "level" {
+                                        // Extract RMS and peak values
+                                        let mut rms_db_val = None;
+                                        let mut peak_val = None;
 
-                                        // Try to extract BPM value directly
-                                        if let Ok(bpm_val) = structure.get::<f32>("bpm") {
-                                            info!("BPM detected: {bpm_val:.1}");
+                                        if let Ok(rms_list) =
+                                            structure.get::<gst::glib::ValueArray>("rms")
+                                        {
+                                            for val in rms_list.iter() {
+                                                if let Ok(rms_db) = val.get::<f64>() {
+                                                    rms_db_val = Some(rms_db);
+                                                    break; // Use first channel
+                                                }
+                                            }
+                                        }
+
+                                        if let Ok(peak_list) =
+                                            structure.get::<gst::glib::ValueArray>("peak")
+                                        {
+                                            for val in peak_list.iter() {
+                                                if let Ok(peak_db) = val.get::<f64>() {
+                                                    // Convert dB to linear (0.0 to 1.0)
+                                                    peak_val = Some(10.0_f64.powf(peak_db / 20.0));
+                                                    break; // Use first channel
+                                                }
+                                            }
+                                        }
+
+                                        if let (Some(rms_db), Some(peak)) = (rms_db_val, peak_val) {
+                                            // Convert RMS from dB to linear
+                                            let rms_linear = 10.0_f64.powf(rms_db / 20.0);
+
+                                            // Update audio_level data with level element values
+                                            if let Ok(mut level) = self.audio_level.lock() {
+                                                *level = AudioLevel {
+                                                    rms: rms_linear,
+                                                    rms_db,
+                                                    peak,
+                                                };
+                                            }
+                                        }
+                                    }
+
+                                    // Check for BPM messages from bpmdetect (structure name is "tempo")
+                                    // Note: This rarely triggers - bpmdetect primarily uses Tag messages
+                                    if structure.name() == "tempo" {
+                                        // bpmdetect posts "tempo" field
+                                        if let Ok(bpm_val) = structure.get::<f64>("tempo") {
+                                            let bpm_val = bpm_val as f32;
                                             if let Ok(mut bpm_lock) = self.bpm_value.lock() {
                                                 // Apply musical heuristics to handle tempo octave ambiguity: https://www.ifs.tuwien.ac.at/~knees/publications/hoerschlaeger_etal_smc_2015.pdf
                                                 let current_bpm = *bpm_lock;
 
                                                 if current_bpm == 0.0 && bpm_val > 0.0 {
-                                                    // First detection - apply preference for 70-150 BPM range
-                                                    if bpm_val > 150.0 {
-                                                        // If detected BPM is high, use half tempo
-                                                        *bpm_lock = bpm_val / 2.0;
-                                                        info!(
-                                                            "Initial BPM halved: {:.1} → {:.1}",
-                                                            bpm_val, *bpm_lock
-                                                        );
-                                                    } else if bpm_val < 70.0 {
-                                                        // If detected BPM is low, use double tempo
-                                                        *bpm_lock = bpm_val * 2.0;
-                                                        info!(
-                                                            "Initial BPM doubled: {:.1} → {:.1}",
-                                                            bpm_val, *bpm_lock
-                                                        );
-                                                    } else {
-                                                        // Within preferred range - use directly
-                                                        *bpm_lock = bpm_val;
+                                                    // First detection - aggressively prefer 60-110 BPM range
+                                                    // Keep halving until we're in a reasonable range
+                                                    let mut corrected_bpm = bpm_val;
+                                                    let mut halving_count = 0;
+
+                                                    while corrected_bpm > 110.0 && halving_count < 3
+                                                    {
+                                                        corrected_bpm /= 2.0;
+                                                        halving_count += 1;
                                                     }
+
+                                                    // If still too low after potential halving, try doubling
+                                                    if corrected_bpm < 50.0
+                                                        && corrected_bpm * 2.0 < 140.0
+                                                    {
+                                                        corrected_bpm *= 2.0;
+                                                        info!("Initial BPM doubled: {bpm_val:.1} → {corrected_bpm:.1}");
+                                                    } else if halving_count > 0 {
+                                                        info!("Initial BPM halved {halving_count}x: {bpm_val:.1} → {corrected_bpm:.1}");
+                                                    } else {
+                                                        info!("Initial BPM in range: {corrected_bpm:.1}");
+                                                    }
+
+                                                    *bpm_lock = corrected_bpm;
                                                 } else if current_bpm > 0.0 && bpm_val > 0.0 {
-                                                    // Subsequent detection - check for tempo octave jumps
-                                                    if bpm_val > current_bpm * 1.8
-                                                        && bpm_val < current_bpm * 2.2
-                                                    {
-                                                        // Double tempo detected - stay in preferred range if possible
-                                                        let target = if (70.0..=150.0)
-                                                            .contains(&current_bpm)
-                                                        {
-                                                            current_bpm // Keep current if already in good range
-                                                        } else if (70.0..=150.0).contains(&bpm_val)
-                                                        {
-                                                            bpm_val // Use new if it's in good range
-                                                        } else {
-                                                            // Neither in ideal range - prefer the lower value
-                                                            current_bpm
-                                                        };
-                                                        *bpm_lock = target;
-                                                        info!("Tempo doubling corrected: {:.1} → {:.1}", bpm_val, *bpm_lock);
-                                                    } else if bpm_val > current_bpm * 0.45
-                                                        && bpm_val < current_bpm * 0.55
-                                                    {
-                                                        // Half tempo detected - stay in preferred range if possible
-                                                        let target = if (70.0..=150.0)
-                                                            .contains(&current_bpm)
-                                                        {
-                                                            current_bpm // Keep current if already in good range
-                                                        } else if (70.0..=150.0).contains(&bpm_val)
-                                                        {
-                                                            bpm_val // Use new if it's in good range
-                                                        } else {
-                                                            // Neither in ideal range - prefer the higher value
-                                                            current_bpm
-                                                        };
-                                                        *bpm_lock = target;
-                                                        info!("Tempo halving corrected: {:.1} → {:.1}", bpm_val, *bpm_lock);
-                                                    } else {
-                                                        // Apply light smoothing to avoid jumps
-                                                        *bpm_lock =
-                                                            current_bpm * 0.8 + bpm_val * 0.2;
+                                                    // Subsequent detections - apply octave correction and smoothing
+                                                    let mut new_bpm = bpm_val;
+
+                                                    // Aggressively correct octave errors
+                                                    if new_bpm > 110.0 {
+                                                        // If new detection is high, try halving
+                                                        let halved = new_bpm / 2.0;
+                                                        if (60.0..=110.0).contains(&halved) {
+                                                            new_bpm = halved;
+                                                            info!("New BPM halved: {bpm_val:.1} → {new_bpm:.1}");
+                                                        }
+                                                    } else if new_bpm < 50.0 {
+                                                        // If new detection is low, try doubling
+                                                        let doubled = new_bpm * 2.0;
+                                                        if (60.0..=110.0).contains(&doubled) {
+                                                            new_bpm = doubled;
+                                                            info!("New BPM doubled: {bpm_val:.1} → {new_bpm:.1}");
+                                                        }
                                                     }
+
+                                                    // Strong smoothing to prevent jumps - heavily favor current BPM
+                                                    let smoothed =
+                                                        current_bpm * 0.9 + new_bpm * 0.1;
+                                                    *bpm_lock = smoothed;
+                                                    info!("   Final BPM: {smoothed:.1} (smoothed from {new_bpm:.1})");
                                                 }
+
+                                                info!("BPM set to: {:.1}", *bpm_lock);
                                             }
                                         }
                                     }
                                 }
                             }
-                            // Also check for tag messages as bpmdetect might send tags
+                            // Also check for tag messages - bpmdetect posts BPM as tags!
                             gst::MessageView::Tag(tag) => {
                                 let tags = tag.tags();
 
-                                // Check for BPM tag
+                                // Check for BPM tag from bpmdetect
                                 if let Some(bpm) = tags.get::<gst::tags::BeatsPerMinute>() {
-                                    let bpm_val = bpm.get();
-                                    info!("BPM tag detected: {bpm_val:.1}");
+                                    let bpm_val = bpm.get() as f32;
 
                                     if bpm_val > 0.0 {
-                                        // Update stored BPM value with musical heuristics
                                         if let Ok(mut bpm_lock) = self.bpm_value.lock() {
                                             let current_bpm = *bpm_lock;
-                                            let bpm_val_f32 = bpm_val as f32;
 
-                                            // Tags are usually pre-processed, but I ll apply heuristics anyway
                                             if current_bpm == 0.0 {
-                                                // First detection - apply preference for 70-150 BPM range
-                                                if bpm_val_f32 > 150.0 {
-                                                    *bpm_lock = bpm_val_f32 / 2.0;
-                                                    info!(
-                                                        "Tag BPM halved: {:.1} → {:.1}",
-                                                        bpm_val, *bpm_lock as f64
-                                                    );
-                                                } else if bpm_val_f32 < 70.0 {
-                                                    *bpm_lock = bpm_val_f32 * 2.0;
-                                                    info!(
-                                                        "Tag BPM doubled: {:.1} → {:.1}",
-                                                        bpm_val, *bpm_lock as f64
-                                                    );
-                                                } else {
-                                                    *bpm_lock = bpm_val_f32;
-                                                }
-                                            } else {
-                                                // Check for octave relationship and prefer values in 70-150 range
-                                                let double_current = current_bpm * 2.0;
-                                                let half_current = current_bpm / 2.0;
+                                                // First detection - aggressively prefer 60-110 BPM range
+                                                let mut corrected_bpm = bpm_val;
+                                                let mut halving_count = 0;
 
-                                                if (bpm_val_f32 > current_bpm * 1.8
-                                                    && bpm_val_f32 < current_bpm * 2.2)
-                                                    || (bpm_val_f32 > current_bpm * 0.45
-                                                        && bpm_val_f32 < current_bpm * 0.55)
+                                                while corrected_bpm > 110.0 && halving_count < 3 {
+                                                    corrected_bpm /= 2.0;
+                                                    halving_count += 1;
+                                                }
+
+                                                if corrected_bpm < 50.0
+                                                    && corrected_bpm * 2.0 < 140.0
                                                 {
-                                                    // Octave relationship detected
-                                                    // Choose value in preferred range
-                                                    let candidates = [
-                                                        bpm_val_f32,
-                                                        current_bpm,
-                                                        double_current,
-                                                        half_current,
-                                                    ];
-                                                    let preferred = candidates
-                                                        .iter()
-                                                        .filter(|&&v| (70.0..=150.0).contains(&v))
-                                                        .min_by(|a, b| {
-                                                            let a_dist = (**a - 110.0).abs();
-                                                            let b_dist = (**b - 110.0).abs();
-                                                            a_dist.partial_cmp(&b_dist).unwrap_or(
-                                                                std::cmp::Ordering::Equal,
-                                                            )
-                                                        });
-
-                                                    if let Some(&best_bpm) = preferred {
-                                                        *bpm_lock = best_bpm;
-                                                        info!("Tag BPM adjusted to preferred range: {:.1} → {:.1}", bpm_val, *bpm_lock as f64);
-                                                    } else {
-                                                        // No value in preferred range, use tag value
-                                                        *bpm_lock = bpm_val_f32;
-                                                    }
-                                                } else {
-                                                    // Not an octave relationship - tags are usually reliable
-                                                    // Use 30% weighting for current value to avoid abrupt changes
-                                                    *bpm_lock =
-                                                        current_bpm * 0.3 + bpm_val_f32 * 0.7;
+                                                    corrected_bpm *= 2.0;
+                                                } else if halving_count > 0 {
+                                                    info!("BPM octave corrected: {bpm_val:.1} → {corrected_bpm:.1}");
                                                 }
+
+                                                *bpm_lock = corrected_bpm;
+                                                info!("BPM initialized: {corrected_bpm:.1}");
+                                            } else if bpm_val > 0.0 {
+                                                // Subsequent detections
+                                                let mut new_bpm = bpm_val;
+
+                                                if new_bpm > 110.0 {
+                                                    let halved = new_bpm / 2.0;
+                                                    if (60.0..=110.0).contains(&halved) {
+                                                        new_bpm = halved;
+                                                    }
+                                                } else if new_bpm < 50.0 {
+                                                    let doubled = new_bpm * 2.0;
+                                                    if (60.0..=110.0).contains(&doubled) {
+                                                        new_bpm = doubled;
+                                                    }
+                                                }
+
+                                                // Strong smoothing (90% old, 10% new)
+                                                *bpm_lock = current_bpm * 0.9 + new_bpm * 0.1;
                                             }
                                         }
                                     }
@@ -1260,6 +1309,14 @@ impl VideoTextureManager {
         match self.spectrum_data.lock() {
             Ok(data) => data.clone(),
             Err(_) => SpectrumData::default(),
+        }
+    }
+
+    /// Get current audio level data (RMS, peak)
+    pub fn audio_level(&self) -> AudioLevel {
+        match self.audio_level.lock() {
+            Ok(data) => data.clone(),
+            Err(_) => AudioLevel::default(),
         }
     }
     pub fn get_bpm(&self) -> f32 {

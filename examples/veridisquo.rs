@@ -79,10 +79,10 @@ impl ShaderManager for VeridisQuo {
                 // For continuous song playback, use minimal envelope
                 // Quick attack, full sustain, quick release for smooth note transitions
                 synth.set_envelope(EnvelopeConfig {
-                    attack_time: 0.005,   // 5ms - very quick attack
-                    decay_time: 0.01,     // 10ms decay
-                    sustain_level: 1.0,   // Full sustain for continuous playback
-                    release_time: 0.05,   // 50ms release for smooth transitions
+                    attack_time: 0.005, // 5ms - very quick attack
+                    decay_time: 0.01,   // 10ms decay
+                    sustain_level: 1.0, // Full sustain for continuous playback
+                    release_time: 0.05, // 50ms release for smooth transitions
                 });
 
                 if let Err(e) = synth.start_gpu_synthesis() {
@@ -210,12 +210,8 @@ impl ShaderManager for VeridisQuo {
                         egui::CollapsingHeader::new("Waveforms")
                             .default_open(false)
                             .show(ui, |ui| {
-                                let waveform_names = [
-                                    ("Sine", 0),
-                                    ("Square", 1),
-                                    ("Saw", 2),
-                                    ("Triangle", 3),
-                                ];
+                                let waveform_names =
+                                    [("Sine", 0), ("Square", 1), ("Saw", 2), ("Triangle", 3)];
                                 for (name, wave_type) in waveform_names.iter() {
                                     let selected = params.waveform_type == *wave_type;
                                     if ui.selectable_label(selected, *name).clicked() {

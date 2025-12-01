@@ -87,8 +87,9 @@ impl EnvelopeState {
                     let progress = (elapsed / self.config.attack_time).min(1.0);
                     // Smooth curve for attack
                     let curve = smooth_step(progress);
-                    self.current_level = self.phase_start_level + (1.0 - self.phase_start_level) * curve;
-                    
+                    self.current_level =
+                        self.phase_start_level + (1.0 - self.phase_start_level) * curve;
+
                     if progress >= 1.0 {
                         self.phase = EnvelopePhase::Decay;
                         self.phase_start_time = Instant::now();
@@ -106,7 +107,7 @@ impl EnvelopeState {
                     let progress = (elapsed / self.config.decay_time).min(1.0);
                     let curve = smooth_step(progress);
                     self.current_level = 1.0 - (1.0 - self.config.sustain_level) * curve;
-                    
+
                     if progress >= 1.0 {
                         self.phase = EnvelopePhase::Sustain;
                         self.phase_start_time = Instant::now();
@@ -126,7 +127,7 @@ impl EnvelopeState {
                     // Use exponential decay for more natural release
                     let curve = 1.0 - smooth_step(progress);
                     self.current_level = self.phase_start_level * curve;
-                    
+
                     if progress >= 1.0 || self.current_level < 0.001 {
                         self.phase = EnvelopePhase::Idle;
                         self.current_level = 0.0;
@@ -169,10 +170,10 @@ impl AudioVoice {
     fn apply_envelope(&mut self) {
         let level = self.envelope.update();
         let target_volume = level as f64 * 0.4;
-        
+
         // Smooth the volume changes to avoid clicks
         let smoothed = self.last_applied_volume + (target_volume - self.last_applied_volume) * 0.3;
-        
+
         if (smoothed - self.last_applied_volume).abs() > 0.0001 {
             self.volume.set_property("volume", smoothed);
             self.audiotestsrc.set_property("volume", smoothed);
@@ -302,7 +303,7 @@ impl AudioSynthManager {
             .name(format!("voice_{voice_id}_source"))
             .property("freq", 440.0f64)
             .property("volume", 0.0f64)
-            .property("samplesperbuffer", 256i32) 
+            .property("samplesperbuffer", 256i32)
             .property("is-live", true)
             .build()
             .map_err(|_| anyhow!("Failed to create audiotestsrc for voice {}", voice_id))?;
@@ -420,10 +421,10 @@ impl AudioSynthManager {
         }
 
         let voice = &mut self.voices[voice_id];
-        
+
         // Set frequency immediately
         voice.audiotestsrc.set_property("freq", frequency);
-        
+
         // Trigger envelope
         voice.envelope.trigger(frequency, envelope_config);
         voice.note = None;
@@ -509,9 +510,11 @@ impl AudioSynthManager {
         envelope_config: EnvelopeConfig,
     ) -> Result<()> {
         // Check if note is already playing on a non-releasing voice
-        if let Some(voice) = self.voices.iter_mut().find(|v| {
-            v.note == Some(note) && v.envelope.is_active() && !v.envelope.is_releasing()
-        }) {
+        if let Some(voice) = self
+            .voices
+            .iter_mut()
+            .find(|v| v.note == Some(note) && v.envelope.is_active() && !v.envelope.is_releasing())
+        {
             // Retrigger the existing voice
             voice.envelope.trigger(note.to_frequency(), envelope_config);
             return Ok(());
@@ -566,16 +569,16 @@ impl AudioSynthManager {
     /// Must be called regularly (every frame) to update envelopes
     pub fn update(&mut self) {
         let now = Instant::now();
-        
+
         // Update envelopes at regular intervals
         if now.duration_since(self.last_envelope_update) >= self.update_interval {
             self.last_envelope_update = now;
-            
+
             let mut finished_notes = Vec::new();
-            
+
             for voice in &mut self.voices {
                 voice.apply_envelope();
-                
+
                 // Track notes that finished their release phase
                 if !voice.envelope.is_active() && voice.note.is_some() {
                     finished_notes.push(voice.note.take().unwrap());
@@ -590,7 +593,7 @@ impl AudioSynthManager {
                 }
             }
         }
-        
+
         self.last_update = now;
     }
 

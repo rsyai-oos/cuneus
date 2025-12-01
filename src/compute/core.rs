@@ -1356,9 +1356,9 @@ impl ComputeShader {
         queue: &wgpu::Queue,
     ) {
         if let Some(ref buffer) = self.audio_spectrum_buffer {
-            // Convert audio_data from [[f32; 4]; 32] to [f32; 64] format
-            // Note: Only taking 64 values to match the original gAV function expectation
-            let mut spectrum_data = vec![0.0f32; 64];
+            // Convert audio_data from [[f32; 4]; 32] to [f32; 65] format
+            // 64 spectrum values + 1 BPM value at the end
+            let mut spectrum_data = vec![0.0f32; 65];
             for i in 0..64 {
                 let vec_idx = i / 4;
                 let comp_idx = i % 4;
@@ -1367,17 +1367,20 @@ impl ComputeShader {
                 }
             }
 
-            // Debug logging to see if we're getting data
-            let total_energy: f32 = spectrum_data.iter().sum();
+            // Add BPM at index 64
+            spectrum_data[64] = resolution_uniform.bpm;
+
+            // Debug: to see audio spectrum data flow
+            let total_energy: f32 = spectrum_data[..64].iter().sum();
             if total_energy > 0.01 {
                 log::info!(
-                    "Audio spectrum update: total_energy={:.3}, first_10={:?}",
+                    "Audio spectrum: energy={:.3}, BPM={:.1}",
                     total_energy,
-                    &spectrum_data[..10]
+                    spectrum_data[64]
                 );
             }
 
-            // Write the spectrum data to the buffer
+            // Write the spectrum data to the buffer (including BPM)
             queue.write_buffer(buffer, 0, bytemuck::cast_slice(&spectrum_data));
         }
     }

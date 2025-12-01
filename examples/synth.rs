@@ -102,10 +102,10 @@ impl ShaderManager for SynthManager {
             chorus_rate: 2.0,
             chorus_depth: 0.1,
             // Smooth envelope settings
-            attack_time: 0.02,    // 20ms attack - smooth start
-            decay_time: 0.15,     // 150ms decay
-            sustain_level: 0.7,   // 70% sustain
-            release_time: 0.4,    // 400ms release - smooth fade out
+            attack_time: 0.02,  // 20ms attack - smooth start
+            decay_time: 0.15,   // 150ms decay
+            sustain_level: 0.7, // 70% sustain
+            release_time: 0.4,  // 400ms release - smooth fade out
             _padding1: 0,
             _padding2: 0,
             _padding3: 0,
@@ -326,7 +326,7 @@ impl ShaderManager for SynthManager {
                             .show(ui, |ui| {
                                 ui.label("Controls click-free sound transitions");
                                 ui.separator();
-                                
+
                                 let attack_changed = ui
                                     .add(
                                         egui::Slider::new(&mut params.attack_time, 0.001..=0.5)
@@ -358,7 +358,11 @@ impl ShaderManager for SynthManager {
                                     )
                                     .changed();
 
-                                if attack_changed || decay_changed || sustain_changed || release_changed {
+                                if attack_changed
+                                    || decay_changed
+                                    || sustain_changed
+                                    || release_changed
+                                {
                                     changed = true;
                                 }
 
@@ -509,7 +513,7 @@ impl ShaderManager for SynthManager {
                             // Only trigger if not already held (prevent retriggering on key repeat)
                             if !self.keys_held[index] {
                                 self.keys_held[index] = true;
-                                
+
                                 // Update visual state
                                 self.set_key_state(index, 1.0);
                                 self.set_key_decay(index, 1.0);
@@ -524,12 +528,12 @@ impl ShaderManager for SynthManager {
                             }
                         } else if event.state == winit::event::ElementState::Released {
                             self.keys_held[index] = false;
-                            
+
                             // Release note in audio backend (will fade out with envelope)
                             if let Some(ref mut synth) = self.gpu_synthesis {
                                 synth.set_voice(index, frequency, 0.0, false);
                             }
-                            
+
                             // Visual state will fade in update()
                         }
                         return true;
