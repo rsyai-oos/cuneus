@@ -18,14 +18,6 @@ struct AudioVisParams {
     _padding: f32,
 }
 
-struct ResolutionUniform {
-    dimensions: vec2<f32>,
-    _padding: vec2<f32>,
-    audio_data: array<vec4<f32>, 32>,
-    bpm: f32,
-    _bpm_padding: array<f32, 3>,
-}
-
 // Group 0: Per-Frame Data
 @group(0) @binding(0) var<uniform> time_data: TimeUniform;
 
@@ -141,7 +133,6 @@ fn gAV(f: f32) -> f32 {
     
     if (i >= 64u) { return 0.0; }
     
-    // Direct access to flat audio spectrum array
     let v1 = audio_spectrum[i];
     
     if (i >= 63u) { return v1; }
@@ -159,6 +150,14 @@ fn gAR(l: f32, h: f32) -> f32 {
         c += 1.0;
     }
     return s / c;
+}
+
+// Get BPM value from audio spectrum buffer
+// The audio_spectrum buffer contains:
+//   - Indices 0-63: frequency spectrum magnitudes (already RMS-normalized)
+//   - Index 64: BPM value (beats per minute)
+fn getBPM() -> f32 {
+    return audio_spectrum[64];
 }
 
 @compute @workgroup_size(16, 16, 1)
@@ -188,11 +187,45 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     
     let rF = 1.0 - eB;  // reflection floor
     let rD = 0.1;  // reflection depth
-    
-    // Draw frequency bars
+
+    // BPM bar
+    let bpX = 0.015;  // bpm bar X
+    let bpW = 0.012;  // bpm bar width
+    let bpB = 0.15;   // bpm bar bottom
+    let bpH = 0.7;    // bpm bar height
+
+    let bpm = getBPM();
+    let bps = bpm / 60.0;  // beats per second
+    let bPh = fract(t * bps);  // beat phase
+    let bRi = smoothstep(0.0, 0.1, bPh);  // rise
+    let bDe = exp(-5.0 * max(0.0, bPh - 0.1));  // decay
+    let bPu = select(bDe, bRi, bPh < 0.1) * (0.6 + bE * 0.4);  // pulse
+
+    if (tc.x >= bpX && tc.x < bpX + bpW) {
+        let bY = 1.0 - tc.y;
+        let bN = (bY - bpB) / bpH;
+        if (bN >= 0.0 && bN <= 1.0) {
+            if (bN <= bPu) {
+                let gT = bN / max(bPu, 0.01);
+                let bCol = mix(v3(1.0, 0.2, 0.1), v3(1.0, 0.9, 0.2), gT);
+                fc = nG(bCol, 0.5 + bPu * 0.5) * (0.8 + bPu * 0.4);
+            }
+            let eD = min(min(abs(tc.x - bpX), abs(tc.x - (bpX + bpW))), min(abs(bN), abs(bN - 1.0)) * bpW);
+            if (eD < 0.002) {
+                fc = mix(fc, v3(0.5, 0.5, 0.6), 0.5);
+            }
+        }
+    }
+    if (tc.x >= bpX && tc.x < bpX + bpW && tc.y < 0.12 && tc.y > 0.08) {
+        fc += v3(0.8, 0.4, 0.2) * (0.3 + bPu * 0.7) * 0.3;
+    }
+
+    let fBO = 0.03;  // freq bar offset
+
     for (var i = 0; i < 64; i++) {
-        let bX = (f32(i) + 1.0) * bW;  // band X position
+        let bX = fBO + (f32(i) + 1.0) * bW;  // band X position
         let fT = f32(i) / 64.0;  // frequency factor
+        
         // Frequency smoothing 
         let rawA = (gAV(max(0.0, fT - 0.01)) + gAV(fT) * 2.0 + gAV(min(1.0, fT + 0.01))) * 0.25;
         //  adaptive curve
