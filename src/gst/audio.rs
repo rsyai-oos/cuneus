@@ -157,27 +157,54 @@ fn smooth_step(t: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
-/// Individual audio voice for polyphonic synthesis with envelope
-struct AudioVoice {
+/// Unison oscillator - one of multiple oscillators per voice
+struct UnisonOscillator {
     audiotestsrc: gst::Element,
     volume: gst::Element,
+    detune_cents: f64,
+}
+
+/// Individual audio voice for polyphonic synthesis with envelope
+struct AudioVoice {
+    oscillators: Vec<UnisonOscillator>,
     envelope: EnvelopeState,
     last_applied_volume: f64,
+    base_frequency: f64,
     note: Option<MusicalNote>,
 }
 
 impl AudioVoice {
+    /// Apply detuned frequency to all oscillators
+    fn set_frequency(&mut self, freq: f64) {
+        self.base_frequency = freq;
+        for osc in &self.oscillators {
+            // Convert cents to frequency multiplier: 2^(cents/1200)
+            let detune_mult = 2.0_f64.powf(osc.detune_cents / 1200.0);
+            let detuned_freq = freq * detune_mult;
+            osc.audiotestsrc.set_property("freq", detuned_freq);
+        }
+    }
+
     fn apply_envelope(&mut self) {
         let level = self.envelope.update();
-        let target_volume = level as f64 * 0.4;
+        let target_volume = (level as f64 * 0.35) / self.oscillators.len() as f64;
 
         // Smooth the volume changes to avoid clicks
         let smoothed = self.last_applied_volume + (target_volume - self.last_applied_volume) * 0.3;
 
         if (smoothed - self.last_applied_volume).abs() > 0.0001 {
-            self.volume.set_property("volume", smoothed);
-            self.audiotestsrc.set_property("volume", smoothed);
+            for osc in &self.oscillators {
+                osc.volume.set_property("volume", smoothed);
+                osc.audiotestsrc.set_property("volume", smoothed);
+            }
             self.last_applied_volume = smoothed;
+        }
+    }
+
+    /// Set waveform for all oscillators
+    fn set_waveform(&self, wave: &str) {
+        for osc in &self.oscillators {
+            osc.audiotestsrc.set_property_from_str("wave", wave);
         }
     }
 }
@@ -299,49 +326,95 @@ impl AudioSynthManager {
         voice_id: usize,
         _sample_rate: u32,
     ) -> Result<AudioVoice> {
-        let audiotestsrc = gst::ElementFactory::make("audiotestsrc")
-            .name(format!("voice_{voice_id}_source"))
-            .property("freq", 440.0f64)
-            .property("volume", 0.0f64)
-            .property("samplesperbuffer", 256i32)
-            .property("is-live", true)
-            .build()
-            .map_err(|_| anyhow!("Failed to create audiotestsrc for voice {}", voice_id))?;
+        // Unison detune amounts in cents (100 cents = 1 semitone)
+        let detune_values = [-12.0, 0.0, 12.0];
+        let mut oscillators = Vec::new();
 
-        audiotestsrc.set_property_from_str("wave", "sine");
+        for (osc_idx, &detune_cents) in detune_values.iter().enumerate() {
+            let audiotestsrc = gst::ElementFactory::make("audiotestsrc")
+                .name(format!("voice_{voice_id}_osc_{osc_idx}"))
+                .property("freq", 440.0f64)
+                .property("volume", 0.0f64)
+                .property("samplesperbuffer", 512i32)
+                .property("is-live", true)
+                .build()
+                .map_err(|_| {
+                    anyhow!(
+                        "Failed to create audiotestsrc for voice {} osc {}",
+                        voice_id,
+                        osc_idx
+                    )
+                })?;
 
-        let audioconvert = gst::ElementFactory::make("audioconvert")
-            .name(format!("voice_{voice_id}_convert"))
-            .build()
-            .map_err(|_| anyhow!("Failed to create audioconvert for voice {}", voice_id))?;
+            audiotestsrc.set_property_from_str("wave", "sine");
 
-        let audioresample = gst::ElementFactory::make("audioresample")
-            .name(format!("voice_{voice_id}_resample"))
-            .build()
-            .map_err(|_| anyhow!("Failed to create audioresample for voice {}", voice_id))?;
+            let audioconvert = gst::ElementFactory::make("audioconvert")
+                .name(format!("voice_{voice_id}_osc_{osc_idx}_convert"))
+                .build()
+                .map_err(|_| {
+                    anyhow!(
+                        "Failed to create audioconvert for voice {} osc {}",
+                        voice_id,
+                        osc_idx
+                    )
+                })?;
 
-        let volume = gst::ElementFactory::make("volume")
-            .name(format!("voice_{voice_id}_volume"))
-            .property("volume", 0.0f64)
-            .build()
-            .map_err(|_| anyhow!("Failed to create volume for voice {}", voice_id))?;
+            let audioresample = gst::ElementFactory::make("audioresample")
+                .name(format!("voice_{voice_id}_osc_{osc_idx}_resample"))
+                .build()
+                .map_err(|_| {
+                    anyhow!(
+                        "Failed to create audioresample for voice {} osc {}",
+                        voice_id,
+                        osc_idx
+                    )
+                })?;
 
-        pipeline
-            .add_many([&audiotestsrc, &audioconvert, &audioresample, &volume])
-            .map_err(|_| anyhow!("Failed to add voice {} elements to pipeline", voice_id))?;
+            let volume = gst::ElementFactory::make("volume")
+                .name(format!("voice_{voice_id}_osc_{osc_idx}_volume"))
+                .property("volume", 0.0f64)
+                .build()
+                .map_err(|_| {
+                    anyhow!(
+                        "Failed to create volume for voice {} osc {}",
+                        voice_id,
+                        osc_idx
+                    )
+                })?;
 
-        gst::Element::link_many([&audiotestsrc, &audioconvert, &audioresample, &volume])
-            .map_err(|_| anyhow!("Failed to link voice {} elements", voice_id))?;
+            pipeline
+                .add_many([&audiotestsrc, &audioconvert, &audioresample, &volume])
+                .map_err(|_| {
+                    anyhow!("Failed to add voice {} osc {} elements", voice_id, osc_idx)
+                })?;
 
-        volume
-            .link(mixer)
-            .map_err(|_| anyhow!("Failed to link voice {} to mixer", voice_id))?;
+            gst::Element::link_many([&audiotestsrc, &audioconvert, &audioresample, &volume])
+                .map_err(|_| {
+                    anyhow!("Failed to link voice {} osc {} elements", voice_id, osc_idx)
+                })?;
+
+            volume.link(mixer).map_err(|_| {
+                anyhow!("Failed to link voice {} osc {} to mixer", voice_id, osc_idx)
+            })?;
+
+            oscillators.push(UnisonOscillator {
+                audiotestsrc,
+                volume,
+                detune_cents,
+            });
+        }
+
+        debug!(
+            "Created voice {} with {} unison oscillators",
+            voice_id,
+            oscillators.len()
+        );
 
         Ok(AudioVoice {
-            audiotestsrc,
-            volume,
+            oscillators,
             envelope: EnvelopeState::new(),
             last_applied_volume: 0.0,
+            base_frequency: 440.0,
             note: None,
         })
     }
@@ -364,7 +437,12 @@ impl AudioSynthManager {
     pub fn stop(&mut self) -> Result<()> {
         info!("Stopping audio synthesis");
         for voice in &mut self.voices {
-            voice.volume.set_property("volume", 0.0f64);
+            // Silence all oscillators in this voice
+            for osc in &voice.oscillators {
+                osc.volume.set_property("volume", 0.0f64);
+                osc.audiotestsrc.set_property("volume", 0.0f64);
+            }
+            voice.last_applied_volume = 0.0;
             voice.envelope = EnvelopeState::new();
             voice.note = None;
         }
@@ -398,8 +476,8 @@ impl AudioSynthManager {
 
         self.current_waveform = wave_type;
 
-        for voice in &mut self.voices {
-            voice.audiotestsrc.set_property_from_str("wave", wave_str);
+        for voice in &self.voices {
+            voice.set_waveform(wave_str);
         }
 
         debug!("Set waveform to {wave_type:?}");
@@ -422,8 +500,8 @@ impl AudioSynthManager {
 
         let voice = &mut self.voices[voice_id];
 
-        // Set frequency immediately
-        voice.audiotestsrc.set_property("freq", frequency);
+        // Set frequency on all oscillators (with detuning)
+        voice.set_frequency(frequency);
 
         // Trigger envelope
         voice.envelope.trigger(frequency, envelope_config);
@@ -453,8 +531,11 @@ impl AudioSynthManager {
 
         let voice = &mut self.voices[voice_id];
         voice.envelope = EnvelopeState::new();
-        voice.volume.set_property("volume", 0.0f64);
-        voice.audiotestsrc.set_property("volume", 0.0f64);
+        // Silence all oscillators
+        for osc in &voice.oscillators {
+            osc.volume.set_property("volume", 0.0f64);
+            osc.audiotestsrc.set_property("volume", 0.0f64);
+        }
         voice.last_applied_volume = 0.0;
         voice.note = None;
 
@@ -475,7 +556,7 @@ impl AudioSynthManager {
 
         let voice = &mut self.voices[voice_id];
         if voice.envelope.is_active() {
-            voice.audiotestsrc.set_property("freq", frequency);
+            voice.set_frequency(frequency);
             voice.envelope.target_frequency = frequency;
         }
 
@@ -525,7 +606,7 @@ impl AudioSynthManager {
             let voice = &mut self.voices[voice_idx];
             let freq = note.to_frequency();
 
-            voice.audiotestsrc.set_property("freq", freq);
+            voice.set_frequency(freq);
             voice.envelope.trigger(freq, envelope_config);
             voice.note = Some(note);
 
