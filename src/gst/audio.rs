@@ -338,36 +338,64 @@ impl AudioSynthManager {
                 .property("samplesperbuffer", 512i32)
                 .property("is-live", true)
                 .build()
-                .map_err(|_| anyhow!("Failed to create audiotestsrc for voice {} osc {}", voice_id, osc_idx))?;
+                .map_err(|_| {
+                    anyhow!(
+                        "Failed to create audiotestsrc for voice {} osc {}",
+                        voice_id,
+                        osc_idx
+                    )
+                })?;
 
             audiotestsrc.set_property_from_str("wave", "sine");
 
             let audioconvert = gst::ElementFactory::make("audioconvert")
                 .name(format!("voice_{voice_id}_osc_{osc_idx}_convert"))
                 .build()
-                .map_err(|_| anyhow!("Failed to create audioconvert for voice {} osc {}", voice_id, osc_idx))?;
+                .map_err(|_| {
+                    anyhow!(
+                        "Failed to create audioconvert for voice {} osc {}",
+                        voice_id,
+                        osc_idx
+                    )
+                })?;
 
             let audioresample = gst::ElementFactory::make("audioresample")
                 .name(format!("voice_{voice_id}_osc_{osc_idx}_resample"))
                 .build()
-                .map_err(|_| anyhow!("Failed to create audioresample for voice {} osc {}", voice_id, osc_idx))?;
+                .map_err(|_| {
+                    anyhow!(
+                        "Failed to create audioresample for voice {} osc {}",
+                        voice_id,
+                        osc_idx
+                    )
+                })?;
 
             let volume = gst::ElementFactory::make("volume")
                 .name(format!("voice_{voice_id}_osc_{osc_idx}_volume"))
                 .property("volume", 0.0f64)
                 .build()
-                .map_err(|_| anyhow!("Failed to create volume for voice {} osc {}", voice_id, osc_idx))?;
+                .map_err(|_| {
+                    anyhow!(
+                        "Failed to create volume for voice {} osc {}",
+                        voice_id,
+                        osc_idx
+                    )
+                })?;
 
             pipeline
                 .add_many([&audiotestsrc, &audioconvert, &audioresample, &volume])
-                .map_err(|_| anyhow!("Failed to add voice {} osc {} elements", voice_id, osc_idx))?;
+                .map_err(|_| {
+                    anyhow!("Failed to add voice {} osc {} elements", voice_id, osc_idx)
+                })?;
 
             gst::Element::link_many([&audiotestsrc, &audioconvert, &audioresample, &volume])
-                .map_err(|_| anyhow!("Failed to link voice {} osc {} elements", voice_id, osc_idx))?;
+                .map_err(|_| {
+                    anyhow!("Failed to link voice {} osc {} elements", voice_id, osc_idx)
+                })?;
 
-            volume
-                .link(mixer)
-                .map_err(|_| anyhow!("Failed to link voice {} osc {} to mixer", voice_id, osc_idx))?;
+            volume.link(mixer).map_err(|_| {
+                anyhow!("Failed to link voice {} osc {} to mixer", voice_id, osc_idx)
+            })?;
 
             oscillators.push(UnisonOscillator {
                 audiotestsrc,
@@ -376,7 +404,11 @@ impl AudioSynthManager {
             });
         }
 
-        debug!("Created voice {} with {} unison oscillators", voice_id, oscillators.len());
+        debug!(
+            "Created voice {} with {} unison oscillators",
+            voice_id,
+            oscillators.len()
+        );
 
         Ok(AudioVoice {
             oscillators,
