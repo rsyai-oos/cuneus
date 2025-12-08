@@ -55,12 +55,12 @@ fn legato(a:f32,b:f32,t:f32)->f32{
 
 fn note_col(n:f32)->vec3<f32>{
     switch u32(n){
-        case 0u:{return vec3(1.,.3,.3);}
-        case 1u:{return vec3(1.,.6,0.);}
-        case 2u:{return vec3(1.,1.,.2);}
-        case 3u:{return vec3(.3,1.,.3);}
-        case 4u:{return vec3(.2,.7,1.);}
-        case 5u:{return vec3(.8,.3,1.);}
+        case 0u:{return vec3(1.,.2,.2);}
+        case 1u:{return vec3(1.,.5,0.);}
+        case 2u:{return vec3(1.,.9,.1);}
+        case 3u:{return vec3(.2,1.,.2);}
+        case 4u:{return vec3(.1,.6,1.);}
+        case 5u:{return vec3(.7,.2,1.);}
         default:{return vec3(.5);}
     }
 }
@@ -73,6 +73,11 @@ fn measure_data(m:u32)->vec2<f32>{
         case 3u,7u:{return vec2(A4,0.);}
         default:{return vec2(A4,0.);}
     }
+}
+
+fn sdBox(p: vec2<f32>, b: vec2<f32>) -> f32 {
+    let d = abs(p) - b;
+    return length(max(d, vec2(0.))) + min(max(d.x, d.y), 0.);
 }
 
 @compute @workgroup_size(16,16,1)
@@ -210,60 +215,90 @@ fn main(@builtin(global_invocation_id) g:vec3<u32>){
         }
     }
     
-    let freq=audio_buffer[0];
-    let env=audio_buffer[1];
-    let uv=vec2<f32>(g.xy)/vec2<f32>(d);
-    var col=vec3(.02,.01,.08);
-    let cy=.5;
-    let pw=.8;
-    let px=.1;
-    let ph=.4;
+    var uv = (vec2<f32>(g.xy) * 2. - vec2<f32>(d)) / f32(d.y);
+    let len = length(uv);
+    let ang = atan2(uv.y, -uv.x) + PI;
+    
+    // Audio Data
+    let freq_real = audio_buffer[3];
+    let env_mel = audio_buffer[4];
+    let env_bass = audio_buffer[6];
     let md=(60./107.)*4.;
     let td=md*8.;
     let st=u_time.time*u_song.tempo_multiplier;
     let cm=u32((st%td)/md);
     
-    for(var m=0u;m<8u;m++){
-        let mw=pw/8.;
-        let mx=px+f32(m)*mw;
-        if(uv.x>=mx&&uv.x<=mx+mw*.9){
-            let mi=measure_data(m);
-            let mf=mi.x;
-            let mn=mi.y;
-            let fr=(mf-440.)/(698.46-440.);
-            let bh=mix(.1,ph,fr);
-            let bb=cy-bh*.5;
-            let bt=cy+bh*.5;
-            if(uv.y>=bb&&uv.y<=bt){
-                if(m==cm&&env>.01){
-                    col=vec3(1.,.9,.2)*(sin(u_time.time*8.)*.4+.8);
-                }else{
-                    col=note_col(mn)*.6;
-                }
+    var col = vec3(0.01, 0.01, 0.02);
+
+    for(var m=0u; m<8u; m++){
+        
+        let mi=measure_data(m);
+        let mf_base=mi.x;
+        let mn=mi.y;
+        var use_freq = mf_base;
+        if (m == cm && env_mel > 0.01) {
+            use_freq = freq_real / pow(2., u_song.octave_shift);
+        }
+        
+        let fr=(use_freq-440.)/(698.46-440.); 
+
+        let a_s = (PI * 2.) / 8.;
+        let a_c = a_s * f32(m) + a_s * 0.5;
+        let a_d = abs(ang - a_c);
+        
+        if (a_d < a_s * 0.48) {
+            
+            if (m == cm) {
+                col += vec3(0.05, 0.05, 0.1) * env_mel;
+            } else {
+                col += vec3(0.01);
             }
+
+            //t_r: tab radius; t_d: distance from tab edge; t_t: tab thickness
+            let t_r = 0.3 + clamp(fr, 0., 1.) * 0.5;
+            let t_d = abs(len - t_r);
+            var t_t = 0.02;
+            var brightness = 1.0;
+            var glow_size = 0.01;
+            
+            if (m == cm) {
+                t_t += env_mel * 0.06; 
+                brightness = 2.0 + env_mel * 10.0; 
+                glow_size = 0.05 * env_mel;
+            } else {
+                brightness = 0.4;
+            }
+            if (t_d < t_t) {
+                let note_c = note_col(mn);
+                
+                var final_c = note_c;
+                if (m == cm) {
+                    final_c = mix(note_c, vec3(1.0), env_mel * env_mel);
+                }
+                col += final_c * brightness;
+            }
+            let glow = smoothstep(glow_size + 0.1, 0.0, t_d);
+            col += note_col(mn) * glow * (brightness * 0.5);
+        }
+        
+        if (abs(a_d - a_s * 0.5) < 0.005) {
+            col += vec3(0.1);
         }
     }
     
-    if(uv.y<.12){
-        let sf=mix(400.,800.,uv.x);
-        let fd=abs(sf-freq);
-        let fr=exp(-fd/30.);
-        let si=fr*env;
-        let sh=uv.y/.12;
-        if(sh<si&&env>.01){col+=vec3(si*.8,si*.4,.1);}
+    let center_dist = len;
+    let bass_rad = 0.15 + env_bass * 0.1;
+    if (center_dist < bass_rad) {
+        let b_col = vec3(0.0, 0.5, 1.0);
+        col = mix(b_col, vec3(1.0), smoothstep(bass_rad, 0.0, center_dist));
     }
     
-    let pbh=.02;
-    if(uv.y>.95&&uv.y<.95+pbh){
-        let sp=(st%td)/td;
-        if(uv.x<sp){
-            col=mix(col,vec3(0.,.7,1.),.8);
-        }else{
-            col=mix(col,vec3(.15,.15,.3),.8);
+    for(var i=0; i<5; i++) {
+        let r_line = 0.3 + (f32(i)/4.0) * 0.5;
+        if (abs(len - r_line) < 0.002) {
+            col += vec3(0.1);
         }
     }
-    
-    let ag=env*.1;
-    col+=vec3(ag*.1,ag*.3,ag*.1);
-    textureStore(output,g.xy,vec4(col,1.));
+    col *= 1.2 - len * 0.5;
+    textureStore(output, g.xy, vec4(col, 1.));
 }
