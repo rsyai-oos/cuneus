@@ -89,10 +89,10 @@ impl ShaderManager for SynthManager {
 
         let initial_params = SynthParams {
             tempo: 120.0,
-            waveform_type: 0, // Start with sine for smoother sound
+            waveform_type: 1,
             octave: 4.0,
             volume: 0.7,
-            beat_enabled: 0, // Disabled by default for cleaner testing
+            beat_enabled: 0,
             reverb_mix: 0.15,
             delay_time: 0.3,
             delay_feedback: 0.3,
@@ -101,11 +101,10 @@ impl ShaderManager for SynthManager {
             distortion_amount: 0.0,
             chorus_rate: 2.0,
             chorus_depth: 0.1,
-            // Smooth envelope settings
-            attack_time: 0.02,  // 20ms attack - smooth start
-            decay_time: 0.15,   // 150ms decay
-            sustain_level: 0.7, // 70% sustain
-            release_time: 0.4,  // 400ms release - smooth fade out
+            attack_time: 0.02,
+            decay_time: 0.15,
+            sustain_level: 0.7,
+            release_time: 0.4,
             _padding1: 0,
             _padding2: 0,
             _padding3: 0,
