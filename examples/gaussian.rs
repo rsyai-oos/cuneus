@@ -458,6 +458,6 @@ impl ShaderManager for GaussianShader {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     cuneus::gst::init()?;
     env_logger::init();
-    let (app, event_loop) = ShaderApp::new("2D Gaussian Splatting", 500, 350);
+    let (app, event_loop) = ShaderApp::new("2D Gaussian Splatting", 450, 350);
     app.run(event_loop, GaussianShader::init)
 }

@@ -83,6 +83,7 @@ fn inv_m2(m:m2)->m2 {
     return m2(v2(m[1][1]*d, -m[0][1]*d), v2(-m[1][0]*d, m[0][0]*d));
 }
 
+// OBB (Oriented Bounding Box) for Gaussian culling
 struct OBB { c:v2, r:m2, s:v2 };
 
 fn obb_hit(a:OBB, b:OBB)->bool {
@@ -125,10 +126,8 @@ fn eval_g(g:GaussianData, uv:v2)->v4 {
     let c = cos(g.sigma_xy); let s = sin(g.sigma_xy);
     let d = v2(d_raw.x*c + d_raw.y*s, d_raw.y*c - d_raw.x*s);
     
-
-    let sx = max(g.sigma_xx, 0.005); 
-    let sy = max(g.sigma_yy, 0.005);
-    
+    let sx = max(g.sigma_xx, .001);
+    let sy = max(g.sigma_yy, .001);
     let dsq = (d.x*d.x)/(sx*sx) + (d.y*d.y)/(sy*sy);
     let w = min(.99, g.opacity * exp(-.5 * dsq));
     return v4(g.color, w);
@@ -173,7 +172,7 @@ fn add_grad(idx:u32, v:f32) {
 }
 
 fn reduce_grad(lid:u32, g_idx:u32, v:f32) {
-    red_buf[lid] = clamp(v, -10.0, 10.0); 
+    red_buf[lid] = clamp(v, -100., 100.);
     workgroupBarrier();
     // Parallel reduction (log2(256) = 8 steps)
 
@@ -197,10 +196,8 @@ fn calc_grads(g:GaussianData, uv:v2, go:v4)->Grads {
     let dl_x = dr.x*c + dr.y*s;
     let dl_y = dr.y*c - dr.x*s;
     
-    let sx = max(g.sigma_xx, 0.005); 
-    let sy = max(g.sigma_yy, 0.005);
+    let sx = max(g.sigma_xx, .001); let sy = max(g.sigma_yy, .001);
     let vx = sx*sx; let vy = sy*sy;
-    
     let dsq = (dl_x*dl_x)/vx + (dl_y*dl_y)/vy;
     let w = exp(-.5*dsq);
     let a = min(.99, g.opacity * w);
@@ -243,8 +240,7 @@ fn init_gaussians(@builtin(global_invocation_id) gid: vec3<u32>) {
     let h3 = hash4(v4(f32(i)*.567, s*.234, f32(i)*.890, s*.567));
 
     var g: GaussianData;
-    // Keep them away from edges slightly
-    g.center = clamp(h1.xy, v2(.05), v2(.95));
+    g.center = clamp(h1.xy, v2(.001), v2(.999));
     
     let tc = textureSampleLevel(t_target, s_target, g.center, 0.).rgb;
     g.color = clamp(tc + (h2.rgb-.5)*.1, v3(0.), v3(1.));
@@ -268,9 +264,7 @@ fn render_display(
 ) {
     let dim = textureDimensions(output);
     let valid = (gid.x < dim.x && gid.y < dim.y);
-    
-    let ar = f32(dim.x) / f32(dim.y);
-    var uv = v2(f32(gid.x), f32(gid.y)) / v2(f32(dim.x), f32(dim.y));
+    let uv = v2(f32(gid.x), f32(gid.y)) / v2(f32(dim.x), f32(dim.y));
     let li = lid.x + lid.y * WX;
 
     if (p.show_target != 0u) {
@@ -278,6 +272,7 @@ fn render_display(
         return;
     }
 
+    // Tile Setup
     if (li == 0u) { b_cnt_atom = 0u; b_cnt = 0u; }
     workgroupBarrier();
 
@@ -285,6 +280,7 @@ fn render_display(
     let th = v2(f32((wid.x+1u)*WX), f32((wid.y+1u)*WY)) / v2(f32(dim.x), f32(dim.y));
     let tb = OBB((tl+th)*.5, m2(v2(1.,0.),v2(0.,1.)), (th-tl)*.5 + .001);
 
+    // Culling
     var i = li;
     while(i < p.num_gaussians){
         if(obb_hit(get_bounds(g_data[i]), tb)){
@@ -298,6 +294,7 @@ fn render_display(
     if (li == 0u) { b_cnt = min(atomicLoad(&b_cnt_atom), G_PER_TILE); }
     workgroupBarrier();
 
+    // Padding & Sort
     i = li;
     while(i < G_PER_TILE){
         if(i >= b_cnt){ b_idx[i] = 0xFFFFFFFFu; }
@@ -352,6 +349,7 @@ fn render_display(
         }
     }
 
+    // Viz
     if (p.show_error != 0u && valid) {
         let tgt = textureSampleLevel(t_target, s_target, uv, 0.).rgb;
         fin = v4(abs(fin.rgb - tgt) * p.error_scale, 1.);
